@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "audit-portal-468207",
+  "private_key_id": "8782547936eefef3cfec25826d891a750ed8ea98",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDxAD0Q9B7OX1Jt\nWJgfqZs3H1cmvmp5C6yFoxpjVGGMgrsFnwC59yzgNSktLVntmQmhf6yHvQAcl0qn\niyTOdvxUHPMtiyaoQZmu83+MR3ilDpBjCA4xrOgYuk3Arl/92s81oNtdqKArVT2/\nfY2XKr3pq6GrNNpLpVfaGMYDuJzExcK0ypcoF5GU8Rc94aK0iaYTuW2X8HoAtTo0\n4XPLlkEJaKeoKATVfaPRUdR6vzEiVNUPK+FKln32QgSbbgSj/A3OK0B64v0Xej8w\nj6+IhSBJclCGio28AVDSEwdzInP963BCT/zXpSZrVBS2fmIGsm2larIw6uDqEO8T\nnHMX0cFPAgMBAAECggEAMQn64xHBmP21gJGH9t1ku40xhy007ieNde3v5yla5iQN\n2UF2/OBKbd7zX4F8bIf4+TdJDJ/NP4QbiUcbeLWmd5kidHB9r7wVgQ+EMy+x4Wg6\nwiP3+2yzF6EFREFXQAj/o+p06LRwzxB7zZTHNGzakws9DODm0IC3BSaIWGZ+49zy\nvm4Jtdbz36z4hbdhc28Uz8qNpfqztPeONXOcBTVk6sJOWqFlvOu513SGEvXd0wIK\nhHjNjkva3OXiEifpqBLuJMm8qhZWd6TkTUFncB0IWU1mVfLqPM4HoJI3FoQp5qQB\nOrjd6NYqsRVIvlj2x1GRIJzTBL5nhvO7pXk3F/RLdQKBgQD8GCVXGcGm6YwX5zD5\n+msgp8zcgSm88aQeZtSPGffRYowGRYuCUeiZGTxEmbRkXGSj3M5B729t7S3Cqbe2\neQv3+Fxy2U7whqP3zbPIXogoHsyiNwaDQNeBO5wzbisH6rq0ikdQpE34TNiqgPBg\ntJLFH0IX8fiaBRmTsHFy3rKNvQKBgQD0vBgcsCcQBjBsRv+c1o8Mb4kjPmlBd1Hu\n39vk0nTwjlB4yPbcynK7ZOM1QrAx21X0UEckdKq9lvB5px0FmBvcDtgThVIKIMwR\nMMes5Dyi9uM7qP9KerKNM/fPGb4Ga/B5Zh5y8SN99D/ZrGEhSaufsKbeE6Y5KWrV\nfDQPfbH9+wKBgQCgqCqz1aBKZTB400etJ+A50XaHWHFnDoBPN61i/WOntywRmySL\nivO3DhQQi/wgsZkZrNBtyM+0uKCfHFYOHhp4j3krYD4kn0nD1P4sRcJz/xzejD7E\nSwCMRZcIV79orjkKcc19IRjnkuHJ155ZovqeUYtngzexwGpKavoCANa96QKBgQDa\nC7OX68IB3uHJtsAK5obw13bhtbtlnn+bSkvKZU/W+5Tq6HI5aQ4rs8lTLKV65iaA\n0/1ul5t/6zk5yhBraYh42ajeS4w6hdoK/uEIQxlbQIhYIUvC+eqXL9P76r2JTyYj\noz5BvmKW18UDlTe8xrxoPKWPewZAK4yJxG1F2AF7fQKBgGNSpaNBYuJ/ZZpNET0I\nyuD6uIoJLcyU54ORQTLBMZ+DQulGFbkEiDuh2eIQxU2Ol7AAlh94YM9BZv7OOdj8\nrg2Glc5Y8gxx6IX4q14C7l45n8vwa8y7ou3cXH6KXzk2OvCWfd6Q0wGtnf1jSAaH\n6BrdlNjc8vF44ZGGteATUF8r\n-----END PRIVATE KEY-----\n",
+  "client_email": "shoaib-audit@audit-portal-468207.iam.gserviceaccount.com",
+  "client_id": "102780226872249078890",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/shoaib-audit%40audit-portal-468207.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

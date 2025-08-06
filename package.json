@@ -1,0 +1,28 @@
+{
+  "name": "irs-backend",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.53.0",
+    "authorizenet": "^1.0.10",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dns": "^0.2.2",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "googleapis": "^155.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.0.0",
+    "nodemailer": "^7.0.5",
+    "socket.io": "^4.8.1",
+    "supabase": "^2.33.9"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.0"
+  }
+}
