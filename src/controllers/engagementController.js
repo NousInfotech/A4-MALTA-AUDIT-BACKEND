@@ -1,30 +1,116 @@
-const Engagement   = require('../models/Engagement');
-const TrialBalance = require('../models/TrialBalance');
-const ChecklistItem = require('../models/ChecklistItem');
-const defaultChecklist = require('../config/checklist');
-const sheetService = require('../services/googleSheetsService');
+// controllers/engagementController.js
+const Engagement        = require('../models/Engagement');
+const EngagementLibrary = require('../models/EngagementLibrary');
+const { supabase }      = require('../config/supabase');
+const TrialBalance = require("../models/TrialBalance");
+
+// list of folder names
+const ENGAGEMENT_FOLDERS = [
+  'Planning',
+  'Capital & Reserves',
+  'Property, plant and equipment',
+  'Intangible Assets',
+  'Investment Property',
+  'Investment in Subsidiaries & Associates investments',
+  'Receivables',
+  'Payables Inventory',
+  'Bank & Cash',
+  'Borrowings & loans',
+  'Taxation',
+  'Going Concern',
+  'Others'
+];
+// In controllers/engagementController.js
+exports.getLibraryFiles = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    
+    const files = await EngagementLibrary.find({ 
+      engagement: engagementId,
+      url: { $ne: '' }
+    }).sort({ createdAt: -1 });
+    
+    const filesWithNames = files.map(file => ({
+      ...file.toObject(),
+      fileName: file.url.split('/').pop()?.split('?')[0] || 'Unknown'
+    }));
+    
+    res.json(filesWithNames);
+  } catch (err) {
+    next(err);
+  }
+};
 
 exports.createEngagement = async (req, res, next) => {
   try {
-    const { clientId, title, yearEndDate, trialBalanceUrl } = req.body;
+    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy } = req.body;
+    // 1) Create the engagement
     const engagement = await Engagement.create({
-      clientId, title, yearEndDate, trialBalanceUrl,
-      createdBy: req.user.id
+    
+    createdBy,  clientId, title, yearEndDate, trialBalanceUrl, status: trialBalanceUrl?"active":"draft"
     });
-    await Promise.all(
-      defaultChecklist.map(item =>
-        ChecklistItem.create({
-          engagement: engagement._id,
-          key:         item.key,
-          description: item.description,
-          category:    item.category,
-          completed:   false
-        })
-      )
-    );
-    res.status(201).json(engagement);
-  } catch (err) { next(err); }
+
+    // 2) Seed an “empty folder” entry for each category
+    const placeholders = ENGAGEMENT_FOLDERS.map(category => ({
+      engagement: engagement._id,
+      category,
+      url: ''            // empty placeholder
+    }));
+    await EngagementLibrary.insertMany(placeholders);
+
+    // 3) Return the new engagement (folders can be fetched via a populate or separate query)
+    return res.status(201).json(engagement);
+  } catch (err) {
+    next(err);
+  }
 };
+
+/**
+ * POST /api/engagements/:id/library
+ * multipart/form-data:
+ *   - file: the uploaded file
+ *   - category: one of ENGAGEMENT_FOLDERS
+ */
+exports.uploadToLibrary = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { category }          = req.body;
+    const file                   = req.file;           // from multer
+
+    if (!ENGAGEMENT_FOLDERS.includes(category)) {
+      return res.status(400).json({ message: 'Invalid category.' });
+    }
+
+    // 1) Upload to Supabase storage
+    const filePath = `${engagementId}/${category}/${file.originalname}`;
+    const { data: uploadData, error: uploadError } = await supabase
+      .storage
+      .from('engagement-documents')
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false
+      });
+    if (uploadError) throw uploadError;
+
+    // 2) Build public URL
+    const { publicUrl } = supabase
+      .storage
+      .from('engagement-documents')
+      .getPublicUrl(uploadData.path).data;
+
+    // 3) Save library record
+    const entry = await EngagementLibrary.create({
+      engagement: engagementId,
+      category,
+      url: publicUrl
+    });
+
+    res.status(201).json(entry);
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 exports.getAllEngagements = async (req, res, next) => {
   try {

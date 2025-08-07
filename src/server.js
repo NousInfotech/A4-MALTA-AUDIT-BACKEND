@@ -9,7 +9,8 @@ const engagementRoutes      = require('./routes/engagements');
 const documentRequestRoutes = require('./routes/documentRequests');
 const procedureRoutes       = require('./routes/procedures');
 const { requireAuth, requireRole } = require('./middlewares/auth');
-const { createClient } = require('@supabase/supabase-js');
+const {supabase} = require("./config/supabase");
+
 
 
 const checklistRoutes       = require('./routes/checklist');
@@ -22,10 +23,6 @@ const io     = new Server(server, {
 
 // Make io available to your controllers
 app.set('io', io);
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY    // ← ensure this is your service‐role key
-);
 
 // Middleware & DB
 app.use(cors());

@@ -27,7 +27,7 @@ exports.updateChecklistItem = async (req, res, next) => {
     io.to(`engagement_${item.engagement}`).emit('checklist:update', item);
 
     res.json(item);
-  } catch (err) {
+  } catch (err) {   
     next(err);
   }
 };

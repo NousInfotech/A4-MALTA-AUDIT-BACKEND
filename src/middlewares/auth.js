@@ -1,9 +1,4 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY    // ← ensure this is your service‐role key
-);
+const {supabase} = require("../config/supabase");
 
 async function requireAuth(req, res, next) {
   try {
@@ -12,11 +7,8 @@ async function requireAuth(req, res, next) {
     if (!token) {
       return res.status(401).json({ message: 'Missing or malformed Authorization header' });
     }
-    console.log("token " +token)
-
     // v2: validate JWT
     const { data, error } = await supabase.auth.getUser(token);
-    console.log("user " +data.user)
     if (error || !data.user) {
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
@@ -28,7 +20,6 @@ async function requireAuth(req, res, next) {
       .select('role')
       .eq('user_id', user.id)
       .single();
-    console.log("user data "+profile.role);
 
     if (profErr || !profile) {
       return res.status(403).json({ message: 'No profile found for user' });
