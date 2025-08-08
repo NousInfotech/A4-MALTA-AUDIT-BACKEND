@@ -14,8 +14,13 @@ const {supabase} = require("./config/supabase");
 
 
 const checklistRoutes       = require('./routes/checklist');
-
+const globalRoutes = require("./routes/global-library")
 const app    = express();
+
+app.use(cors({
+  origin:"http://localhost:8080",
+}))
+
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: '*' }
@@ -31,6 +36,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/checklist',         checklistRoutes);
+app.use('/api/global-library',globalRoutes)
 app.use('/api/engagements',       engagementRoutes);
 app.use('/api/document-requests', documentRequestRoutes);
 app.use('/api/procedures',        procedureRoutes);

@@ -18,6 +18,20 @@ router.post(
   upload.single('file'),
   ec.uploadToLibrary
 );
+
+router.post(
+  '/:id/library/change',
+  requireAuth,
+  requireRole('employee'),
+  ec.changeFolders
+);
+
+router.delete(
+  '/:id/library',
+  requireAuth,
+  requireRole('employee'),
+  ec.deleteFile
+);
 // In routes/engagements.js
 router.get('/:id/library', requireAuth,requireRole("employee"), ec.getLibraryFiles);
 // fetch & store a fresh copy from Google Sheets
