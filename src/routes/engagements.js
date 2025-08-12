@@ -20,6 +20,7 @@ router.get("/:id/library", requireAuth, requireRole("employee"), ec.getLibraryFi
 // Trial Balance routes
 router.post("/:id/trial-balance", requireAuth, ec.saveTrialBalance)
 router.post("/:id/trial-balance/google-sheets", requireAuth, ec.importTrialBalanceFromSheets)
+router.delete("/:id/trial-balance", requireAuth, ec.deleteTrialBalance)
 
 // Extended Trial Balance routes
 router.post("/:id/etb", requireAuth, ec.saveETB)
@@ -32,6 +33,10 @@ router.put(
   requireAuth,
   ec.updateClassificationSpreadsheet,
 )
+
+router.get("/:id/etb/category/:category", requireAuth, ec.getETBByCategory)
+
+router.post("/:id/sections/:classification/view-spreadsheet", requireAuth, ec.createViewOnlySpreadsheet)
 
 // fetch & store a fresh copy from Google Sheets
 router.post(
