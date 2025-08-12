@@ -1,0 +1,61 @@
+const mongoose = require("mongoose")
+const { Schema, Types } = mongoose
+
+const ETBRowSchema = new Schema({
+  code: {
+    type: String,
+    required: true,
+  },
+  accountName: {
+    type: String,
+    required: true,
+  },
+  currentYear: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  priorYear: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  adjustments: {
+    type: Number,
+    default: 0,
+  },
+  finalBalance: {
+    type: Number,
+    required: true,
+  },
+  classification: {
+    type: String,
+    required: true,
+  },
+})
+
+const ExtendedTrialBalanceSchema = new Schema({
+  engagement: {
+    type: Types.ObjectId,
+    ref: "Engagement",
+    required: true,
+    unique: true,
+  },
+  rows: [ETBRowSchema],
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+})
+
+// Update the updatedAt field before saving
+ExtendedTrialBalanceSchema.pre("save", function (next) {
+  this.updatedAt = new Date()
+  next()
+})
+
+module.exports = mongoose.model("ExtendedTrialBalance", ExtendedTrialBalanceSchema)
