@@ -1,3 +1,4 @@
+const msExcel = require("../services/microsoftExcelService");
 const Engagement = require("../models/Engagement");
 const EngagementLibrary = require("../models/EngagementLibrary");
 const { supabase } = require("../config/supabase");
@@ -12,14 +13,242 @@ const XLSX = require("xlsx");
 const Papa = require("papaparse");
 
 // ===== Helpers =====
-const EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const EXCEL_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Convert ETB rows to 2D array for Excel and back
+function etbRowsToAOA(rows) {
+  const header = [
+    "Code",
+    "Account Name",
+    "Current Year",
+    "Prior Year",
+    "Adjustments",
+    "Final Balance",
+    "Classification",
+  ];
+  const data = (rows || []).map((r) => [
+    r.code ?? "",
+    r.accountName ?? "",
+    Number(r.currentYear) || 0,
+    Number(r.priorYear) || 0,
+    Number(r.adjustments) || 0,
+    Number(r.finalBalance) ||
+      (Number(r.currentYear) || 0) + (Number(r.adjustments) || 0),
+    r.classification ?? "",
+  ]);
+  return [header, ...data];
+}
+
+function aoaToEtbRows(aoa) {
+  if (!Array.isArray(aoa) || aoa.length < 2) return [];
+  const [hdr, ...data] = aoa;
+  const idx = (name) =>
+    hdr.findIndex((h) => String(h).toLowerCase().trim() === name.toLowerCase());
+  const iCode = idx("Code"),
+    iName = idx("Account Name"),
+    iCY = idx("Current Year");
+  const iPY = idx("Prior Year"),
+    iAdj = idx("Adjustments"),
+    iFB = idx("Final Balance");
+  const iCls = idx("Classification");
+  return data.map((row, k) => {
+    const cy = Number(row[iCY] ?? 0);
+    const adj = Number(row[iAdj] ?? 0);
+    return {
+      id: `row-${Date.now()}-${k}`,
+      code: row[iCode] ?? "",
+      accountName: row[iName] ?? "",
+      currentYear: cy,
+      priorYear: Number(row[iPY] ?? 0),
+      adjustments: adj,
+      finalBalance: Number(row[iFB] ?? NaN) || cy + adj,
+      classification: row[iCls] ?? "",
+    };
+  });
+}
+
+// POST /api/engagements/:id/etb/excel/init
+exports.initEtbExcel = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    // Ensure or create workbook
+    const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({
+      engagementId,
+    });
+
+    // Find or create the "ETB" classification holder to keep workbook info
+    const ClassificationSection = require("../models/ClassificationSection");
+    let section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: "ETB",
+    });
+    if (!section) {
+      section = await ClassificationSection.create({
+        engagement: engagementId,
+        classification: "ETB",
+        spreadsheetId: driveItemId, // reusing fields
+        spreadsheetUrl: webUrl,
+        lastSyncAt: new Date(),
+      });
+    } else {
+      section.spreadsheetId = driveItemId;
+      section.spreadsheetUrl = webUrl;
+      section.lastSyncAt = new Date();
+      await section.save();
+    }
+
+    // Get current ETB
+    const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
+    const existing = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
+    const aoa = existing
+      ? etbRowsToAOA(existing.rows || [])
+      : [
+          [
+            "Code",
+            "Account Name",
+            "Current Year",
+            "Prior Year",
+            "Adjustments",
+            "Final Balance",
+            "Classification",
+          ],
+        ];
+
+    // Push to Excel
+    await msExcel.writeSheet({
+      driveItemId,
+      worksheetName: "ETB",
+      values: aoa,
+    });
+
+    return res.status(200).json({ spreadsheetId: driveItemId, url: webUrl });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/engagements/:id/etb/excel/push
+exports.pushEtbToExcel = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    const ClassificationSection = require("../models/ClassificationSection");
+    let section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: "ETB",
+    });
+    if (!section?.spreadsheetId) {
+      // if not inited yet, init now
+      const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({
+        engagementId,
+      });
+      if (!section) {
+        section = await ClassificationSection.create({
+          engagement: engagementId,
+          classification: "ETB",
+          spreadsheetId: driveItemId,
+          spreadsheetUrl: webUrl,
+        });
+      } else {
+        section.spreadsheetId = driveItemId;
+        section.spreadsheetUrl = webUrl;
+        await section.save();
+      }
+    }
+
+    const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
+    const existing = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
+    const aoa = existing
+      ? etbRowsToAOA(existing.rows || [])
+      : [
+          [
+            "Code",
+            "Account Name",
+            "Current Year",
+            "Prior Year",
+            "Adjustments",
+            "Final Balance",
+            "Classification",
+          ],
+        ];
+
+    await msExcel.writeSheet({
+      driveItemId: section.spreadsheetId,
+      worksheetName: "ETB",
+      values: aoa,
+    });
+
+    section.lastSyncAt = new Date();
+    await section.save();
+
+    return res.status(200).json({ ok: true, url: section.spreadsheetUrl });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/engagements/:id/etb/excel/pull
+exports.pullEtbFromExcel = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    const ClassificationSection = require("../models/ClassificationSection");
+    const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
+
+    const section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: "ETB",
+    });
+    if (!section?.spreadsheetId) {
+      return res
+        .status(400)
+        .json({
+          message:
+            "Excel workbook not initialized. Click 'Open in Excel Online' first.",
+        });
+    }
+
+    const aoa = await msExcel.readSheet({
+      driveItemId: section.spreadsheetId,
+      worksheetName: "ETB",
+    });
+    const rows = aoaToEtbRows(aoa);
+
+    let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    if (etb) {
+      etb.rows = rows;
+      etb.updatedAt = new Date();
+      await etb.save();
+    } else {
+      etb = await ExtendedTrialBalance.create({
+        engagement: engagementId,
+        rows,
+      });
+    }
+
+    section.lastSyncAt = new Date();
+    await section.save();
+
+    return res.status(200).json(etb);
+  } catch (err) {
+    next(err);
+  }
+};
 
 // Parse a public Supabase Storage URL into the internal object path
 function extractStoragePathFromPublicUrl(url) {
   if (!url) return null;
   try {
     const urlObj = new URL(url);
-    const after = urlObj.pathname.split("/storage/v1/object/public/engagement-documents/")[1];
+    const after = urlObj.pathname.split(
+      "/storage/v1/object/public/engagement-documents/"
+    )[1];
     return after ? decodeURIComponent(after) : null;
   } catch {
     return null;
@@ -64,7 +293,13 @@ async function safeRemoveStoragePath(path) {
 
 // Upload a Buffer as an .xlsx into Storage and create a Library record.
 // --- replace your current uploadBufferToLibrary with this version ---
-async function uploadBufferToLibrary({ engagementId, category, buffer, fileName, allowMultiple = false }) {
+async function uploadBufferToLibrary({
+  engagementId,
+  category,
+  buffer,
+  fileName,
+  allowMultiple = false,
+}) {
   // If we don't allow multiple per category, keep one (old behavior)
   if (!allowMultiple) {
     await removeExistingLibraryResource(engagementId, category);
@@ -78,7 +313,9 @@ async function uploadBufferToLibrary({ engagementId, category, buffer, fileName,
     });
 
     if (existingWithSameName) {
-      const existingPath = extractStoragePathFromPublicUrl(existingWithSameName.url);
+      const existingPath = extractStoragePathFromPublicUrl(
+        existingWithSameName.url
+      );
       if (existingPath) {
         await safeRemoveStoragePath(existingPath); // ignore errors
       }
@@ -99,7 +336,10 @@ async function uploadBufferToLibrary({ engagementId, category, buffer, fileName,
 
   // Attempt upload, if path already exists, delete that single object and retry
   let { data: uploadData, error: uploadError } = await doUpload();
-  if (uploadError && String(uploadError.message).toLowerCase().includes("exists")) {
+  if (
+    uploadError &&
+    String(uploadError.message).toLowerCase().includes("exists")
+  ) {
     await safeRemoveStoragePath(filePath);
     ({ data: uploadData, error: uploadError } = await doUpload());
   }
@@ -118,7 +358,6 @@ async function uploadBufferToLibrary({ engagementId, category, buffer, fileName,
 
   return entry;
 }
-
 
 // list of folder names
 const ENGAGEMENT_FOLDERS = [
@@ -162,7 +401,8 @@ exports.getLibraryFiles = async (req, res, next) => {
 
 exports.createEngagement = async (req, res, next) => {
   try {
-    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy } = req.body;
+    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy } =
+      req.body;
     // 1) Create the engagement
     const engagement = await Engagement.create({
       createdBy,
@@ -223,7 +463,10 @@ exports.uploadToLibrary = async (req, res, next) => {
 
     let { data: uploadData, error: uploadError } = await tryUpload();
 
-    if (uploadError && String(uploadError.message).toLowerCase().includes("exists")) {
+    if (
+      uploadError &&
+      String(uploadError.message).toLowerCase().includes("exists")
+    ) {
       // Enforce one-per-category and also drop exact conflicting object, then retry
       await removeExistingLibraryResource(engagementId, category);
       await safeRemoveStoragePath(filePath);
@@ -257,14 +500,18 @@ exports.uploadGoogleSheetToLibrary = async (req, res, next) => {
     const { id: engagementId } = req.params;
     const { sheetUrl, category = "Trial Balance" } = req.body;
 
-    if (!sheetUrl) return res.status(400).json({ message: "Google Sheets URL is required." });
+    if (!sheetUrl)
+      return res
+        .status(400)
+        .json({ message: "Google Sheets URL is required." });
     if (!ENGAGEMENT_FOLDERS.includes(category)) {
       return res.status(400).json({ message: "Invalid category." });
     }
 
     // 1) Fetch data from Google Sheets as 2D array
     const allRows = await sheetService.fetch(sheetUrl);
-    if (!allRows?.length) return res.status(400).json({ message: "No data found in the sheet." });
+    if (!allRows?.length)
+      return res.status(400).json({ message: "No data found in the sheet." });
 
     // 2) Build .xlsx
     const wb = XLSX.utils.book_new();
@@ -297,7 +544,9 @@ exports.changeFolders = async (req, res, next) => {
 
     // Validate required fields
     if (!category || !url) {
-      return res.status(400).json({ message: "Both category and url are required." });
+      return res
+        .status(400)
+        .json({ message: "Both category and url are required." });
     }
 
     // Validate folder category
@@ -333,7 +582,9 @@ exports.changeFolders = async (req, res, next) => {
     const newPath = `${engagementId}/${category}/${fileName}`;
 
     // 1. Verify old file exists
-    const { error: checkError } = await supabase.storage.from("engagement-documents").download(oldPath);
+    const { error: checkError } = await supabase.storage
+      .from("engagement-documents")
+      .download(oldPath);
 
     if (checkError) {
       console.error("File not found in storage:", checkError);
@@ -408,10 +659,15 @@ exports.deleteFile = async (req, res, next) => {
 
     try {
       // Delete DB record
-      await EngagementLibrary.deleteOne({ _id: existingEntry._id }, { session });
+      await EngagementLibrary.deleteOne(
+        { _id: existingEntry._id },
+        { session }
+      );
 
       // Delete from storage
-      const { error } = await supabase.storage.from("engagement-documents").remove([filePath]);
+      const { error } = await supabase.storage
+        .from("engagement-documents")
+        .remove([filePath]);
       if (error) throw error;
 
       await session.commitTransaction();
@@ -439,7 +695,10 @@ exports.getAllEngagements = async (req, res, next) => {
 
 exports.getClientEngagements = async (req, res, next) => {
   try {
-    const clientId = req.user.role === "client" ? req.user.id : req.query.clientId || req.user.id;
+    const clientId =
+      req.user.role === "client"
+        ? req.user.id
+        : req.query.clientId || req.user.id;
     const engagements = await Engagement.find({ clientId });
     res.json(engagements);
   } catch (err) {
@@ -462,7 +721,11 @@ exports.getEngagementById = async (req, res, next) => {
 
 exports.updateEngagement = async (req, res, next) => {
   try {
-    const engagement = await Engagement.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const engagement = await Engagement.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
     if (!engagement) return res.status(404).json({ message: "Not found" });
     res.json(engagement);
   } catch (err) {
@@ -477,11 +740,15 @@ exports.updateEngagement = async (req, res, next) => {
 exports.fetchTrialBalance = async (req, res, next) => {
   try {
     const engagement = await Engagement.findById(req.params.id);
-    if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+    if (!engagement)
+      return res.status(404).json({ message: "Engagement not found" });
 
     // 1) pull raw 2D array from Sheets
-    const allRows = await sheetService.fetch(req.body.sheetUrl || engagement.trialBalanceUrl);
-    if (!allRows.length) return res.status(204).json({ message: "No data returned" });
+    const allRows = await sheetService.fetch(
+      req.body.sheetUrl || engagement.trialBalanceUrl
+    );
+    if (!allRows.length)
+      return res.status(204).json({ message: "No data returned" });
 
     // 2) split header + data
     const [headers, ...rows] = allRows;
@@ -514,7 +781,8 @@ exports.fetchTrialBalance = async (req, res, next) => {
 exports.getTrialBalance = async (req, res, next) => {
   try {
     const tb = await TrialBalance.findOne({ engagement: req.params.id });
-    if (!tb) return res.status(404).json({ message: "No trial balance stored" });
+    if (!tb)
+      return res.status(404).json({ message: "No trial balance stored" });
     res.json(tb);
   } catch (err) {
     next(err);
@@ -536,9 +804,17 @@ exports.saveTrialBalance = async (req, res, next) => {
 
     // Validate required columns
     const [headers] = data;
-    const requiredColumns = ["Code", "Account Name", "Current Year", "Prior Year"];
+    const requiredColumns = [
+      "Code",
+      "Account Name",
+      "Current Year",
+      "Prior Year",
+    ];
     const missingColumns = requiredColumns.filter(
-      (col) => !headers.some((header) => header.toLowerCase().trim() === col.toLowerCase())
+      (col) =>
+        !headers.some(
+          (header) => header.toLowerCase().trim() === col.toLowerCase()
+        )
     );
 
     if (missingColumns.length > 0) {
@@ -600,9 +876,17 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
     const [headers, ...rows] = allRows;
 
     // Validate required columns
-    const requiredColumns = ["Code", "Account Name", "Current Year", "Prior Year"];
+    const requiredColumns = [
+      "Code",
+      "Account Name",
+      "Current Year",
+      "Prior Year",
+    ];
     const missingColumns = requiredColumns.filter(
-      (col) => !headers.some((header) => header.toLowerCase().trim() === col.toLowerCase())
+      (col) =>
+        !headers.some(
+          (header) => header.toLowerCase().trim() === col.toLowerCase()
+        )
     );
 
     if (missingColumns.length > 0) {
@@ -739,7 +1023,8 @@ exports.saveETB = async (req, res, next) => {
           priorYear: Number(priorYear || 0),
           adjustments: Number(adjustments || 0),
           finalBalance: Number(finalBalance || 0),
-          classification: classification != null ? String(classification).trim() : "",
+          classification:
+            classification != null ? String(classification).trim() : "",
           ...rest,
         };
       })
@@ -772,9 +1057,13 @@ exports.getETB = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
 
-    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etb = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
     if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" });
+      return res
+        .status(404)
+        .json({ message: "Extended Trial Balance not found" });
     }
 
     res.json(etb);
@@ -792,13 +1081,19 @@ exports.getETBByClassification = async (req, res, next) => {
     const { id: engagementId, classification } = req.params;
     const decodedClassification = decodeURIComponent(classification);
 
-    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etb = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
     if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" });
+      return res
+        .status(404)
+        .json({ message: "Extended Trial Balance not found" });
     }
 
     // Filter rows by classification
-    const filteredRows = etb.rows.filter((row) => row.classification === decodedClassification);
+    const filteredRows = etb.rows.filter(
+      (row) => row.classification === decodedClassification
+    );
 
     // Get section info
     const section = await ClassificationSection.findOne({
@@ -825,13 +1120,19 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
     const { id: engagementId, classification } = req.params;
     const decodedClassification = decodeURIComponent(classification);
 
-    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etb = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
     if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" });
+      return res
+        .status(404)
+        .json({ message: "Extended Trial Balance not found" });
     }
 
     // Filter rows by classification
-    const filteredRows = etb.rows.filter((row) => row.classification === decodedClassification);
+    const filteredRows = etb.rows.filter(
+      (row) => row.classification === decodedClassification
+    );
 
     // Update section sync time
     await ClassificationSection.findOneAndUpdate(
@@ -865,7 +1166,14 @@ exports.createClassificationSpreadsheet = async (req, res, next) => {
 
     // Create spreadsheet using Google Sheets API
     const spreadsheetData = [
-      ["Code", "Account Name", "Current Year", "Prior Year", "Adjustments", "Final Balance"],
+      [
+        "Code",
+        "Account Name",
+        "Current Year",
+        "Prior Year",
+        "Adjustments",
+        "Final Balance",
+      ],
       ...data.map((row) => [
         row.code,
         row.accountName,
@@ -941,13 +1249,20 @@ exports.getETBByCategory = async (req, res, next) => {
     const { id: engagementId, category } = req.params;
     const decodedCategory = decodeURIComponent(category);
 
-    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etb = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
     if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" });
+      return res
+        .status(404)
+        .json({ message: "Extended Trial Balance not found" });
     }
 
     // Filter rows by category (first level of classification)
-    const filteredRows = etb.rows.filter((row) => row.classification && row.classification.startsWith(decodedCategory));
+    const filteredRows = etb.rows.filter(
+      (row) =>
+        row.classification && row.classification.startsWith(decodedCategory)
+    );
 
     res.json({ rows: filteredRows });
   } catch (err) {
@@ -965,7 +1280,14 @@ exports.createViewOnlySpreadsheet = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid data provided" });
     }
 
-    const headers = ["Code", "Account Name", "Current Year", "Prior Year", "Adjustments", "Final Balance"];
+    const headers = [
+      "Code",
+      "Account Name",
+      "Current Year",
+      "Prior Year",
+      "Adjustments",
+      "Final Balance",
+    ];
     const rows = data.map((row) => [
       row.code,
       row.accountName,
@@ -976,100 +1298,48 @@ exports.createViewOnlySpreadsheet = async (req, res, next) => {
     ]);
     const sheetData = [headers, ...rows];
 
-    // 0) Try reusing existing spreadsheet to avoid creating new files (quota friendly)
-    const existingSection = await ClassificationSection.findOne({
-      engagement: engagementId,
-      classification: decodedClassification,
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    XLSX.utils.book_append_sheet(
+      wb,
+      ws,
+      decodedClassification.slice(0, 28) || "Sheet1"
+    );
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const safeName =
+      decodedClassification.replace(/[^\w\- ]+/g, "").replace(/\s+/g, "_") ||
+      "Section";
+    const fileName = `${safeName}_${dateStamp}.xlsx`;
+
+    // Store under Library -> Others
+    const entry = await uploadBufferToLibrary({
+      engagementId,
+      category: "Audit Sections",
+      buffer,
+      fileName,
+      allowMultiple: true,
     });
 
-    if (existingSection?.spreadsheetId) {
-      try {
-        await sheetService.updateSpreadsheet(existingSection.spreadsheetId, sheetData);
-        const viewUrl =
-          existingSection.spreadsheetUrl ||
-          `https://docs.google.com/spreadsheets/d/${existingSection.spreadsheetId}/edit#gid=0`;
-        return res.json({
-          spreadsheetId: existingSection.spreadsheetId,
-          viewUrl,
-          title: decodedClassification,
-          reused: true,
-        });
-      } catch (e) {
-        // if update fails for other reasons, we continue to attempt create/fallback
-        console.warn("updateSpreadsheet failed, will try to create or fallback. Reason:", e?.message || e);
-      }
-    }
+    // Persist a note that we fell back (optional fields)
+    await ClassificationSection.findOneAndUpdate(
+      { engagement: engagementId, classification: decodedClassification },
+      {
+        lastSyncAt: new Date(),
+        // keep spreadsheet fields empty since no Google Sheet exists
+      },
+      { upsert: true }
+    );
 
-    // 1) Try to create a new Google Sheet
-    try {
-      const spreadsheet = await sheetService.createSpreadsheet(
-        `${decodedClassification} - ${new Date().toLocaleDateString()}`,
-        sheetData
-      );
-
-      await ClassificationSection.findOneAndUpdate(
-        {
-          engagement: engagementId,
-          classification: decodedClassification,
-        },
-        {
-          spreadsheetId: spreadsheet.spreadsheetId,
-          spreadsheetUrl: spreadsheet.webViewLink,
-          lastSyncAt: new Date(),
-        },
-        { upsert: true }
-      );
-
-      return res.json({
-        spreadsheetId: spreadsheet.spreadsheetId,
-        viewUrl: spreadsheet.webViewLink,
-        title: spreadsheet.properties.title,
-        reused: false,
-      });
-    } catch (e) {
-      // 2) If Drive quota exceeded, fall back to XLSX in Supabase Library
-      if (isQuotaExceededError(e) || String(e?.message || "").includes("DRIVE_QUOTA_EXCEEDED")) {
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(sheetData);
-        XLSX.utils.book_append_sheet(wb, ws, decodedClassification.slice(0, 28) || "Sheet1");
-        const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-
-        const dateStamp = new Date().toISOString().slice(0, 10);
-        const safeName = decodedClassification.replace(/[^\w\- ]+/g, "").replace(/\s+/g, "_") || "Section";
-        const fileName = `${safeName}_${dateStamp}.xlsx`;
-        
-
-        // Store under Library -> Others
-        const entry = await uploadBufferToLibrary({
-          engagementId,
-          category: "Audit Sections",
-          buffer,
-          fileName,
-           allowMultiple: true,
-        });
-
-        // Persist a note that we fell back (optional fields)
-        await ClassificationSection.findOneAndUpdate(
-          { engagement: engagementId, classification: decodedClassification },
-          {
-            lastSyncAt: new Date(),
-            // keep spreadsheet fields empty since no Google Sheet exists
-          },
-          { upsert: true }
-        );
-
-        return res.status(201).json({
-          spreadsheetId: null,
-          viewUrl: entry.url, // Supabase public URL to the XLSX
-          title: fileName,
-          fallback: true,
-          message:
-            "Google Drive quota exceeded. Generated an .xlsx and stored it in Library).",
-        });
-      }
-      // If some other error, bubble it
-      throw e;
-    }
+    return res.status(201).json({
+      spreadsheetId: null,
+      viewUrl: entry.url, // Supabase public URL to the XLSX
+      title: fileName,
+      fallback: true,
+      message:
+        "Google Drive quota exceeded. Generated an .xlsx and stored it in Library).",
+    });
   } catch (err) {
     console.error("createViewOnlySpreadsheet error:", err?.message || err);
     return next(err);

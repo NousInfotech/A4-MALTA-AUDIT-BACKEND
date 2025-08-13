@@ -12,6 +12,10 @@ router.patch("/:id", requireAuth, requireRole("employee"), ec.updateEngagement)
 router.post("/:id/library", requireAuth, requireRole("employee"), upload.single("file"), ec.uploadToLibrary)
 
 router.post("/:id/library/change", requireAuth, requireRole("employee"), ec.changeFolders)
+// Excel Online (Microsoft) integration for ETB
+router.post("/:id/etb/excel/init", requireAuth, ec.initEtbExcel);
+router.post("/:id/etb/excel/push", requireAuth, ec.pushEtbToExcel);
+router.post("/:id/etb/excel/pull", requireAuth, ec.pullEtbFromExcel);
 
 router.delete("/:id/library", requireAuth, requireRole("employee"), ec.deleteFile)
 // In routes/engagements.js
