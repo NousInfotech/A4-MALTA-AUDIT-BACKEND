@@ -16,7 +16,10 @@ const Papa = require("papaparse");
 const EXCEL_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-// Convert ETB rows to 2D array for Excel and back
+// ===== AOA Helpers (controller-side) =====
+
+// Convert ETB rows to 2D array for Excel (Grouping 1/2/3; Final Balance left blank)
+// and append a totals ROW at the end (pushed only; not pulled).
 function etbRowsToAOA(rows) {
   const header = [
     "Code",
@@ -25,60 +28,127 @@ function etbRowsToAOA(rows) {
     "Prior Year",
     "Adjustments",
     "Final Balance",
-    "Classification",
+    "Grouping 1",
+    "Grouping 2",
+    "Grouping 3",
   ];
-  const data = (rows || []).map((r) => [
-    r.code ?? "",
-    r.accountName ?? "",
-    Number(r.currentYear) || 0,
-    Number(r.priorYear) || 0,
-    Number(r.adjustments) || 0,
-    Number(r.finalBalance) ||
-      (Number(r.currentYear) || 0) + (Number(r.adjustments) || 0),
-    r.classification ?? "",
-  ]);
-  return [header, ...data];
+
+  const data = (rows || []).map((r) => {
+    const parts = String(r.classification || "")
+      .split(" > ")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const g1 = parts[0] || "";
+    const g2 = parts[1] || "";
+    const g3 = parts[2] || "";
+
+    const cy = Number(r.currentYear) || 0;
+    const py = Number(r.priorYear) || 0;
+    const adj = Number(r.adjustments) || 0;
+
+    return [
+      r.code ?? "",
+      r.accountName ?? "",
+      cy,
+      py,
+      adj,
+      "", // Final Balance left blank; formulas applied by writeSheet
+      g1,
+      g2,
+      g3,
+    ];
+  });
+
+  const aoa = [header, ...data];
+
+  // Append a totals ROW with SUM formulas if there is at least one data row.
+  // Column letters (based on header): C=Current Year, D=Prior Year, E=Adjustments, F=Final Balance
+  if (data.length > 0) {
+    const startRow = 2;                 // first data row (row 1 is header)
+    const endRow = 1 + data.length;     // last data row index
+    aoa.push([
+      "TOTALS",
+      "",
+      `=SUM(C${startRow}:C${endRow})`,
+      `=SUM(D${startRow}:D${endRow})`,
+      `=SUM(E${startRow}:E${endRow})`,
+      `=SUM(F${startRow}:F${endRow})`,
+      "",
+      "",
+      "",
+    ]);
+  }
+
+  return aoa;
 }
 
+// Read back from Excel (supports Grouping 1/2/3 and legacy single "Classification")
+// Skips the final TOTALS row.
 function aoaToEtbRows(aoa) {
   if (!Array.isArray(aoa) || aoa.length < 2) return [];
-  const [hdr, ...data] = aoa;
+  const [hdr, ...raw] = aoa;
+
+  // Drop totals ROW (first cell equals "TOTALS")
+  const data = raw.filter((r) => {
+    const firstCell = String(r?.[0] ?? "").trim().toLowerCase();
+    return firstCell !== "totals";
+  });
+
   const idx = (name) =>
-    hdr.findIndex((h) => String(h).toLowerCase().trim() === name.toLowerCase());
-  const iCode = idx("Code"),
-    iName = idx("Account Name"),
-    iCY = idx("Current Year");
-  const iPY = idx("Prior Year"),
-    iAdj = idx("Adjustments"),
-    iFB = idx("Final Balance");
-  const iCls = idx("Classification");
+    hdr.findIndex(
+      (h) => String(h).toLowerCase().trim() === String(name).toLowerCase()
+    );
+
+  const iCode = idx("Code");
+  const iName = idx("Account Name");
+  const iCY   = idx("Current Year");
+  const iPY   = idx("Prior Year");
+  const iAdj  = idx("Adjustments");
+  const iFB   = idx("Final Balance");
+
+  const iG1  = idx("Grouping 1");
+  const iG2  = idx("Grouping 2");
+  const iG3  = idx("Grouping 3");
+  const iCls = idx("Classification"); // legacy fallback
+
   return data.map((row, k) => {
-    const cy = Number(row[iCY] ?? 0);
-    const adj = Number(row[iAdj] ?? 0);
+    const cy  = Number(row?.[iCY]  ?? 0);
+    const adj = Number(row?.[iAdj] ?? 0);
+    const fb  = Number(row?.[iFB]  ?? NaN) || cy + adj;
+
+    let classification = "";
+    if (iG1 !== -1 || iG2 !== -1 || iG3 !== -1) {
+      const g1 = (iG1 !== -1 ? String(row?.[iG1] ?? "") : "").trim();
+      const g2 = (iG2 !== -1 ? String(row?.[iG2] ?? "") : "").trim();
+      const g3 = (iG3 !== -1 ? String(row?.[iG3] ?? "") : "").trim();
+      classification = [g1, g2, g3].filter(Boolean).join(" > ");
+    } else if (iCls !== -1) {
+      // Back-compat: single "Classification" column, if present
+      classification = String(row?.[iCls] ?? "").trim();
+    }
+
     return {
       id: `row-${Date.now()}-${k}`,
-      code: row[iCode] ?? "",
-      accountName: row[iName] ?? "",
+      code: row?.[iCode] ?? "",
+      accountName: row?.[iName] ?? "",
       currentYear: cy,
-      priorYear: Number(row[iPY] ?? 0),
+      priorYear: Number(row?.[iPY] ?? 0),
       adjustments: adj,
-      finalBalance: Number(row[iFB] ?? NaN) || cy + adj,
-      classification: row[iCls] ?? "",
+      finalBalance: fb,
+      classification, // may be "" if unclassified
     };
   });
 }
+
 
 // POST /api/engagements/:id/etb/excel/init
 exports.initEtbExcel = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
 
-    // Ensure or create workbook
-    const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({
-      engagementId,
-    });
+    const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({ engagementId });
 
-    // Find or create the "ETB" classification holder to keep workbook info
     const ClassificationSection = require("../models/ClassificationSection");
     let section = await ClassificationSection.findOne({
       engagement: engagementId,
@@ -88,7 +158,7 @@ exports.initEtbExcel = async (req, res, next) => {
       section = await ClassificationSection.create({
         engagement: engagementId,
         classification: "ETB",
-        spreadsheetId: driveItemId, // reusing fields
+        spreadsheetId: driveItemId,
         spreadsheetUrl: webUrl,
         lastSyncAt: new Date(),
       });
@@ -99,26 +169,23 @@ exports.initEtbExcel = async (req, res, next) => {
       await section.save();
     }
 
-    // Get current ETB
     const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
-    const existing = await ExtendedTrialBalance.findOne({
-      engagement: engagementId,
-    });
+    const existing = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+
     const aoa = existing
       ? etbRowsToAOA(existing.rows || [])
-      : [
-          [
-            "Code",
-            "Account Name",
-            "Current Year",
-            "Prior Year",
-            "Adjustments",
-            "Final Balance",
-            "Classification",
-          ],
-        ];
+      : [[
+          "Code",
+          "Account Name",
+          "Current Year",
+          "Prior Year",
+          "Adjustments",
+          "Final Balance",
+          "Grouping 1",
+          "Grouping 2",
+          "Grouping 3",
+        ]]; // empty sheet with headers
 
-    // Push to Excel
     await msExcel.writeSheet({
       driveItemId,
       worksheetName: "ETB",
@@ -131,6 +198,7 @@ exports.initEtbExcel = async (req, res, next) => {
   }
 };
 
+
 // POST /api/engagements/:id/etb/excel/push
 exports.pushEtbToExcel = async (req, res, next) => {
   try {
@@ -142,10 +210,7 @@ exports.pushEtbToExcel = async (req, res, next) => {
       classification: "ETB",
     });
     if (!section?.spreadsheetId) {
-      // if not inited yet, init now
-      const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({
-        engagementId,
-      });
+      const { id: driveItemId, webUrl } = await msExcel.ensureWorkbook({ engagementId });
       if (!section) {
         section = await ClassificationSection.create({
           engagement: engagementId,
@@ -161,22 +226,21 @@ exports.pushEtbToExcel = async (req, res, next) => {
     }
 
     const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
-    const existing = await ExtendedTrialBalance.findOne({
-      engagement: engagementId,
-    });
+    const existing = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+
     const aoa = existing
       ? etbRowsToAOA(existing.rows || [])
-      : [
-          [
-            "Code",
-            "Account Name",
-            "Current Year",
-            "Prior Year",
-            "Adjustments",
-            "Final Balance",
-            "Classification",
-          ],
-        ];
+      : [[
+          "Code",
+          "Account Name",
+          "Current Year",
+          "Prior Year",
+          "Adjustments",
+          "Final Balance",
+          "Grouping 1",
+          "Grouping 2",
+          "Grouping 3",
+        ]]; // empty sheet with headers
 
     await msExcel.writeSheet({
       driveItemId: section.spreadsheetId,
@@ -193,6 +257,7 @@ exports.pushEtbToExcel = async (req, res, next) => {
   }
 };
 
+
 // POST /api/engagements/:id/etb/excel/pull
 exports.pullEtbFromExcel = async (req, res, next) => {
   try {
@@ -206,18 +271,16 @@ exports.pullEtbFromExcel = async (req, res, next) => {
       classification: "ETB",
     });
     if (!section?.spreadsheetId) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Excel workbook not initialized. Click 'Open in Excel Online' first.",
-        });
+      return res.status(400).json({
+        message: "Excel workbook not initialized. Click 'Open in Excel Online' first.",
+      });
     }
 
     const aoa = await msExcel.readSheet({
       driveItemId: section.spreadsheetId,
       worksheetName: "ETB",
     });
+
     const rows = aoaToEtbRows(aoa);
 
     let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
@@ -226,10 +289,7 @@ exports.pullEtbFromExcel = async (req, res, next) => {
       etb.updatedAt = new Date();
       await etb.save();
     } else {
-      etb = await ExtendedTrialBalance.create({
-        engagement: engagementId,
-        rows,
-      });
+      etb = await ExtendedTrialBalance.create({ engagement: engagementId, rows });
     }
 
     section.lastSyncAt = new Date();
@@ -240,6 +300,7 @@ exports.pullEtbFromExcel = async (req, res, next) => {
     next(err);
   }
 };
+
 
 // Parse a public Supabase Storage URL into the internal object path
 function extractStoragePathFromPublicUrl(url) {

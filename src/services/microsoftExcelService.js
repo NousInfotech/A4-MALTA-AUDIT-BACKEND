@@ -178,7 +178,10 @@ async function ensureWorkbook({ engagementId }) {
 }
 
 // Create or get a worksheet by name
+// Create or get a worksheet by name, ensuring it is the first sheet (index 0)
+// and avoiding creation of a second sheet.
 async function ensureWorksheet(token, driveItemId, worksheetName) {
+  // List all worksheets
   let res = await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets`,
     { headers: { Authorization: `Bearer ${token}` } }
@@ -188,28 +191,66 @@ async function ensureWorksheet(token, driveItemId, worksheetName) {
     throw new Error(`Graph list worksheets failed: ${res.status} ${t}`);
   }
   const ws = await res.json();
-  let sheet = ws.value?.find((w) => w.name === worksheetName);
-
-  if (!sheet) {
-    res = await fetch(
-      `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets/add`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ name: worksheetName }),
-      }
-    );
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`Graph add worksheet failed: ${res.status} ${t}`);
-    }
-    sheet = await res.json();
+  const all = ws.value || [];
+  if (all.length === 0) {
+    throw new Error("Workbook has no worksheets (unexpected).");
   }
-  return sheet;
+
+  // If a sheet with the desired name exists, ensure it's first (position 0) and return it
+  let desired = all.find((w) => w.name === worksheetName);
+  if (desired) {
+    try {
+      // Move to position 0 if needed
+      if (typeof desired.position === "number" && desired.position !== 0) {
+        const moveRes = await fetch(
+          `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets/${desired.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ position: 0 }),
+          }
+        );
+        if (!moveRes.ok) {
+          // Non-fatal if move fails; we'll still write to it
+          /* const msg = await moveRes.text(); console.warn("Move sheet failed:", msg); */
+        } else {
+          // Refresh desired (optional)
+          desired.position = 0;
+        }
+      }
+    } catch {/* ignore */}
+    return desired;
+  }
+
+  // Otherwise, take the FIRST sheet and rename it to the desired name
+  const first = all.find((w) => typeof w.position === "number" ? w.position === 0 : true) || all[0];
+
+  // If the first sheet already has the desired name, just return it
+  if (first.name === worksheetName) return first;
+
+  // Rename the first sheet to the desired name
+  res = await fetch(
+    `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets/${first.id}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: worksheetName, position: 0 }),
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Graph rename/move worksheet failed: ${res.status} ${t}`);
+  }
+  // Return an object representing the now-renamed first sheet
+  return { ...first, name: worksheetName, position: 0 };
 }
+
 
 // --- helpers for writing ranges ---
 function numberToColumnName(n) {
@@ -240,15 +281,14 @@ function isIsoDateString(v) {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
-// Overwrite a sheet’s content with a 2D array (A1 write)
+// Overwrite a sheet’s content with a 2D array (A1 write) and apply formulas to "Final Balance"
 async function writeSheet({ driveItemId, worksheetName, values }) {
   const token = await getAccessToken();
   await ensureWorksheet(token, driveItemId, worksheetName);
 
-  // Normalize to a proper rectangle and get exact range
+  // Normalize and range
   const { rows, cols, rect } = normalizeRect(values);
   if (rows === 0 || cols === 0) {
-    // Nothing to write; just clear and return
     await fetch(
       `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
         worksheetName
@@ -265,31 +305,11 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
     return true;
   }
 
-  // If the header row contains a "Date" column, force those cells to text
-  // so they round-trip exactly and don't become Excel serials.
-  const header = rect[0] || [];
-  const dateCols = [];
-  for (let c = 0; c < header.length; c++) {
-    if (String(header[c]).trim().toLowerCase() === "date") {
-      dateCols.push(c);
-    }
-  }
-  if (dateCols.length) {
-    for (let r = 1; r < rect.length; r++) {
-      for (const c of dateCols) {
-        const val = rect[r][c];
-        if (isIsoDateString(val)) {
-          rect[r][c] = `'${val}`; // Excel text literal
-        }
-      }
-    }
-  }
-
   const lastCol = numberToColumnName(cols);
   const lastRow = rows;
   const address = `A1:${lastCol}${lastRow}`;
 
-  // Clear used range (optional)
+  // 1) Clear then write values
   await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
       worksheetName
@@ -304,8 +324,7 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
     }
   );
 
-  // Write the exact-sized range
-  const res = await fetch(
+  const writeRes = await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
       worksheetName
     )}')/range(address='${address}')`,
@@ -318,15 +337,59 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
       body: JSON.stringify({ values: rect }),
     }
   );
-
-  if (!res.ok) {
-    const t = await res.text();
+  if (!writeRes.ok) {
+    const t = await writeRes.text();
     throw new Error(
-      `Graph write range failed: ${res.status} ${t} (address='${address}', rows=${rows}, cols=${cols})`
+      `Graph write range failed: ${writeRes.status} ${t} (address='${address}', rows=${rows}, cols=${cols})`
     );
   }
+
+  // 2) Apply formulas to "Final Balance" if header columns are present
+  const header = (rect[0] || []).map((h) => String(h || "").trim().toLowerCase());
+  const findCol = (name) => header.findIndex((h) => h === name.toLowerCase());
+
+  const iCY  = findCol("current year");
+  const iAdj = findCol("adjustments");
+  const iFB  = findCol("final balance");
+
+  if (rows > 1 && iCY !== -1 && iAdj !== -1 && iFB !== -1) {
+    const cyCol  = numberToColumnName(iCY + 1);  // to A1-style
+    const adjCol = numberToColumnName(iAdj + 1);
+    const fbCol  = numberToColumnName(iFB + 1);
+
+    const startRow = 2;         // first data row
+    const endRow   = rows;      // last data row
+    const formulaRange = `${fbCol}${startRow}:${fbCol}${endRow}`;
+
+    // Build a 2D array of formulas matching the range size
+    const formulas = [];
+    for (let r = startRow; r <= endRow; r++) {
+      formulas.push([`=${cyCol}${r}+${adjCol}${r}`]);
+    }
+
+    const formulaRes = await fetch(
+      `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
+        worksheetName
+      )}')/range(address='${formulaRange}')`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ formulas }),
+      }
+    );
+
+    // Non-fatal if formula patch fails (but log it)
+    if (!formulaRes.ok) {
+      /* const msg = await formulaRes.text(); console.warn("Formula patch failed:", msg); */
+    }
+  }
+
   return true;
 }
+
 
 // Read the sheet back (usedRange)
 async function readSheet({ driveItemId, worksheetName }) {
