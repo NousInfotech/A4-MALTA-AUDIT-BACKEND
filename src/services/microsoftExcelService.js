@@ -9,6 +9,8 @@ const {
   MS_CLIENT_SECRET,
   MS_DRIVE_ID, // preferred
   MS_SITE_ID,  // alternative to DRV: use /sites/{site-id}/drive
+  MS_SHARE_SCOPE = "anonymous", // "anonymous" | "organization"
+  MS_SHARE_TYPE = "view",       // "view" | "edit"
 } = process.env;
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
@@ -68,19 +70,20 @@ async function getAccessToken() {
 }
 
 // Ensure a folder path exists (creates nested folders under the chosen drive)
+// IMPORTANT: when addressing items/root by ID, use slash form `/children` (NOT `:/children`)
 async function ensureFolderPath(token, segments) {
   let parent = `${driveRoot()}/root`;
 
   for (const seg of segments) {
-    // Try to find an existing child folder with the exact name
-    const listUrl = `${GRAPH_BASE}${parent}:/children?$filter=name eq '${seg.replace(/'/g, "''")}'`;
+    // List children and find a folder with exact name
+    const listUrl = `${GRAPH_BASE}${parent}/children`;
     let res = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) {
       const t = await res.text();
       throw new Error(`Graph list children failed: ${res.status} ${t}`);
     }
     const listing = await res.json();
-    let child = listing.value?.find((i) => i.name === seg && i.folder);
+    let child = listing.value?.find((i) => i.name === seg && !!i.folder);
 
     if (!child) {
       // Create folder
@@ -103,6 +106,8 @@ async function ensureFolderPath(token, segments) {
       }
       child = await res.json();
     }
+
+    // Next hop: address by item id
     parent = `${driveRoot()}/items/${child.id}`;
   }
 
@@ -133,6 +138,7 @@ async function ensureWorkbook({ engagementId }) {
 
   if (!workbook) {
     // Create an empty workbook (0-byte PUT to /content)
+    // Path addressing variant is correct for naming a child under an item id
     const uploadRes = await fetch(
       `${GRAPH_BASE}${driveRoot()}/items/${folder.id}:/etb.xlsx:/content`,
       {
@@ -148,29 +154,24 @@ async function ensureWorkbook({ engagementId }) {
     workbook = await uploadRes.json();
   }
 
-  // Try to create an org sharing link; if blocked, fall back to webUrl we already have
+  // Try to create a sharing link per env preferences (anonymous by default)
   let webUrl = workbook.webUrl;
   try {
-    const linkRes = await fetch(
-      `${GRAPH_BASE}${driveRoot()}/items/${workbook.id}/createLink`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ type: "edit", scope: "organization" }),
-      }
-    );
+    const linkRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${workbook.id}/createLink`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ type: "edit", scope: "anonymous" }) // anyone can edit
+});
+
     if (linkRes.ok) {
       const linkJson = await linkRes.json();
       webUrl = linkJson.link?.webUrl || webUrl;
     } else {
-      // Non-fatal; tenant policy can block this.
+      // Non-fatal; tenant policy can block anonymous/organization links
       // const t = await linkRes.text(); console.warn("createLink failed:", t);
     }
   } catch {
-    // ignore
+    // ignore non-fatal link creation errors
   }
 
   return { id: workbook.id, webUrl };
@@ -210,10 +211,83 @@ async function ensureWorksheet(token, driveItemId, worksheetName) {
   return sheet;
 }
 
+// --- helpers for writing ranges ---
+function numberToColumnName(n) {
+  // 1 -> A, 2 -> B, ... 26 -> Z, 27 -> AA, ...
+  let s = "";
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function normalizeRect(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return { rows: 0, cols: 0, rect: [] };
+  }
+  const cols = Math.max(...values.map((r) => Array.isArray(r) ? r.length : 0));
+  const rect = values.map((row) => {
+    const r = Array.isArray(row) ? row.slice() : [row];
+    while (r.length < cols) r.push("");
+    return r;
+  });
+  return { rows: rect.length, cols, rect };
+}
+
+function isIsoDateString(v) {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
 // Overwrite a sheet’s content with a 2D array (A1 write)
 async function writeSheet({ driveItemId, worksheetName, values }) {
   const token = await getAccessToken();
   await ensureWorksheet(token, driveItemId, worksheetName);
+
+  // Normalize to a proper rectangle and get exact range
+  const { rows, cols, rect } = normalizeRect(values);
+  if (rows === 0 || cols === 0) {
+    // Nothing to write; just clear and return
+    await fetch(
+      `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
+        worksheetName
+      )}')/usedRange/clear`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ applyTo: "contents" }),
+      }
+    );
+    return true;
+  }
+
+  // If the header row contains a "Date" column, force those cells to text
+  // so they round-trip exactly and don't become Excel serials.
+  const header = rect[0] || [];
+  const dateCols = [];
+  for (let c = 0; c < header.length; c++) {
+    if (String(header[c]).trim().toLowerCase() === "date") {
+      dateCols.push(c);
+    }
+  }
+  if (dateCols.length) {
+    for (let r = 1; r < rect.length; r++) {
+      for (const c of dateCols) {
+        const val = rect[r][c];
+        if (isIsoDateString(val)) {
+          rect[r][c] = `'${val}`; // Excel text literal
+        }
+      }
+    }
+  }
+
+  const lastCol = numberToColumnName(cols);
+  const lastRow = rows;
+  const address = `A1:${lastCol}${lastRow}`;
 
   // Clear used range (optional)
   await fetch(
@@ -230,23 +304,26 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
     }
   );
 
-  // Write at A1
+  // Write the exact-sized range
   const res = await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
       worksheetName
-    )}')/range(address='A1')`,
+    )}')/range(address='${address}')`,
     {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ values }),
+      body: JSON.stringify({ values: rect }),
     }
   );
+
   if (!res.ok) {
     const t = await res.text();
-    throw new Error(`Graph write range failed: ${res.status} ${t}`);
+    throw new Error(
+      `Graph write range failed: ${res.status} ${t} (address='${address}', rows=${rows}, cols=${cols})`
+    );
   }
   return true;
 }

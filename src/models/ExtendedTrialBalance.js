@@ -2,6 +2,9 @@ const mongoose = require("mongoose")
 const { Schema, Types } = mongoose
 
 const ETBRowSchema = new Schema({
+  _id: {
+    type: String, // <-- allow your "row-..." string IDs
+  },
   code: {
     type: String,
     required: true,
@@ -32,7 +35,8 @@ const ETBRowSchema = new Schema({
     type: String,
     required: true,
   },
-})
+}, { _id: false }) // important: prevents Mongoose from creating its own ObjectId
+// (we're supplying _id manually as String)
 
 const ExtendedTrialBalanceSchema = new Schema({
   engagement: {
