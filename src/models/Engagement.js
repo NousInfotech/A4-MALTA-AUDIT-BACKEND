@@ -3,6 +3,9 @@ const { Schema, Types } = mongoose
 
 const EngagementSchema = new Schema(
   {
+    excelURL:{
+      type: String,
+    },
     clientId: {
       type: String,
       required: true,

@@ -33,7 +33,6 @@ const ETBRowSchema = new Schema({
   },
   classification: {
     type: String,
-    required: true,
   },
 }, { _id: false }) // important: prevents Mongoose from creating its own ObjectId
 // (we're supplying _id manually as String)
