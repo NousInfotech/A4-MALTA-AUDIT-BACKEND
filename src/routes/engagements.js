@@ -53,4 +53,11 @@ router.post(
 // retrieve the stored table
 router.get("/:id/trial-balance", requireAuth, ec.getTrialBalance)
 
+router.get("/:id/sections/:classification/working-papers/status", ec.getWorkingPapersStatus)
+router.post("/:id/sections/:classification/working-papers/init", ec.initWorkingPapers)
+router.post("/:id/sections/:classification/working-papers/push", ec.pushToWorkingPapers)
+router.post("/:id/sections/:classification/working-papers/pull", ec.pullFromWorkingPapers)
+router.post("/:id/sections/:classification/working-papers/fetch-rows", ec.fetchRowsFromSheets)
+router.post("/:id/sections/:classification/working-papers/select-row", ec.selectRowFromSheets)
+router.post("/:id/sections/:classification/working-papers/view-row", ec.viewSelectedRow)
 module.exports = router

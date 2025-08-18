@@ -1,39 +1,31 @@
 const mongoose = require("mongoose")
-const { Schema, Types } = mongoose
 
-const ClassificationSectionSchema = new Schema({
-  engagement: {
-    type: Types.ObjectId,
-    ref: "Engagement",
-    required: true,
+const classificationSectionSchema = new mongoose.Schema(
+  {
+    engagement: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Engagement",
+      required: true,
+    },
+    classification: {
+      type: String,
+      required: true,
+    },
+    spreadsheetId: String,
+    spreadsheetUrl: String,
+    workingPapersId: String,
+    workingPapersUrl: String,
+    lastSyncAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
-  classification: {
-    type: String,
-    required: true,
+  {
+    timestamps: true,
   },
-  spreadsheetId: {
-    type: String,
-    default: null,
-  },
-  spreadsheetUrl: {
-    type: String,
-    default: null,
-  },
-  lastSyncAt: {
-    type: Date,
-    default: null,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now,
-  },
-})
+)
 
-// Compound index to ensure unique classification per engagement
-ClassificationSectionSchema.index({ engagement: 1, classification: 1 }, { unique: true })
+// Compound index for efficient queries
+classificationSectionSchema.index({ engagement: 1, classification: 1 }, { unique: true })
 
-module.exports = mongoose.model("ClassificationSection", ClassificationSectionSchema)
+module.exports = mongoose.model("ClassificationSection", classificationSectionSchema)
