@@ -15,7 +15,7 @@ const XLSX = require("xlsx")
 const Papa = require("papaparse")
 
 const EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
+  
 function etbRowsToAOA(rows) {
   const header = [
     "Code",
@@ -1680,12 +1680,12 @@ exports.fetchRowsFromSheets = async (req, res, next) => {
         })
 
         // Skip header row and add each data row
-        sheetData.slice(1).forEach((row, index) => {
+        sheetData.forEach((row, index) => {
           if (row.some((cell) => cell && cell.toString().trim())) {
             // Only non-empty rows
             availableRows.push({
               sheetName: sheet.name,
-              rowIndex: index + 2, // +2 because we skip header and 0-based index
+              rowIndex: index + 1, // +2 because we skip header and 0-based index
               data: row,
             })
           }
@@ -1739,7 +1739,7 @@ exports.selectRowFromSheets = async (req, res, next) => {
       if (currentRowId === rowId) {
         // Update reference column (index 6)
         const newRow = [...row]
-        newRow[6] = `${selectedRow.sheetName}!${selectedRow.rowIndex}`
+        newRow[6] = `${selectedRow.sheetName} Row#${selectedRow.rowIndex}`
         return newRow
       }
       return row
@@ -1801,7 +1801,7 @@ exports.viewSelectedRow = async (req, res, next) => {
     })
 
     // Find the row with the specified ID
-    const targetRowIndex = Number.parseInt(rowId.replace("row-", "")) + 1 // +1 for header
+    const targetRowIndex = Number.parseInt(rowId.replace("row-", ""))+1 // +1 for header
     if (targetRowIndex >= data.length) {
       return res.status(404).json({ message: "Row not found" })
     }
@@ -1809,12 +1809,12 @@ exports.viewSelectedRow = async (req, res, next) => {
     const targetRow = data[targetRowIndex]
     const reference = targetRow[6] // Reference column
 
-    if (!reference || !reference.includes("!")) {
+    if (!reference || !reference.includes(" Row#")) {
       return res.status(404).json({ message: "No reference found for this row" })
     }
 
     // Parse reference (e.g., "Sheet2!5")
-    const [sheetName, rowNumber] = reference.split("!")
+    const [sheetName, rowNumber] = reference.split(" Row#")
 
     try {
       // Get the referenced row data
