@@ -14,14 +14,9 @@ const multer = require("multer");
 const XLSX = require("xlsx");
 const Papa = require("papaparse");
 
-// ===== Helpers =====
 const EXCEL_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-// ===== AOA Helpers (controller-side) =====
-
-// Convert ETB rows to 2D array for Excel (Grouping 1/2/3; Final Balance left blank)
-// and append a totals ROW at the end (pushed only; not pulled).
 function etbRowsToAOA(rows) {
   const header = [
     "Code",
@@ -85,8 +80,6 @@ function etbRowsToAOA(rows) {
   return aoa;
 }
 
-// Read back from Excel (supports Grouping 1/2/3 and legacy single "Classification")
-// Skips the final TOTALS row.
 function aoaToEtbRows(aoa) {
   if (!Array.isArray(aoa) || aoa.length < 2) return [];
   const [hdr, ...raw] = aoa;
@@ -368,9 +361,7 @@ async function safeRemoveStoragePath(path) {
   }
 }
 
-// ---- DROP-IN REPLACEMENT ----
 // Upload a Buffer as an .xlsx into Storage and create a Library record.
-// ---- DROP-IN: uploadBufferToLibrary (server) ----
 async function uploadBufferToLibrary({
   engagementId,
   category,
@@ -435,7 +426,6 @@ async function uploadBufferToLibrary({
   return entry;
 }
 
-
 // list of folder names
 const ENGAGEMENT_FOLDERS = [
   "Planning",
@@ -455,7 +445,6 @@ const ENGAGEMENT_FOLDERS = [
   "Audit Sections", // Added for trial balance category
 ];
 
-// In controllers/engagementController.js
 exports.getLibraryFiles = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
@@ -505,13 +494,7 @@ exports.createEngagement = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/engagements/:id/library
- * multipart/form-data:
- *   - file: the uploaded file
- *   - category: one of ENGAGEMENT_FOLDERS
- *   - replaceExisting?: "true" | "false"  (optional)
- */
+// POST /api/engagements/:id/library
 exports.uploadToLibrary = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
@@ -571,9 +554,7 @@ exports.uploadToLibrary = async (req, res, next) => {
   }
 };
 
-// Convert a Google Sheet URL to .xlsx and store it in the library (replaces existing)
 /// POST /api/engagements/:id/library/google-sheet
-/// body: { sheetUrl: string, category?: string }
 exports.uploadGoogleSheetToLibrary = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
@@ -812,10 +793,6 @@ exports.updateEngagement = async (req, res, next) => {
   }
 };
 
-/**
- * Fetch all rows, store or update a TrialBalance doc,
- * link it on Engagement.trialBalance, and return it.
- */
 exports.fetchTrialBalance = async (req, res, next) => {
   try {
     const engagement = await Engagement.findById(req.params.id);
@@ -868,10 +845,7 @@ exports.getTrialBalance = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/engagements/:id/trial-balance
- * Save trial balance data from file upload
- */
+// POST /api/engagements/:id/trial-balance
 exports.saveTrialBalance = async (req, res, next) => {
   try {
     const { id: engagementId } = req.params;
