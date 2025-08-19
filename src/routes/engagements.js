@@ -53,6 +53,9 @@ router.post(
 // retrieve the stored table
 router.get("/:id/trial-balance", requireAuth, ec.getTrialBalance)
 
+router.get("/:id/sections/:classification/working-papers/db", requireAuth, ec.getWorkingPaperFromDB);
+router.post("/:id/sections/:classification/working-papers/db", requireAuth, ec.saveWorkingPaperToDB);
+
 router.get("/:id/sections/:classification/working-papers/status", ec.getWorkingPapersStatus)
 router.post("/:id/sections/:classification/working-papers/init", ec.initWorkingPapers)
 router.post("/:id/sections/:classification/working-papers/push", ec.pushToWorkingPapers)

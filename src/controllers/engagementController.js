@@ -1,5 +1,6 @@
 // controllers/engagementController.js
-
+// server/controllers/engagementController.js
+const WorkingPaper = require("../models/WorkingPaper"); // <-- add this line
 const msExcel = require("../services/microsoftExcelService")
 const Engagement = require("../models/Engagement")
 const EngagementLibrary = require("../models/EngagementLibrary")
@@ -1099,40 +1100,58 @@ exports.getETBByClassification = async (req, res, next) => {
  * POST /api/engagements/:id/etb/classification/:classification/reload
  * Reload classification data from ETB
  */
+// Reload a section (classification) from ETB, but preserve any WP reference if present
 exports.reloadClassificationFromETB = async (req, res, next) => {
   try {
-    const { id: engagementId, classification } = req.params
-    const decodedClassification = decodeURIComponent(classification)
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
 
-    const etb = await ExtendedTrialBalance.findOne({
+    const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
+
+    // 1) Get ETB rows for this engagement
+    const etbDoc = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const allRows = Array.isArray(etbDoc?.rows) ? etbDoc.rows : [];
+
+    // 2) Filter by this classification (same as before)
+    const filtered = allRows.filter((r) => (r?.classification || "") === decodedClassification);
+
+    // 3) Load WP doc (if exists) to preserve references
+    const wpDoc = await WorkingPaper.findOne({
       engagement: engagementId,
-    })
-    if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" })
+      classification: decodedClassification,
+    });
+
+    const refMap = new Map();
+    if (wpDoc?.rows?.length) {
+      for (const r of wpDoc.rows) {
+        const key = `${(r.code || "").trim()}::${(r.accountName || "").trim()}`;
+        if (r.reference) refMap.set(key, r.reference);
+      }
     }
 
-    // Filter rows by classification
-    const filteredRows = etb.rows.filter((row) => row.classification === decodedClassification)
-
-    // Update section sync time
-    await ClassificationSection.findOneAndUpdate(
-      {
-        engagement: engagementId,
+    // 4) Merge ETB rows with preserved reference (do not override it)
+    const mergedRows = filtered.map((row, idx) => {
+      const key = `${(row.code || "").trim()}::${(row.accountName || "").trim()}`;
+      const preservedRef = refMap.get(key);
+      return {
+        id: row.id || `row-${idx}`,
+        code: row.code || "",
+        accountName: row.accountName || "",
+        currentYear: Number(row.currentYear) || 0,
+        priorYear: Number(row.priorYear) || 0,
+        adjustments: Number(row.adjustments) || 0,
+        finalBalance: Number(row.finalBalance) || 0,
         classification: decodedClassification,
-      },
-      {
-        lastSyncAt: new Date(),
-      },
-      { upsert: true },
-    )
+        reference: preservedRef ? preservedRef : "", // keep empty if none
+      };
+    });
 
-    res.json({
-      rows: filteredRows,
-    })
+    return res.json({ rows: mergedRows });
   } catch (err) {
-    next(err)
+    next(err);
   }
-}
+};
+
 
 /**
  * POST /api/engagements/:id/etb/classification/:classification/spreadsheet
@@ -1853,3 +1872,52 @@ exports.viewSelectedRow = async (req, res, next) => {
     next(err)
   }
 }
+// Save Working Paper rows to DB (upsert)
+exports.saveWorkingPaperToDB = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rows } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    const cleaned = Array.isArray(rows) ? rows.map((r) => ({
+      id: r.id || "",
+      code: r.code || "",
+      accountName: r.accountName || "",
+      currentYear: Number(r.currentYear) || 0,
+      priorYear: Number(r.priorYear) || 0,
+      adjustments: Number(r.adjustments) || 0,
+      finalBalance: Number(r.finalBalance) || 0,
+      classification: decodedClassification,
+      reference: r.reference ?? "",
+    })) : [];
+
+    const doc = await WorkingPaper.findOneAndUpdate(
+      { engagement: engagementId, classification: decodedClassification },
+      { rows: cleaned },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return res.json({ rows: doc.rows });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get Working Paper rows from DB
+exports.getWorkingPaperFromDB = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
+
+    const doc = await WorkingPaper.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!doc) return res.status(404).json({ message: "No working paper saved for this section" });
+
+    return res.json({ rows: doc.rows });
+  } catch (err) {
+    next(err);
+  }
+};
