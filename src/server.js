@@ -44,7 +44,7 @@ app.use("/api/procedures", procedureRoutes)
 app.post("/api/clients", requireAuth, requireRole("employee"), async (req, res) => {
   try {
     const { email, password, name, companyName, companyNumber, industry, summary } = req.body
-    console.log(req.body)
+    //console.log(req.body)
     // Validate required fields
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password, and name are required" })
