@@ -12,6 +12,7 @@ router.patch("/:id", requireAuth, requireRole("employee"), ec.updateEngagement)
 router.post("/:id/library", requireAuth, requireRole("employee"), upload.single("file"), ec.uploadToLibrary)
 
 router.post("/:id/library/change", requireAuth, requireRole("employee"), ec.changeFolders)
+
 // Excel Online (Microsoft) integration for ETB
 router.post("/:id/etb/excel/init", requireAuth, ec.initEtbExcel);
 router.post("/:id/etb/excel/push", requireAuth, ec.pushEtbToExcel);
@@ -43,24 +44,29 @@ router.get("/:id/etb/category/:category", requireAuth, ec.getETBByCategory)
 router.post("/:id/sections/:classification/view-spreadsheet", requireAuth, ec.createViewOnlySpreadsheet)
 
 // fetch & store a fresh copy from Google Sheets
-router.post(
-  "/:id/fetch-trial-balance",
-  requireAuth,
-  // requireRole('employee'),
-  ec.fetchTrialBalance,
-)
+router.post("/:id/fetch-trial-balance", requireAuth, ec.fetchTrialBalance)
 
 // retrieve the stored table
 router.get("/:id/trial-balance", requireAuth, ec.getTrialBalance)
 
+// Working Papers — DB cache
 router.get("/:id/sections/:classification/working-papers/db", requireAuth, ec.getWorkingPaperFromDB);
 router.post("/:id/sections/:classification/working-papers/db", requireAuth, ec.saveWorkingPaperToDB);
 
+// Working Papers — Excel sync + references
 router.get("/:id/sections/:classification/working-papers/status", ec.getWorkingPapersStatus)
 router.post("/:id/sections/:classification/working-papers/init", ec.initWorkingPapers)
 router.post("/:id/sections/:classification/working-papers/push", ec.pushToWorkingPapers)
 router.post("/:id/sections/:classification/working-papers/pull", ec.pullFromWorkingPapers)
+
+// Row reference (existing)
 router.post("/:id/sections/:classification/working-papers/fetch-rows", ec.fetchRowsFromSheets)
 router.post("/:id/sections/:classification/working-papers/select-row", ec.selectRowFromSheets)
 router.post("/:id/sections/:classification/working-papers/view-row", ec.viewSelectedRow)
+
+// NEW: Tab (sheet) reference
+router.post("/:id/sections/:classification/working-papers/fetch-tabs", ec.fetchTabsFromSheets)
+router.post("/:id/sections/:classification/working-papers/select-tab", ec.selectTabFromSheets)
+router.post("/:id/sections/:classification/working-papers/view-reference", ec.viewSelectedReference)
+
 module.exports = router

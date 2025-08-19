@@ -320,7 +320,204 @@ function getFileNameFromPublicUrl(url) {
   const last = path.split("/").pop() || ""
   return last.split("?")[0] // ignore version query param
 }
+async function readLeadSheet(section) {
+  const worksheetName = "Sheet1";
+  const data = await msExcel.readSheet({
+    driveItemId: section.workingPapersId,
+    worksheetName,
+  });
+  return data;
+}
 
+// Utility: write back full AOA into Sheet1
+async function writeLeadSheet(section, values) {
+  const worksheetName = "Sheet1";
+  await msExcel.writeSheet({
+    driveItemId: section.workingPapersId,
+    worksheetName,
+    values,
+  });}
+
+  // =============== NEW: Fetch Tabs (sheet list except Sheet1) ===============
+exports.fetchTabsFromSheets = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
+
+    const section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!section?.workingPapersId) {
+      return res.status(400).json({ message: "Working papers not initialized." });
+    }
+
+    const token = await msExcel.getAccessToken();
+    const listRes = await fetch(
+      `https://graph.microsoft.com/v1.0/drives/${process.env.MS_DRIVE_ID}/items/${section.workingPapersId}/workbook/worksheets`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    const json = await listRes.json();
+    const all = Array.isArray(json.value) ? json.value.map(s => s.name) : [];
+    const tabs = all.filter(n => n !== "Sheet1");
+
+    return res.json({ tabs });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// =============== NEW: Select Tab (store whole-sheet reference; mutual exclusive) ===============
+exports.selectTabFromSheets = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId, sheetName } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    if (!sheetName) return res.status(400).json({ message: "sheetName required." });
+
+    const section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!section?.workingPapersId) {
+      return res.status(400).json({ message: "Working papers not initialized." });
+    }
+
+    // Read current lead sheet (Sheet1)
+    const data = await readLeadSheet(section);
+    if (!data || data.length === 0) {
+      return res.status(400).json({ message: "Lead sheet is empty." });
+    }
+
+    // Overwrite the Reference column for this row with a SHEET reference,
+    // which implicitly drops any prior Row reference (mutual exclusivity).
+    const updated = data.map((row, idx) => {
+      if (idx === 0) return row; // header
+      const currentRowId = `row-${idx - 1}`;
+      if (currentRowId === rowId) {
+        const newRow = [...row];
+        // Reference is last column (index 6) in your lead sheet format
+        newRow[6] = `Sheet:${sheetName}`;
+        return newRow;
+      }
+      return row;
+    });
+
+    await writeLeadSheet(section, updated);
+
+    // Return updated rows in ETB row shape
+    const rows = updated.slice(1).map((row, index) => ({
+      id: `row-${index}`,
+      code: row[0] || "",
+      accountName: row[1] || "",
+      currentYear: Number(row[2]) || 0,
+      priorYear: Number(row[3]) || 0,
+      adjustments: Number(row[4]) || 0,
+      finalBalance: Number(row[5]) || 0,
+      classification: decodedClassification,
+      reference: row[6] || "",
+    }));
+
+    section.lastSyncAt = new Date();
+    await section.save();
+
+    return res.json({ rows });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// =============== NEW: View Reference (row OR sheet) ===============
+exports.viewSelectedReference = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    const section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!section?.workingPapersId) {
+      return res.status(400).json({ message: "Working papers not initialized." });
+    }
+
+    const data = await readLeadSheet(section);
+    // Find row
+    const idx = Number.parseInt(String(rowId).replace("row-", ""), 10);
+    const rowOnSheet = data[idx + 1]; // +1 because header at 0
+    if (!rowOnSheet) return res.status(404).json({ message: "Row not found." });
+
+    const referenceCell = rowOnSheet[6] || "";
+
+    // CASE A: Sheet reference e.g. "Sheet:SomeName"
+    if (typeof referenceCell === "string" && referenceCell.startsWith("Sheet:")) {
+      const sheetName = referenceCell.replace("Sheet:", "").trim();
+      // read a full sheet
+      const full = await msExcel.readSheet({
+        driveItemId: section.workingPapersId,
+        worksheetName: sheetName,
+      });
+
+      // Return the entire 2D array for the UI table
+      return res.json({
+        type: "sheet",
+        sheet: {
+          sheetName,
+          data: Array.isArray(full) ? full : [],
+        },
+        leadSheetRow: {
+          code: rowOnSheet[0] || "",
+          accountName: rowOnSheet[1] || "",
+          currentYear: Number(rowOnSheet[2]) || 0,
+          priorYear: Number(rowOnSheet[3]) || 0,
+          adjustments: Number(rowOnSheet[4]) || 0,
+          finalBalance: Number(rowOnSheet[5]) || 0,
+        },
+      });
+    }
+
+    // CASE B: Row reference e.g. "SomeTab Row#12"
+    if (typeof referenceCell === "string" && referenceCell.includes(" Row#")) {
+      const [sheetNameRaw, rowToken] = referenceCell.split(" Row#");
+      const sheetName = sheetNameRaw.trim();
+      const rowIndex = Number.parseInt(rowToken, 10);
+
+      const sheetData = await msExcel.readSheet({
+        driveItemId: section.workingPapersId,
+        worksheetName: sheetName,
+      });
+
+      const target = sheetData[rowIndex - 1] || []; // API earlier stored 1-based display
+      return res.json({
+        type: "row",
+        reference: {
+          sheetName,
+          rowIndex,
+          data: target,
+        },
+        leadSheetRow: {
+          code: rowOnSheet[0] || "",
+          accountName: rowOnSheet[1] || "",
+          currentYear: Number(rowOnSheet[2]) || 0,
+          priorYear: Number(rowOnSheet[3]) || 0,
+          adjustments: Number(rowOnSheet[4]) || 0,
+          finalBalance: Number(rowOnSheet[5]) || 0,
+        },
+      });
+    }
+
+    // CASE C: No/unknown reference
+    return res.status(404).json({ message: "No reference set for this row." });
+  } catch (err) {
+    next(err);
+  }
+};
 // Remove ALL existing library resources (DB + Storage) for this engagement+category
 async function removeExistingLibraryResource(engagementId, category) {
   const existing = await EngagementLibrary.find({
