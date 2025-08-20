@@ -1,11 +1,6 @@
-// models/Procedure.js
 const mongoose = require('mongoose');
 const { Schema, Types } = mongoose;
 
-/**
- * Each engagement has a fixed checklist of procedures → tasks.
- * Use Socket.IO in your controllers to emit updates when `tasks[i].completed` changes.
- */
 const ProcedureTaskSchema = new Schema({
   description: { type: String, required: true },
   category:    { type: String, required: true },

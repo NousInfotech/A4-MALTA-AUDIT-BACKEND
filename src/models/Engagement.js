@@ -20,7 +20,6 @@ const EngagementSchema = new Schema(
 
     trialBalanceUrl: { type: String, default: "" },
 
-    // ← Replace trialBalanceData subdocs with a single ref:
     trialBalance: {
       type: Types.ObjectId,
       ref: "TrialBalance",
@@ -35,7 +34,6 @@ const EngagementSchema = new Schema(
   },
 )
 
-// virtual to populate full TrialBalance doc
 EngagementSchema.virtual("trialBalanceDoc", {
   ref: "TrialBalance",
   localField: "trialBalance",

@@ -1,4 +1,3 @@
-// models/TrialBalance.js
 const mongoose = require("mongoose")
 const { Schema, Types } = mongoose
 
@@ -14,7 +13,7 @@ const TrialBalanceSchema = new Schema({
     required: true,
   },
   rows: {
-    type: [[Schema.Types.Mixed]], // array of arrays, mixed types
+    type: [[Schema.Types.Mixed]], 
     required: true,
   },
   fetchedAt: {

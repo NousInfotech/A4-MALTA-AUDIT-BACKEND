@@ -7,14 +7,12 @@ async function requireAuth(req, res, next) {
     if (!token) {
       return res.status(401).json({ message: 'Missing or malformed Authorization header' });
     }
-    // v2: validate JWT
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) {
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
     const user = data.user;
 
-    // fetch profile role
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
       .select('role')

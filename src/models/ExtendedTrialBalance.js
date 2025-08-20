@@ -3,7 +3,7 @@ const { Schema, Types } = mongoose
 
 const ETBRowSchema = new Schema({
   _id: {
-    type: String, // <-- allow your "row-..." string IDs
+    type: String,
   },
   code: {
     type: String,
@@ -34,8 +34,7 @@ const ETBRowSchema = new Schema({
   classification: {
     type: String,
   },
-}, { _id: false }) // important: prevents Mongoose from creating its own ObjectId
-// (we're supplying _id manually as String)
+}, { _id: false })
 
 const ExtendedTrialBalanceSchema = new Schema({
   engagement: {
@@ -55,7 +54,6 @@ const ExtendedTrialBalanceSchema = new Schema({
   },
 })
 
-// Update the updatedAt field before saving
 ExtendedTrialBalanceSchema.pre("save", function (next) {
   this.updatedAt = new Date()
   next()

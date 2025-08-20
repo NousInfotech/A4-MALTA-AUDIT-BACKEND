@@ -1,7 +1,4 @@
-// config/checklist.js
-
 module.exports = [
-  // Pre-Audit Phase
   { key: 'prof-clearance-letter',        description: 'Signed Professional Clearance Letter (if required)',                  category: 'Pre-Audit Phase' },
   { key: 'removal-auditor',              description: 'Removal of Auditor',                                                category: 'Pre-Audit Phase' },
   { key: 'form-f1',                      description: 'Form F1 Submitted (if required)',                                  category: 'Pre-Audit Phase' },
@@ -28,7 +25,6 @@ module.exports = [
   { key: 'bank-letters-sent',            description: 'Bank Confirmation Letters sent (Date: __________)',                category: 'Pre-Audit Phase' },
   { key: 'bank-letters-received',        description: 'Bank Confirmation Letters received (Date: __________)',            category: 'Pre-Audit Phase' },
 
-  // Audit Planning Phase
   { key: 'planning-meeting',             description: 'Initial audit planning meeting scheduled (Date: __________)',      category: 'Audit Planning Phase' },
   { key: 'scope-discussion',             description: 'Discussion of audit scope, timing, and key focus areas',           category: 'Audit Planning Phase' },
 
@@ -39,7 +35,6 @@ module.exports = [
   { key: 'team-assigned',                description: 'Audit team assigned and roles clarified',                         category: 'Audit Planning Phase' },
   { key: 'timeline-communication',       description: 'Communication of timelines and deliverables',                      category: 'Audit Planning Phase' },
 
-  // Documentation Requested
   { key: 'financial-statements',         description: 'Financial Statements (balance sheet, income statement, cash flow)', category: 'Documentation Requested' },
   { key: 'trial-balance',                description: 'General Ledger and Trial Balance',                                category: 'Documentation Requested' },
   { key: 'fixed-asset-register',         description: 'Fixed Asset Register',                                             category: 'Documentation Requested' },
@@ -54,7 +49,6 @@ module.exports = [
 
   { key: 'working-papers',               description: 'Audit working papers created (Date: __________)',                 category: 'Documentation Requested' },
 
-  // Fieldwork Phase
   { key: 'fieldwork-start',              description: 'Date of Audit Fieldwork Start: __________',                       category: 'Fieldwork Phase' },
   { key: 'inventory-count',              description: 'Attendance of inventory count (if applicable)',                   category: 'Fieldwork Phase' },
 
@@ -71,7 +65,6 @@ module.exports = [
   { key: 'estimates-review',             description: 'Review management\'s estimates (e.g., provisions, impairments)', category: 'Fieldwork Phase' },
   { key: 'going-concern',                description: 'Going concern analysis completed',                                category: 'Fieldwork Phase' },
 
-  // Finalization Phase
   { key: 'fs-drafted',                   description: 'Financial Statements Drafted by: __________ (Name)',              category: 'Finalization Phase' },
   { key: 'fs-reviewed',                  description: 'Financial Statements Reviewed by: __________ (Name)',             category: 'Finalization Phase' },
   { key: 'review-date',                  description: 'Date of Review: __________',                                      category: 'Finalization Phase' },
@@ -89,7 +82,6 @@ module.exports = [
   { key: 'report-review',                description: 'Review audit report with team',                                  category: 'Finalization Phase' },
   { key: 'final-report',                 description: 'Final report issued (Date: __________)',                         category: 'Finalization Phase' },
 
-  // Post-Audit Letters & Documentation
   { key: 'form-dd1',                     description: 'Form DD1 prepared and submitted (Date: __________)',             category: 'Post-Audit Letters & Documentation' },
   { key: 'form-dd2',                     description: 'Form DD2 prepared and submitted (Date: __________)',             category: 'Post-Audit Letters & Documentation' },
 
@@ -118,7 +110,6 @@ module.exports = [
   { key: 'adjustments-discussed-client', description: 'Audit adjustments discussed with client',                        category: 'Post-Audit Letters & Documentation' },
   { key: 'adjustments-approved',         description: 'Adjustments approved by management (Date: __________)',           category: 'Post-Audit Letters & Documentation' },
 
-  // Post-Audit Phase
   { key: 'draft-management-letter',      description: 'Draft Management Letter',                                        category: 'Post-Audit Phase' },
   { key: 'finalized-management-letter',  description: 'Finalized Management Letter (Date: __________)',                  category: 'Post-Audit Phase' },
 

@@ -1,11 +1,6 @@
-// models/DocumentRequest.js
 const mongoose = require('mongoose');
 const { Schema, Types } = mongoose;
 
-/**
- * Auditor requests documents from client.
- * Client will see these and upload via Supabase Storage.
- */
 const DocumentRequestSchema = new Schema({
   engagement:   { type: Types.ObjectId, ref: 'Engagement', required: true },
   clientId:     { type: String, required: true },

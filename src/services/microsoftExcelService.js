@@ -1,16 +1,13 @@
-// services/microsoftExcelService.js
-// OneDrive / Excel Online integration via Microsoft Graph (app-only / client credentials)
-
 const fetch = require("node-fetch")
 
 const {
   MS_TENANT_ID,
   MS_CLIENT_ID,
   MS_CLIENT_SECRET,
-  MS_DRIVE_ID, // preferred
-  MS_SITE_ID, // alternative to DRV: use /sites/{site-id}/drive
-  MS_SHARE_SCOPE = "anonymous", // "anonymous" | "organization"
-  MS_SHARE_TYPE = "view", // "view" | "edit"
+  MS_DRIVE_ID, 
+  MS_SITE_ID,
+  MS_SHARE_SCOPE = "anonymous", 
+  MS_SHARE_TYPE = "view", 
 } = process.env
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -31,15 +28,12 @@ function assertEnv() {
   }
 }
 
-// Build the drive root path for app-only
 function driveRoot() {
   if (MS_DRIVE_ID) return `/drives/${MS_DRIVE_ID}`
   if (MS_SITE_ID) return `/sites/${MS_SITE_ID}/drive`
-  // We never return /me/drive in app-only
   throw new Error("No drive context. Set MS_DRIVE_ID or MS_SITE_ID.")
 }
 
-// Obtain app-only token (client credentials)
 async function getAccessToken() {
   assertEnv()
   const url = `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`
@@ -53,7 +47,6 @@ async function getAccessToken() {
   const res = await fetch(url, { method: "POST", body })
   const text = await res.text()
   if (!res.ok) {
-    // Surface helpful hint for AADSTS700016
     if (text.includes("AADSTS700016")) {
       throw new Error(
         `Graph token error (AADSTS700016): The client_id is not found in tenant ${MS_TENANT_ID}. ` +
@@ -67,13 +60,10 @@ async function getAccessToken() {
   return json.access_token
 }
 
-// Ensure a folder path exists (creates nested folders under the chosen drive)
-// IMPORTANT: when addressing items/root by ID, use slash form `/children` (NOT `:/children`)
 async function ensureFolderPath(token, segments) {
   let parent = `${driveRoot()}/root`
 
   for (const seg of segments) {
-    // List children and find a folder with exact name
     const listUrl = `${GRAPH_BASE}${parent}/children`
     let res = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } })
     if (!res.ok) {
@@ -84,7 +74,6 @@ async function ensureFolderPath(token, segments) {
     let child = listing.value?.find((i) => i.name === seg && !!i.folder)
 
     if (!child) {
-      // Create folder
       const createUrl = `${GRAPH_BASE}${parent}/children`
       res = await fetch(createUrl, {
         method: "POST",
@@ -105,7 +94,6 @@ async function ensureFolderPath(token, segments) {
       child = await res.json()
     }
 
-    // Next hop: address by item id
     parent = `${driveRoot()}/items/${child.id}`
   }
 
@@ -113,25 +101,21 @@ async function ensureFolderPath(token, segments) {
   return { id, path: parent }
 }
 
-// Create (or reuse) workbook file and return { id, webUrl }
 async function ensureWorkbook({ engagementId, classification }) {
   const token = await getAccessToken()
 
   let appSegments, workbookName
 
   if (classification) {
-    // New behavior: Create section-specific path and workbook
     appSegments = ["Apps", "ETB", String(engagementId), classification.replace(/[^\w\s]/g, "").substring(0, 50)]
     workbookName = `${classification.replace(/[^\w\s]/g, "").substring(0, 30)}.xlsx`
   } else {
-    // Original behavior: Create ETB workbook in engagement folder
     appSegments = ["Apps", "ETB", String(engagementId)]
     workbookName = "ETB.xlsx"
   }
 
   const folder = await ensureFolderPath(token, appSegments)
 
-  // List children to find existing workbook
   const listRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${folder.id}/children`, {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -143,7 +127,6 @@ async function ensureWorkbook({ engagementId, classification }) {
   let workbook = listing.value?.find((i) => i.file && i.name?.toLowerCase() === workbookName.toLowerCase())
 
   if (!workbook) {
-    // Create an empty workbook (0-byte PUT to /content)
     const uploadRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${folder.id}:/${workbookName}:/content`, {
       method: "PUT",
       headers: { Authorization: `Bearer ${token}` },
@@ -156,34 +139,26 @@ async function ensureWorkbook({ engagementId, classification }) {
     workbook = await uploadRes.json()
   }
 
-  // Try to create a sharing link per env preferences (anonymous by default)
   let webUrl = workbook.webUrl
   try {
     const linkRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${workbook.id}/createLink`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "edit", scope: "anonymous" }), // anyone can edit
+      body: JSON.stringify({ type: "edit", scope: "anonymous" }), 
     })
 
     if (linkRes.ok) {
       const linkJson = await linkRes.json()
       webUrl = linkJson.link?.webUrl || webUrl
     } else {
-      // Non-fatal; tenant policy can block anonymous/organization links
-      // const t = await linkRes.text(); console.warn("createLink failed:", t);
     }
   } catch {
-    // ignore non-fatal link creation errors
   }
 
   return { id: workbook.id, webUrl }
 }
 
-// Create or get a worksheet by name
-// Create or get a worksheet by name, ensuring it is the first sheet (index 0)
-// and avoiding creation of a second sheet.
 async function ensureWorksheet(token, driveItemId, worksheetName) {
-  // List all worksheets
   let res = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets`, {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -197,11 +172,9 @@ async function ensureWorksheet(token, driveItemId, worksheetName) {
     throw new Error("Workbook has no worksheets (unexpected).")
   }
 
-  // If a sheet with the desired name exists, ensure it's first (position 0) and return it
   const desired = all.find((w) => w.name === worksheetName)
   if (desired) {
     try {
-      // Move to position 0 if needed
       if (typeof desired.position === "number" && desired.position !== 0) {
         const moveRes = await fetch(
           `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets/${desired.id}`,
@@ -215,26 +188,19 @@ async function ensureWorksheet(token, driveItemId, worksheetName) {
           },
         )
         if (!moveRes.ok) {
-          // Non-fatal if move fails; we'll still write to it
-          /* const msg = await moveRes.text(); console.warn("Move sheet failed:", msg); */
         } else {
-          // Refresh desired (optional)
           desired.position = 0
         }
       }
     } catch {
-      /* ignore */
     }
     return desired
   }
 
-  // Otherwise, take the FIRST sheet and rename it to the desired name
   const first = all.find((w) => (typeof w.position === "number" ? w.position === 0 : true)) || all[0]
 
-  // If the first sheet already has the desired name, just return it
   if (first.name === worksheetName) return first
 
-  // Rename the first sheet to the desired name
   res = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets/${first.id}`, {
     method: "PATCH",
     headers: {
@@ -247,13 +213,10 @@ async function ensureWorksheet(token, driveItemId, worksheetName) {
     const t = await res.text()
     throw new Error(`Graph rename/move worksheet failed: ${res.status} ${t}`)
   }
-  // Return an object representing the now-renamed first sheet
   return { ...first, name: worksheetName, position: 0 }
 }
 
-// --- helpers for writing ranges ---
 function numberToColumnName(n) {
-  // 1 -> A, 2 -> B, ... 26 -> Z, 27 -> AA, ...
   let s = ""
   while (n > 0) {
     const r = (n - 1) % 26
@@ -280,12 +243,10 @@ function isIsoDateString(v) {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
 }
 
-// Overwrite a sheet’s content with a 2D array (A1 write) and apply formulas to "Final Balance"
 async function writeSheet({ driveItemId, worksheetName, values }) {
   const token = await getAccessToken()
   await ensureWorksheet(token, driveItemId, worksheetName)
 
-  // Normalize and range
   const { rows, cols, rect } = normalizeRect(values)
   if (rows === 0 || cols === 0) {
     await fetch(
@@ -308,7 +269,6 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
   const lastRow = rows
   const address = `A1:${lastCol}${lastRow}`
 
-  // 1) Clear then write values
   await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
       worksheetName,
@@ -343,7 +303,6 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
     )
   }
 
-  // 2) Apply formulas to "Final Balance" if header columns are present
   const header = (rect[0] || []).map((h) =>
     String(h || "")
       .trim()
@@ -356,15 +315,14 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
   const iFB = findCol("final balance")
 
   if (rows > 1 && iCY !== -1 && iAdj !== -1 && iFB !== -1) {
-    const cyCol = numberToColumnName(iCY + 1) // to A1-style
+    const cyCol = numberToColumnName(iCY + 1)
     const adjCol = numberToColumnName(iAdj + 1)
     const fbCol = numberToColumnName(iFB + 1)
 
-    const startRow = 2 // first data row
-    const endRow = rows // last data row
+    const startRow = 2 
+    const endRow = rows
     const formulaRange = `${fbCol}${startRow}:${fbCol}${endRow}`
 
-    // Build a 2D array of formulas matching the range size
     const formulas = []
     for (let r = startRow; r <= endRow; r++) {
       formulas.push([`=${cyCol}${r}+${adjCol}${r}`])
@@ -384,16 +342,13 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
       },
     )
 
-    // Non-fatal if formula patch fails (but log it)
     if (!formulaRes.ok) {
-      /* const msg = await formulaRes.text(); console.warn("Formula patch failed:", msg); */
     }
   }
 
   return true
 }
 
-// Read the sheet back (usedRange)
 async function readSheet({ driveItemId, worksheetName }) {
   const token = await getAccessToken()
   await ensureWorksheet(token, driveItemId, worksheetName)

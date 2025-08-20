@@ -25,7 +25,6 @@ const classificationSectionSchema = new mongoose.Schema(
   },
 )
 
-// Compound index for efficient queries
 classificationSectionSchema.index({ engagement: 1, classification: 1 }, { unique: true })
 
 module.exports = mongoose.model("ClassificationSection", classificationSectionSchema)

@@ -29,23 +29,19 @@ const ChecklistItemSchema = new Schema({
     type: Boolean, 
     default: false 
   },
-  // Field type determines the input type
   fieldType: {
     type: String,
     enum: ['checkbox', 'text', 'date', 'select'],
     default: 'checkbox'
   },
-  // For text field
   textValue: {
     type: String,
     default: ''
   },
-  // For date field
   dateValue: {
     type: Date,
     default: null
   },
-  // For select field
   selectValue: {
     type: String,
     default: ''
