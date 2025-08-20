@@ -1,4 +1,39 @@
 const { supabase } = require("../config/supabase")
+
+exports.deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.id
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" })
+    }
+
+    const { error: dbError } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("user_id", userId)
+
+    if (dbError) {
+      throw dbError
+    }
+
+    const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+
+    if (authError) {
+      throw authError
+    }
+
+    res.status(200).json({
+      message: "User deleted successfully",
+      userId: userId,
+    })
+  } catch (error) {
+    console.error("Error deleting user:", error)
+    res.status(500).json({
+      error: error.message || "Failed to delete user",
+    })
+  }
+}
+
 exports.createUser = async (req, res) => {
   try {
     const { email, password, name, companyName, companyNumber, industry, summary } = req.body
