@@ -1,24 +1,20 @@
-const router = require('express').Router();
-const pc = require('../controllers/procedureController');
-const { requireAuth, requireRole } = require('../middlewares/auth');
+const router = require("express").Router()
+const pc = require("../controllers/procedureController")
+const { requireAuth, requireRole } = require("../middlewares/auth")
 
-router.post(
-  '/',
-  requireAuth,
-  requireRole('employee'),
-  pc.seedProcedures
-);
+// Get procedure for engagement
+router.get("/:engagementId", requireAuth, pc.getProcedure)
 
-router.get(
-  '/engagement/:engagementId',
-  requireAuth,
-  pc.getProceduresByEngagement
-);
+// Create or update procedure
+router.post("/:engagementId", requireAuth, requireRole("employee"), pc.saveProcedure)
 
-router.patch(
-  '/:procedureId/tasks/:taskId',
-  requireAuth,
-  pc.updateTask
-);
+// Generate procedures (AI/Hybrid modes)
+router.post("/:engagementId/generate", requireAuth, requireRole("employee"), pc.generateProcedures)
 
-module.exports = router;
+// Update procedure status
+router.patch("/:engagementId/status", requireAuth, requireRole("employee"), pc.updateProcedureStatus)
+
+// Delete procedure
+router.delete("/:engagementId", requireAuth, requireRole("employee"), pc.deleteProcedure)
+
+module.exports = router
