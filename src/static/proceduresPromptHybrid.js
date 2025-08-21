@@ -191,6 +191,7 @@ You should enhance and customize the predefined procedures below based on the wo
 2. Add additional procedures based on the working papers and risks identified
 3. Remove any irrelevant procedures
 4. Ensure all procedures follow the ISA structure and JSON schema
+5. KEEP ALL THE EXISTING PRE-DEFINED PROCEDURES AND ADD NEW ONES IF THERE IS NEED
 
 Predefined Procedures: {predefinedProcedures}
 Client Profile: {clientProfile}
