@@ -1,0 +1,75 @@
+Date : 2025-08-21 15:53:07
+Directory : d:\Axtra Studios\Projects\Audit Portal\audit-backend
+Total : 40 files,  11449 codes, 91 comments, 891 blanks, all 12431 lines
+
+Languages
++------------+------------+------------+------------+------------+------------+
+| language   | files      | code       | comment    | blank      | total      |
++------------+------------+------------+------------+------------+------------+
+| JavaScript |         37 |      6,660 |         91 |        888 |      7,639 |
+| JSON       |          3 |      4,789 |          0 |          3 |      4,792 |
++------------+------------+------------+------------+------------+------------+
+
+Directories
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                              | files      | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                 |         40 |     11,449 |         91 |        891 |     12,431 |
+| . (Files)                                                                                         |          5 |      5,073 |         29 |         59 |      5,161 |
+| src                                                                                               |         35 |      6,376 |         62 |        832 |      7,270 |
+| src (Files)                                                                                       |          1 |         43 |          0 |          9 |         52 |
+| src\config                                                                                        |          4 |        124 |          0 |         41 |        165 |
+| src\controllers                                                                                   |          6 |      3,044 |         47 |        487 |      3,578 |
+| src\middlewares                                                                                   |          2 |         44 |          0 |         10 |         54 |
+| src\models                                                                                        |         10 |        374 |          2 |         47 |        423 |
+| src\routes                                                                                        |          6 |        186 |          5 |         40 |        231 |
+| src\services                                                                                      |          2 |        478 |          8 |         70 |        556 |
+| src\static                                                                                        |          4 |      2,083 |          0 |        128 |      2,211 |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| filename                                                                                          | language   | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\graphTest.js                                 | JavaScript |        187 |         15 |         37 |        239 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\msTest.js                                    | JavaScript |         90 |         13 |         16 |        119 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\package-lock.json                            | JSON       |      4,740 |          0 |          1 |      4,741 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\package.json                                 | JSON       |         36 |          0 |          1 |         37 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\config\checklist.js                      | JavaScript |         92 |          0 |         36 |        128 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\config\cloudkey.json                     | JSON       |         13 |          0 |          1 |         14 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\config\db.js                             | JavaScript |         14 |          0 |          1 |         15 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\config\supabase.js                       | JavaScript |          5 |          0 |          3 |          8 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\checklistController.js       | JavaScript |        687 |          0 |         47 |        734 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\documentRequestController.js | JavaScript |         86 |          0 |         15 |        101 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\engagementController.js      | JavaScript |      1,569 |          0 |        295 |      1,864 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\libcontroller.js             | JavaScript |        212 |          0 |         44 |        256 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\procedureController.js       | JavaScript |        326 |         35 |         65 |        426 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\controllers\userController.js            | JavaScript |        164 |         12 |         21 |        197 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\middlewares\auth.js                      | JavaScript |         40 |          0 |          8 |         48 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\middlewares\upload.js                    | JavaScript |          4 |          0 |          2 |          6 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\ChecklistItem.js                  | JavaScript |         55 |          0 |          3 |         58 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\ClassificationSection.js          | JavaScript |         27 |          0 |          4 |         31 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\DocumentRequest.js                | JavaScript |         21 |          0 |          3 |         24 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\Engagement.js                     | JavaScript |         43 |          1 |         10 |         54 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\EngagementLibrary.js              | JavaScript |          9 |          0 |          3 |         12 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\ExtendedTrialBalance.js           | JavaScript |         58 |          0 |          5 |         63 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\GlobalFolder.js                   | JavaScript |          9 |          0 |          3 |         12 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\Procedure.js                      | JavaScript |        104 |          1 |          8 |        113 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\TrialBalance.js                   | JavaScript |         23 |          0 |          3 |         26 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\models\WorkingPaper.js                   | JavaScript |         25 |          0 |          5 |         30 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\checklist.js                      | JavaScript |         14 |          0 |          4 |         18 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\documentRequests.js               | JavaScript |         27 |          0 |          6 |         33 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\engagements.js                    | JavaScript |        115 |          0 |         15 |        130 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\global-library.js                 | JavaScript |         14 |          0 |          5 |         19 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\procedures.js                     | JavaScript |          9 |          5 |          7 |         21 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\routes\users.js                          | JavaScript |          7 |          0 |          3 |         10 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\server.js                                | JavaScript |         43 |          0 |          9 |         52 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\services\googleSheetsService.js          | JavaScript |        147 |          8 |         25 |        180 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\services\microsoftExcelService.js        | JavaScript |        331 |          0 |         45 |        376 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\static\procedures.js                     | JavaScript |      1,585 |          0 |          1 |      1,586 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\static\proceduresPrompt.js               | JavaScript |        310 |          0 |         84 |        394 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\static\proceduresPromptHybrid.js         | JavaScript |        161 |          0 |         42 |        203 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\src\static\recommendationsPrompt.js          | JavaScript |         27 |          0 |          1 |         28 |
+| d:\Axtra Studios\Projects\Audit Portal\audit-backend\testscript.js                                | JavaScript |         20 |          1 |          4 |         25 |
+| Total                                                                                             |            |     11,449 |         91 |        891 |     12,431 |
++---------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+

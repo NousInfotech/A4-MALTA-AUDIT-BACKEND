@@ -1,4 +1,56 @@
-const mongoose = require("mongoose")
+// models/Procedure.js
+
+const mongoose = require("mongoose");
+
+const TestSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    label: { type: String, required: true },
+    assertions: [{ type: String, enum: ["EX", "CO", "VA", "RO", "PD"] }],
+    linkedRiskIds: [{ type: String }],
+    procedureType: {
+      type: String,
+      enum: ["Test of Controls", "Substantive Analytical Procedure", "Test of Details"],
+    },
+    threshold: { type: String, default: null },
+    population: { type: String, default: null },
+    sampleMethod: { type: String, default: null },
+    evidenceExpected: [{ type: String }],
+    notes: { type: String, default: null },
+    etbRefs: [{ type: String }],
+  },
+  { _id: false },
+);
+
+const LinkedRiskSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    text: { type: String, required: true },
+    rating: { type: String, enum: ["High", "Medium", "Low"], required: true },
+  },
+  { _id: false },
+);
+
+const ProcedureDetailSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    title: { type: String, required: true },
+    objective: { type: String, required: true },
+    assertions: [{ type: String, enum: ["EX", "CO", "VA", "RO", "PD"] }],
+    linkedRisks: [LinkedRiskSchema],
+    procedureType: {
+      type: String,
+      enum: ["Test of Controls", "Substantive Analytical Procedure", "Test of Details"],
+    },
+    tests: [TestSchema],
+    expectedResults: { type: String, required: true },
+    standards: {
+      isa: [{ type: String }],
+      gapsme: [{ type: String }],
+    },
+  },
+  { _id: false },
+);
 
 const ProcedureQuestionSchema = new mongoose.Schema(
   {
@@ -9,7 +61,7 @@ const ProcedureQuestionSchema = new mongoose.Schema(
     classification: { type: String, default: "" },
   },
   { _id: false },
-)
+);
 
 const ProcedureSchema = new mongoose.Schema(
   {
@@ -17,7 +69,7 @@ const ProcedureSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Engagement",
       required: true,
-      unique: true,
+      unique: true, // each engagement has at most one Procedure doc
     },
     mode: {
       type: String,
@@ -28,11 +80,7 @@ const ProcedureSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    selectedClassifications: [
-      {
-        type: String,
-      },
-    ],
+    selectedClassifications: [{ type: String }],
     validitySelections: [
       {
         rowId: String,
@@ -42,11 +90,9 @@ const ProcedureSchema = new mongoose.Schema(
         isValid: Boolean,
       },
     ],
+    procedures: [ProcedureDetailSchema],
     questions: [ProcedureQuestionSchema],
-    recommendations: {
-      type: String,
-      default: "",
-    },
+    recommendations: { type: String, default: "" },
     status: {
       type: String,
       enum: ["draft", "in-progress", "completed"],
@@ -60,11 +106,7 @@ const ProcedureSchema = new mongoose.Schema(
       },
     ],
   },
-  {
-    timestamps: true,
-  },
-)
+  { timestamps: true },
+);
 
-ProcedureSchema.index({ engagement: 1 })
-
-module.exports = mongoose.model("Procedure", ProcedureSchema)
+module.exports = mongoose.model("Procedure", ProcedureSchema);

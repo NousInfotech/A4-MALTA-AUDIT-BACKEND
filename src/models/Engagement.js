@@ -1,15 +1,12 @@
-const mongoose = require("mongoose")
-const { Schema, Types } = mongoose
+// models/Engagement.js
+
+const mongoose = require("mongoose");
+const { Schema, Types } = mongoose;
 
 const EngagementSchema = new Schema(
   {
-    excelURL:{
-      type: String,
-    },
-    clientId: {
-      type: String,
-      required: true,
-    },
+    excelURL: { type: String },
+    clientId: { type: String, required: true },
     title: { type: String, required: true },
     yearEndDate: { type: Date, required: true },
     status: {
@@ -32,24 +29,25 @@ const EngagementSchema = new Schema(
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
   },
-)
+);
 
 EngagementSchema.virtual("trialBalanceDoc", {
   ref: "TrialBalance",
   localField: "trialBalance",
   foreignField: "_id",
   justOne: true,
-})
+});
 
 EngagementSchema.virtual("documentRequests", {
   ref: "DocumentRequest",
   localField: "_id",
   foreignField: "engagement",
-})
+});
+
 EngagementSchema.virtual("procedures", {
   ref: "Procedure",
   localField: "_id",
   foreignField: "engagement",
-})
+});
 
-module.exports = mongoose.model("Engagement", EngagementSchema)
+module.exports = mongoose.model("Engagement", EngagementSchema);
