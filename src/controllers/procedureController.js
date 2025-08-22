@@ -302,7 +302,6 @@ exports.generateProcedures = async (req, res) => {
           .replace("{materiality}", String(materiality))
           .replace("{classification}", classification)
           .replace("{predefinedProcedures}", JSON.stringify(predefined));
-
         const aiResponse = await callOpenAI(prompt, { maxTokens: 4000 });
 
         // --- inside generateProcedures ---
@@ -384,14 +383,22 @@ try {
       recommendations = "Error generating recommendations. Please review procedures manually.";
     }
 
-    // Save final
-    procedure.procedures = allProcedures;
-    procedure.questions = allQuestions;
-    procedure.recommendations = recommendations;
-    procedure.status = "completed";
-    await procedure.save();
+    // Save final (avoid stale doc save / VersionError)
+const updated = await Procedure.findOneAndUpdate(
+  { engagement: engagementId },
+  {
+    $set: {
+      procedures: allProcedures,
+      questions: allQuestions,
+      recommendations,
+      status: "completed",
+    },
+  },
+  { new: true } // return the updated doc
+);
 
-    res.json({ procedure, processingResults });
+res.json({ procedure: updated, processingResults });
+
   } catch (error) {
     console.error("Error generating procedures:", error);
     res.status(500).json({ message: "Server error", error: error.message });
