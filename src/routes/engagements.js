@@ -110,10 +110,6 @@ router.post(
   ec.selectRowFromSheets
 );
 router.post(
-  "/:id/sections/:classification/working-papers/view-row",
-  ec.viewSelectedRow
-);
-router.post(
   "/:id/sections/:classification/working-papers/fetch-tabs",
   ec.fetchTabsFromSheets
 );
@@ -123,7 +119,7 @@ router.post(
 );
 router.post(
   "/:id/sections/:classification/working-papers/view-reference",
-  ec.viewSelectedReference
+  ec.viewSelectedFromDB
 );
 
 module.exports = router;

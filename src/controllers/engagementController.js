@@ -11,7 +11,33 @@ const mongoose = require("mongoose")
 const XLSX = require("xlsx")
 
 const EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  
+// utils/referenceHelpers.js
+function parseReference(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return { type: "none" };
+
+  const text = raw.trim();
+
+  // Format: Sheet:Sheet2   → whole sheet
+  if (text.startsWith("Sheet:")) {
+    const sheetName = text.slice("Sheet:".length).trim();
+    if (!sheetName) return { type: "none" };
+    return { type: "sheet", sheetName };
+  }
+
+  // Format: Sheet2 Row#3   → one row on a sheet
+  if (text.includes(" Row#")) {
+    const [sheetNameRaw, rowToken] = text.split(" Row#");
+    const sheetName = (sheetNameRaw || "").trim();
+    const rowIndex = Number.parseInt((rowToken || "").trim(), 10);
+    if (!sheetName || Number.isNaN(rowIndex) || rowIndex <= 0) {
+      return { type: "none" };
+    }
+    return { type: "row", sheetName, rowIndex };
+  }
+
+  return { type: "none" };
+}
+
 function etbRowsToAOA(rows) {
   const header = [
     "Code",
@@ -405,86 +431,44 @@ exports.selectTabFromSheets = async (req, res, next) => {
   }
 };
 
-exports.viewSelectedReference = async (req, res, next) => {
+exports.viewSelectedFromDB = async (req, res, next) => {
   try {
     const { id: engagementId, classification } = req.params;
     const { rowId } = req.body;
     const decodedClassification = decodeURIComponent(classification);
 
-    const section = await ClassificationSection.findOne({
+    const doc = await WorkingPaper.findOne({
       engagement: engagementId,
       classification: decodedClassification,
-    });
+    }).lean();
 
-    if (!section?.workingPapersId) {
-      return res.status(400).json({ message: "Working papers not initialized." });
-    }
+    if (!doc) return res.status(404).json({ message: "Working paper not found." });
 
-    const data = await readLeadSheet(section);
+    // rowId like "row-12"
     const idx = Number.parseInt(String(rowId).replace("row-", ""), 10);
-    const rowOnSheet = data[idx + 1]; 
-    if (!rowOnSheet) return res.status(404).json({ message: "Row not found." });
-
-    const referenceCell = rowOnSheet[6] || "";
-
-    if (typeof referenceCell === "string" && referenceCell.startsWith("Sheet:")) {
-      const sheetName = referenceCell.replace("Sheet:", "").trim();
-      const full = await msExcel.readSheet({
-        driveItemId: section.workingPapersId,
-        worksheetName: sheetName,
-      });
-
-      return res.json({
-        type: "sheet",
-        sheet: {
-          sheetName,
-          data: Array.isArray(full) ? full : [],
-        },
-        leadSheetRow: {
-          code: rowOnSheet[0] || "",
-          accountName: rowOnSheet[1] || "",
-          currentYear: Number(rowOnSheet[2]) || 0,
-          priorYear: Number(rowOnSheet[3]) || 0,
-          adjustments: Number(rowOnSheet[4]) || 0,
-          finalBalance: Number(rowOnSheet[5]) || 0,
-        },
-      });
+    if (Number.isNaN(idx) || idx < 0 || idx >= doc.rows.length) {
+      return res.status(404).json({ message: "Row not found." });
     }
 
-    if (typeof referenceCell === "string" && referenceCell.includes(" Row#")) {
-      const [sheetNameRaw, rowToken] = referenceCell.split(" Row#");
-      const sheetName = sheetNameRaw.trim();
-      const rowIndex = Number.parseInt(rowToken, 10);
+    const r = doc.rows[idx];
 
-      const sheetData = await msExcel.readSheet({
-        driveItemId: section.workingPapersId,
-        worksheetName: sheetName,
-      });
-
-      const target = sheetData[rowIndex - 1] || []; 
-      return res.json({
-        type: "row",
-        reference: {
-          sheetName,
-          rowIndex,
-          data: target,
-        },
-        leadSheetRow: {
-          code: rowOnSheet[0] || "",
-          accountName: rowOnSheet[1] || "",
-          currentYear: Number(rowOnSheet[2]) || 0,
-          priorYear: Number(rowOnSheet[3]) || 0,
-          adjustments: Number(rowOnSheet[4]) || 0,
-          finalBalance: Number(rowOnSheet[5]) || 0,
-        },
-      });
-    }
-
-    return res.status(404).json({ message: "No reference set for this row." });
+    return res.json({
+      leadSheetRow: {
+        code: r.code || "",
+        accountName: r.accountName || "",
+        currentYear: Number(r.currentYear) || 0,
+        priorYear: Number(r.priorYear) || 0,
+        adjustments: Number(r.adjustments) || 0,
+        finalBalance: Number(r.finalBalance) || 0,
+      },
+      reference: r.reference || "",
+      referenceData: r.referenceData || "",   // <- hydrated at save time
+    });
   } catch (err) {
     next(err);
   }
 };
+
 async function removeExistingLibraryResource(engagementId, category) {
   const existing = await EngagementLibrary.find({
     engagement: engagementId,
@@ -1738,103 +1722,123 @@ exports.selectRowFromSheets = async (req, res, next) => {
   }
 }
 
-exports.viewSelectedRow = async (req, res, next) => {
-  try {
-    const { id: engagementId, classification } = req.params
-    const { rowId } = req.body
-    const decodedClassification = decodeURIComponent(classification)
-
-    const ClassificationSection = require("../models/ClassificationSection")
-    const section = await ClassificationSection.findOne({
-      engagement: engagementId,
-      classification: decodedClassification,
-    })
-
-    if (!section?.workingPapersId) {
-      return res.status(400).json({
-        message: "Working papers not initialized.",
-      })
-    }
-
-    const msExcel = require("../services/microsoftExcelService")
-    const worksheetName = "Sheet1"
-
-    const data = await msExcel.readSheet({
-      driveItemId: section.workingPapersId,
-      worksheetName: worksheetName,
-    })
-
-    const targetRowIndex = Number.parseInt(rowId.replace("row-", ""))+1 
-    if (targetRowIndex >= data.length) {
-      return res.status(404).json({ message: "Row not found" })
-    }
-
-    const targetRow = data[targetRowIndex]
-    const reference = targetRow[6] 
-
-    if (!reference || !reference.includes(" Row#")) {
-      return res.status(404).json({ message: "No reference found for this row" })
-    }
-
-    const [sheetName, rowNumber] = reference.split(" Row#")
-
-    try {
-      const referencedSheetData = await msExcel.readSheet({
-        driveItemId: section.workingPapersId,
-        worksheetName: sheetName,
-      })
-
-      const referencedRowIndex = Number.parseInt(rowNumber) - 1 
-      if (referencedRowIndex >= 0 && referencedRowIndex < referencedSheetData.length) {
-        const referencedRow = referencedSheetData[referencedRowIndex]
-
-        return res.json({
-          reference: {
-            sheetName,
-            rowIndex: Number.parseInt(rowNumber),
-            data: referencedRow,
-          },
-          leadSheetRow: {
-            code: targetRow[0],
-            accountName: targetRow[1],
-            currentYear: targetRow[2],
-            priorYear: targetRow[3],
-            adjustments: targetRow[4],
-            finalBalance: targetRow[5],
-          },
-        })
-      } else {
-        return res.status(404).json({ message: "Referenced row not found" })
-      }
-    } catch (error) {
-      console.error("Error reading referenced sheet:", error)
-      return res.status(500).json({ message: "Error reading referenced data" })
-    }
-  } catch (err) {
-    next(err)
-  }
-}
 exports.saveWorkingPaperToDB = async (req, res, next) => {
   try {
     const { id: engagementId, classification } = req.params;
     const { rows } = req.body;
     const decodedClassification = decodeURIComponent(classification);
 
-    const cleaned = Array.isArray(rows) ? rows.map((r) => ({
-      id: r.id || "",
-      code: r.code || "",
-      accountName: r.accountName || "",
-      currentYear: Number(r.currentYear) || 0,
-      priorYear: Number(r.priorYear) || 0,
-      adjustments: Number(r.adjustments) || 0,
-      finalBalance: Number(r.finalBalance) || 0,
-      classification: decodedClassification,
-      reference: r.reference ?? "",
-    })) : [];
+    // 1) Basic clean (keep reference string for later hydration)
+    const cleaned = Array.isArray(rows)
+      ? rows.map((r) => ({
+          id: r.id || "",
+          code: r.code || "",
+          accountName: r.accountName || "",
+          currentYear: Number(r.currentYear) || 0,
+          priorYear: Number(r.priorYear) || 0,
+          adjustments: Number(r.adjustments) || 0,
+          finalBalance: Number(r.finalBalance) || 0,
+          classification: decodedClassification,
+          reference: r.reference ?? "",
+          referenceData: "",         // temp; will hydrate below
+        }))
+      : [];
 
+    // If there are no references, upsert immediately
+    const anyHasReference = cleaned.some((r) => typeof r.reference === "string" && r.reference.trim());
+    if (!anyHasReference) {
+      const doc = await WorkingPaper.findOneAndUpdate(
+        { engagement: engagementId, classification: decodedClassification },
+        { rows: cleaned },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+      return res.json({ rows: doc.rows });
+    }
+
+    // 2) Resolve working papers location to read referenced sheets once
+    const section = await ClassificationSection.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    // If we can't read from Excel now, still save rows without referenceData
+    if (!section?.workingPapersId) {
+      const doc = await WorkingPaper.findOneAndUpdate(
+        { engagement: engagementId, classification: decodedClassification },
+        { rows: cleaned },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+      return res.json({
+        rows: doc.rows,
+        note: "Working papers not initialized; referenceData left empty.",
+      });
+    }
+
+    const driveItemId = section.workingPapersId;
+
+    // 3) Collect distinct sheets to load (for both 'sheet' and 'row' refs)
+    const sheetNeeds = new Set();
+    const parsedRefs = cleaned.map((r) => parseReference(r.reference));
+    parsedRefs.forEach((p) => {
+      if ((p.type === "sheet" || p.type === "row") && p.sheetName) {
+        sheetNeeds.add(p.sheetName);
+      }
+    });
+
+    // 4) Load each needed sheet once
+    const sheetCache = Object.create(null); // { [sheetName]: [][] }
+    for (const sheetName of sheetNeeds) {
+      try {
+        const data = await msExcel.readSheet({ driveItemId, worksheetName: sheetName });
+        sheetCache[sheetName] = Array.isArray(data) ? data : [];
+      } catch (e) {
+        // If a sheet fails to load, mark as empty to avoid throwing the whole save
+        sheetCache[sheetName] = [];
+      }
+    }
+
+    // 5) Hydrate referenceData for each row
+    const hydrated = cleaned.map((row, idx) => {
+      const pref = parsedRefs[idx];
+
+      if (pref.type === "sheet") {
+        const full = sheetCache[pref.sheetName] || [];
+        return {
+          ...row,
+          referenceData: {
+            type: "sheet",
+            sheet: {
+              sheetName: pref.sheetName,
+              data: full,
+            },
+          },
+        };
+      }
+
+      if (pref.type === "row") {
+        const full = sheetCache[pref.sheetName] || [];
+        const target = full[pref.rowIndex - 1] || [];
+        return {
+          ...row,
+          referenceData: {
+            type: "row",
+            reference: {
+              sheetName: pref.sheetName,
+              rowIndex: pref.rowIndex,
+              data: target,
+            },
+          },
+        };
+      }
+
+      // No/invalid reference
+      return { ...row, referenceData: "" };
+    });
+
+    // 6) Upsert with hydrated rows
     const doc = await WorkingPaper.findOneAndUpdate(
       { engagement: engagementId, classification: decodedClassification },
-      { rows: cleaned },
+      { rows: hydrated },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 

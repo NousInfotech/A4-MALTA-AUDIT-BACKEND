@@ -11,6 +11,7 @@ const WorkingPaperRowSchema = new mongoose.Schema(
     finalBalance: { type: Number, default: 0 },
     classification: { type: String, default: "" },
     reference: { type: mongoose.Schema.Types.Mixed, default: "" },
+    referenceData: { type: mongoose.Schema.Types.Mixed, default: "" },
   },
   { _id: false }
 );
