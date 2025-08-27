@@ -11,6 +11,7 @@ const { requireAuth, requireRole } = require("./middlewares/auth");
 const { supabase } = require("./config/supabase");
 const usersRoutes = require("./routes/users");
 const checklistRoutes = require("./routes/checklist");
+const bodyParser = require("body-parser");
 const globalRoutes = require("./routes/global-library");
 const app = express();
 
@@ -30,6 +31,9 @@ app.set("io", io);
 app.use(cors());
 connectDB();
 app.use(express.json());
+app.use("/api/planning-procedures", require("./routes/planningProcedures"));
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use("/api/checklist", checklistRoutes);
 app.use("/api/global-library", globalRoutes);

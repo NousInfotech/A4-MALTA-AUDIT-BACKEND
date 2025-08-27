@@ -175,7 +175,7 @@ exports.generateProcedures = async (req, res) => {
     // Client profile (Supabase)
     const { data: clientProfile, error: profileError } = await supabase
       .from("profiles")
-      .select("*")
+      .select("company_summary,industry")
       .eq("user_id", engagement.clientId)
       .single();
     if (profileError) {
