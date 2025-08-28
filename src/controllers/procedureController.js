@@ -23,7 +23,6 @@ const openai = new OpenAI({
 // ---------- Robust JSON parsing helper ----------
 async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
   if (typeof raw !== "string") raw = String(raw ?? "");
-
   let cleaned = raw.trim();
 
   // unwrap fenced blocks
@@ -50,9 +49,7 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");
 
   // 1) Plain JSON
-  try {
-    return JSON.parse(cleaned);
-  } catch {}
+  try { return JSON.parse(cleaned); } catch {}
 
   // 2) jsonrepair
   try {
@@ -61,9 +58,7 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
   } catch {}
 
   // 3) JSON5
-  try {
-    return JSON5.parse(cleaned);
-  } catch {}
+  try { return JSON5.parse(cleaned); } catch {}
 
   // 4) Strip comments + trailing commas
   try {
@@ -84,13 +79,10 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
     });
 
     const candidate = (response.choices?.[0]?.message?.content || "").trim();
-
-    // unwrap fences if present
     let jsonCandidate = candidate;
     if (jsonCandidate.startsWith("```")) {
       jsonCandidate = jsonCandidate.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
     }
-
     return JSON.parse(jsonCandidate);
   } catch (err) {
     console.error(`[robustParseJSON:${debugLabel}] Failed to repair JSON`, err);
@@ -98,28 +90,82 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
   }
 }
 
-// ---------- Helper to call OpenAI ----------
-async function callOpenAI(prompt, { maxTokens = 4000 } = {}) {
+// ---------- OpenAI wrapper (returns { content, usage, model }) ----------
+async function callOpenAI(
+  prompt,
+  { maxTokens = 4000, model = process.env.OPENAI_MODEL || "gpt-4o", temperature = 0.2 } = {}
+) {
   try {
+    console.log("prompt " + prompt);
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model,
       messages: [
         {
           role: "system",
-          content:
-            "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested.",
+          content: "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested.",
         },
         { role: "user", content: prompt },
       ],
       max_tokens: maxTokens,
-      temperature: 0.3,
+      temperature,
     });
-
-    return response.choices[0].message.content;
+    return { content: response.choices[0].message.content, usage: response.usage, model };
   } catch (error) {
-    console.error("OpenAI API error:", error);
-    throw new Error(`AI processing failed: ${error.message}`);
+    const enriched = Object.assign(new Error(`AI processing failed: ${error.message}`), {
+      status: error?.status,
+      code: error?.code || error?.error?.code,
+      type: error?.type || error?.error?.type,
+      headers: error?.headers || error?.response?.headers,
+      response: error?.response,
+    });
+    console.error("OpenAI API error:", enriched);
+    throw enriched;
   }
+}
+
+// ---------- Rate-limit / retry helpers ----------
+const SLEEP_BETWEEN_CALLS_MS = Number(process.env.OPENAI_CALL_DELAY_MS || 1500);
+const MAX_RETRIES = Number(process.env.OPENAI_MAX_RETRIES || 3);
+const BASE_BACKOFF_MS = Number(process.env.OPENAI_BASE_BACKOFF_MS || 800);
+const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || "gpt-4o-mini";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function isRetryable(err) {
+  const s = err?.status;
+  const code = (err?.code || "").toLowerCase();
+  // Retry 429 (rate limit) and 5xx; DO NOT retry insufficient_quota
+  if (code === "insufficient_quota") return false;
+  if (s === 429) return true;
+  if (s >= 500 && s < 600) return true;
+  return false;
+}
+
+async function callOpenAIRetry(makeCall, { maxRetries = MAX_RETRIES, baseMs = BASE_BACKOFF_MS } = {}) {
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await makeCall();
+    } catch (err) {
+      if (!isRetryable(err) || attempt >= maxRetries) throw err;
+      const retryAfterHeader = err?.headers?.["retry-after"] || err?.response?.headers?.["retry-after"];
+      const wait = retryAfterHeader
+        ? Number(retryAfterHeader) * 1000
+        : Math.round(baseMs * Math.pow(2, attempt) * (0.8 + Math.random() * 0.6));
+      console.warn(`Rate/server limit hit (attempt ${attempt + 1}/${maxRetries}). Backing off for ${wait}ms...`);
+      await sleep(wait);
+      attempt++;
+    }
+  }
+}
+
+// ---------- Small helper to mark AI status ----------
+async function markAIStatus(engagementId, classification, status, error = null) {
+  await Procedure.findOneAndUpdate(
+    { engagement: engagementId, "aiProcessingStatus.classification": classification },
+    { $set: { "aiProcessingStatus.$.status": status, "aiProcessingStatus.$.error": error } }
+  );
 }
 
 // ---------- Controllers ----------
@@ -129,11 +175,7 @@ exports.getProcedure = async (req, res) => {
   try {
     const { engagementId } = req.params;
     const procedure = await Procedure.findOne({ engagement: engagementId });
-
-    if (!procedure) {
-      return res.status(404).json({ message: "Procedure not found" });
-    }
-
+    if (!procedure) return res.status(404).json({ message: "Procedure not found" });
     res.json(procedure);
   } catch (error) {
     console.error("Error fetching procedure:", error);
@@ -150,7 +192,7 @@ exports.saveProcedure = async (req, res) => {
     const procedure = await Procedure.findOneAndUpdate(
       { engagement: engagementId },
       { ...procedureData, engagement: engagementId },
-      { upsert: true, new: true },
+      { upsert: true, new: true }
     );
 
     res.json(procedure);
@@ -166,11 +208,8 @@ exports.generateProcedures = async (req, res) => {
     const { engagementId } = req.params;
     const { mode, materiality, selectedClassifications = [], validitySelections = [] } = req.body;
 
-    // Engagement
     const engagement = await Engagement.findById(engagementId);
-    if (!engagement) {
-      return res.status(404).json({ message: "Engagement not found" });
-    }
+    if (!engagement) return res.status(404).json({ message: "Engagement not found" });
 
     // Client profile (Supabase)
     const { data: clientProfile, error: profileError } = await supabase
@@ -178,9 +217,7 @@ exports.generateProcedures = async (req, res) => {
       .select("company_summary,industry")
       .eq("user_id", engagement.clientId)
       .single();
-    if (profileError) {
-      console.error("Error fetching client profile:", profileError);
-    }
+    if (profileError) console.error("Error fetching client profile:", profileError);
 
     // ETB for selected classifications
     const etbData = await ExtendedTrialBalance.find({
@@ -188,8 +225,8 @@ exports.generateProcedures = async (req, res) => {
       classification: { $in: selectedClassifications },
     });
 
-    // Procedure shell doc / upsert
-    const procedure = await Procedure.findOneAndUpdate(
+    // Upsert shell doc
+    let procedure = await Procedure.findOneAndUpdate(
       { engagement: engagementId },
       {
         engagement: engagementId,
@@ -203,7 +240,7 @@ exports.generateProcedures = async (req, res) => {
             ? selectedClassifications.map((c) => ({ classification: c, status: "queued" }))
             : [],
       },
-      { upsert: true, new: true },
+      { upsert: true, new: true }
     );
 
     // ---------- Manual path ----------
@@ -211,9 +248,7 @@ exports.generateProcedures = async (req, res) => {
       const procedures = [];
       const questions = [];
       for (const classification of selectedClassifications) {
-        const classificationProcedures =
-          staticProcedures[classification] || staticProcedures.default || [];
-
+        const classificationProcedures = staticProcedures[classification] || staticProcedures.default || [];
         const detail = {
           id: `manual-${classification}-${Date.now()}`,
           title: `Manual Procedures for ${classification}`,
@@ -237,10 +272,8 @@ exports.generateProcedures = async (req, res) => {
           expectedResults: "All tests should provide sufficient appropriate audit evidence.",
           standards: { isa: ["ISA 500"], gapsme: [] },
         };
-
         procedures.push(detail);
 
-        // questions for backward compatibility
         classificationProcedures.forEach((proc, i) => {
           questions.push({
             id: `${classification}-q-${i + 1}`,
@@ -257,148 +290,184 @@ exports.generateProcedures = async (req, res) => {
       procedure.recommendations = "";
       procedure.status = "completed";
       await procedure.save();
-
       return res.json(procedure);
     }
 
-    // ---------- AI / Hybrid paths ----------
+    // ---------- AI / Hybrid paths (rate-limited; one-by-one with fallback & backoff) ----------
     const allProcedures = [];
     const allQuestions = [];
     const processingResults = [];
 
-    for (const classification of selectedClassifications) {
-      try {
-        // status -> loading
-        await Procedure.findOneAndUpdate(
-          { engagement: engagementId, "aiProcessingStatus.classification": classification },
-          { $set: { "aiProcessingStatus.$.status": "loading" } },
-        );
+    // Resume support: skip classifications already completed
+    const already = new Map((procedure.aiProcessingStatus || []).map((s) => [s.classification, s.status]));
+    const toProcess = selectedClassifications.filter((c) => already.get(c) !== "completed");
 
-        // working paper for classification
-        const workingPaper = await WorkingPaper.findOne({
-          engagement: engagementId,
-          classification,
-        });
+    let abortFurther = false;
 
-        const classificationETB = etbData.filter((etb) => etb.classification === classification);
+    for (const classification of toProcess) {
+      if (abortFurther) break;
 
-        // prepare prompt
-        let prompt;
-        let predefined = [];
+      // mark loading
+      await markAIStatus(engagementId, classification, "loading", null);
 
-        if (mode === "ai") {
-          prompt = proceduresPrompt[classification] || proceduresPrompt.default;
-        } else {
-          // hybrid
-          prompt = proceduresPromptHybrid[classification] || proceduresPromptHybrid.default;
-          predefined = staticProcedures[classification] || staticProcedures.default || [];
+      const doOne = async () => {
+        try {
+          const workingPaper = await WorkingPaper.findOne({ engagement: engagementId, classification });
+          const classificationETB = etbData.filter((etb) => etb.classification === classification);
+
+          // select prompt (AI vs Hybrid)
+          let prompt;
+          let predefined = [];
+          if (mode === "ai") {
+            prompt = proceduresPrompt[classification] || proceduresPrompt.default;
+          } else {
+            prompt = proceduresPromptHybrid[classification] || proceduresPromptHybrid.default;
+            predefined = staticProcedures[classification] || staticProcedures.default || [];
+          }
+
+          // hydrate prompt
+          prompt = String(prompt)
+            .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+            .replace("{workingPapers}", JSON.stringify(workingPaper?.rows || []))
+            .replace("{etbData}", JSON.stringify(classificationETB || []))
+            .replace("{materiality}", String(materiality))
+            .replace("{classification}", classification)
+            .replace("{predefinedProcedures}", JSON.stringify(predefined));
+
+          // Primary model with retry/backoff for rate/5xx
+          let ai;
+          try {
+            ai = await callOpenAIRetry(
+              () => callOpenAI(prompt, { maxTokens: 3600, temperature: 0.2, model: process.env.OPENAI_MODEL || "gpt-4o" }),
+              { maxRetries: MAX_RETRIES, baseMs: BASE_BACKOFF_MS }
+            );
+          } catch (err) {
+            if ((err?.code || "").toLowerCase() === "insufficient_quota") {
+              console.warn("Primary model quota exceeded. Trying fallback model:", FALLBACK_MODEL);
+              try {
+                ai = await callOpenAIRetry(
+                  () => callOpenAI(prompt, { maxTokens: 3200, temperature: 0.2, model: FALLBACK_MODEL }),
+                  { maxRetries: 1, baseMs: BASE_BACKOFF_MS }
+                );
+              } catch (err2) {
+                if ((err2?.code || "").toLowerCase() === "insufficient_quota") {
+                  // mark classification and abort entire run
+                  await markAIStatus(
+                    engagementId,
+                    classification,
+                    "quota-exceeded",
+                    "OpenAI insufficient_quota on both primary and fallback models"
+                  );
+                  processingResults.push({ classification, status: "quota-exceeded", error: "insufficient_quota" });
+                  // Signal caller to abort further classifications
+                  abortFurther = true;
+                  return;
+                }
+                // other error after fallback -> propagate
+                throw err2;
+              }
+            } else {
+              // non-quota error after retries -> propagate
+              throw err;
+            }
+          }
+
+          if (!ai) {
+            await markAIStatus(engagementId, classification, "error", "No AI response (unknown)");
+            processingResults.push({ classification, status: "error", error: "no_response" });
+            return;
+          }
+
+          const content = ai.content;
+
+          // parse content
+          const parsed = await robustParseJSON(content, openai, { debugLabel: `procedures_${classification}` });
+
+          // Normalize procedures whether nested or flat
+          const parsedProcedures = parsed?.procedures?.procedures || parsed?.procedures || [];
+
+          if (Array.isArray(parsedProcedures) && parsedProcedures.length > 0) {
+            parsedProcedures.forEach((p) => {
+              p.tests = Array.isArray(p.tests) ? p.tests : [];
+              p.assertions = Array.isArray(p.assertions) ? p.assertions : [];
+              p.linkedRisks = Array.isArray(p.linkedRisks) ? p.linkedRisks : [];
+              p.standards = p.standards || { isa: [], gapsme: [] };
+            });
+
+            allProcedures.push(...parsedProcedures);
+
+            parsedProcedures.forEach((proc, i) => {
+              allQuestions.push({
+                id: `${classification}-${Date.now()}-${i + 1}`,
+                question: proc.title || `Procedure ${i + 1}`,
+                answer: proc.objective || parsed?.narrative || "",
+                classification,
+                procedure: proc,
+              });
+            });
+          } else {
+            console.warn(`⚠️ No procedures parsed for classification ${classification}`, parsed);
+          }
+
+          await markAIStatus(engagementId, classification, "completed", null);
+          processingResults.push({ classification, status: "completed" });
+        } catch (error) {
+          console.error(`Error processing classification ${classification}:`, error);
+          await markAIStatus(engagementId, classification, "error", error.message);
+          processingResults.push({ classification, status: "error", error: error.message });
         }
+      };
 
-        // hydrate prompt
-        prompt = String(prompt)
-          .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
-          .replace("{workingPapers}", JSON.stringify(workingPaper?.rows || []))
-          .replace("{etbData}", JSON.stringify(classificationETB || []))
-          .replace("{materiality}", String(materiality))
-          .replace("{classification}", classification)
-          .replace("{predefinedProcedures}", JSON.stringify(predefined));
-        const aiResponse = await callOpenAI(prompt, { maxTokens: 4000 });
+      await doOne();
 
-        // --- inside generateProcedures ---
-try {
-  const parsed = await robustParseJSON(aiResponse, openai, {
-    debugLabel: `procedures_${classification}`,
-  });
-
-  // Normalize procedures whether nested or flat
-  const parsedProcedures =
-    parsed?.procedures?.procedures || parsed?.procedures || [];
-
-  if (Array.isArray(parsedProcedures) && parsedProcedures.length > 0) {
-    allProcedures.push(...parsedProcedures);
-
-    parsedProcedures.forEach((proc, i) => {
-      allQuestions.push({
-        id: `${classification}-${i + 1}`,
-        question: proc.title || `Procedure ${i + 1}`,
-        // fallback to proc.objective instead of parsed.narrative
-        answer: proc.objective || parsed?.narrative || "",
-        classification,
-        procedure: proc,
-      });
-    });
-  } else {
-    console.warn(
-      `⚠️ No procedures parsed for classification ${classification}`,
-      parsed
-    );
-  }
-} catch (err) {
-  console.error("Error parsing AI response", err);
-}
-
-
-        // status -> completed
-        await Procedure.findOneAndUpdate(
-          { engagement: engagementId, "aiProcessingStatus.classification": classification },
-          { $set: { "aiProcessingStatus.$.status": "completed" } },
-        );
-
-        processingResults.push({ classification, status: "completed" });
-      } catch (error) {
-        console.error(`Error processing classification ${classification}:`, error);
-
-        await Procedure.findOneAndUpdate(
-          { engagement: engagementId, "aiProcessingStatus.classification": classification },
-          {
-            $set: {
-              "aiProcessingStatus.$.status": "error",
-              "aiProcessingStatus.$.error": error.message,
-            },
-          },
-        );
-
-        processingResults.push({ classification, status: "error", error: error.message });
+      // spacing delay between calls (unless we aborted)
+      if (!abortFurther && SLEEP_BETWEEN_CALLS_MS > 0) {
+        await sleep(SLEEP_BETWEEN_CALLS_MS);
       }
     }
 
-    // Recommendations
+    // Recommendations (single pass; skip if run aborted before any questions)
     let recommendations = "";
     try {
       if (allQuestions.length > 0) {
-        const proceduresAndFindings = allQuestions
-          .map((q) => `${q.question}: ${q.answer}`)
-          .join("\n");
-
+        const proceduresAndFindings = allQuestions.map((q) => `${q.question}: ${q.answer}`).join("\n");
         const recPrompt = String(recommendationsPrompt)
           .replace("{proceduresAndFindings}", proceduresAndFindings)
           .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
           .replace("{etbData}", JSON.stringify(etbData || []))
           .replace("{materiality}", String(materiality));
 
-        recommendations = await callOpenAI(recPrompt, { maxTokens: 2000 });
+        try {
+          const { content: recContent } = await callOpenAI(recPrompt, { maxTokens: 2000, temperature: 0.2 });
+          recommendations = recContent;
+        } catch (err) {
+          if ((err?.code || "").toLowerCase() === "insufficient_quota") {
+            recommendations = "Recommendations not generated due to model quota limits.";
+          } else {
+            throw err;
+          }
+        }
       }
     } catch (error) {
       console.error("Error generating recommendations:", error);
       recommendations = "Error generating recommendations. Please review procedures manually.";
     }
 
-    // Save final (avoid stale doc save / VersionError)
-const updated = await Procedure.findOneAndUpdate(
-  { engagement: engagementId },
-  {
-    $set: {
-      procedures: allProcedures,
-      questions: allQuestions,
-      recommendations,
-      status: "completed",
-    },
-  },
-  { new: true } // return the updated doc
-);
+    // Save final
+    const updated = await Procedure.findOneAndUpdate(
+      { engagement: engagementId },
+      {
+        $set: {
+          procedures: allProcedures,
+          questions: allQuestions,
+          recommendations,
+          status: "completed",
+        },
+      },
+      { new: true }
+    );
 
-res.json({ procedure: updated, processingResults });
-
+    res.json({ procedure: updated, processingResults });
   } catch (error) {
     console.error("Error generating procedures:", error);
     res.status(500).json({ message: "Server error", error: error.message });
@@ -414,7 +483,7 @@ exports.updateProcedureStatus = async (req, res) => {
     const procedure = await Procedure.findOneAndUpdate(
       { engagement: engagementId },
       { status },
-      { new: true },
+      { new: true }
     );
 
     if (!procedure) {
@@ -434,7 +503,6 @@ exports.deleteProcedure = async (req, res) => {
     const { engagementId } = req.params;
 
     const procedure = await Procedure.findOneAndDelete({ engagement: engagementId });
-
     if (!procedure) {
       return res.status(404).json({ message: "Procedure not found" });
     }

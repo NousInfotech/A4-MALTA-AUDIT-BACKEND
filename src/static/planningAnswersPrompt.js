@@ -1,29 +1,42 @@
 // static/planningAnswersPrompt.js
 module.exports = `
-You are an expert audit planner. Return ONLY VALID JSON following the schema below.
+You are an expert audit planner.
 
-CONTEXT
-- Client Profile: {clientProfile}
+RETURN FORMAT:
+Return ONLY valid JSON. No prose, no code fences.
+
+INPUT CONTEXT:
+- Client Profile JSON: {clientProfile}
 - Materiality (numeric): {materiality}
 - Extended Trial Balance rows (array): {etbRows}
-- Current Planning Procedures (from Step-1) — with fields/questions but NO answers: {proceduresNoAnswers}
+- Procedures subset to answer (array, with sections and their fields, no answers): {proceduresSubset}
 
-TASK (Step-2)
-- Fill ONLY the 'answer' for each field while preserving ALL original field keys & metadata.
-- Respect field types:
-  - text/textarea: strings
+TASK:
+For EACH section in the provided subset, produce answers ONLY.
+- Do NOT restate labels/help/options/content/etc.
+- Do NOT add or remove fields.
+- Preserve original field "key" identity; provide only "answer" for each.
+- If information is insufficient, use conservative, professional defaults and explicitly say "None" / "Not applicable" / false / [] / 0 as appropriate.
+- Respect types:
+  - text/textarea: string
   - checkbox: boolean
-  - multiselect: array of strings from 'options'
-  - number/currency: numbers
-  - table: array of row objects keyed by 'columns'
-  - group: object of { childKey: boolean | string } as appropriate
-- The answers MUST be consistent with ETB rows & materiality. Use reasonable professional defaults if insufficient data, but remain generic & safe.
-- NEVER change keys or labels; do not delete fields.
-- If 'visibleIf' would hide a field, you may still provide a reasonable default answer.
+  - multiselect: string[]
+  - number/currency: number
+  - table: array of row objects with keys exactly matching the provided "columns"
+  - group: object of { childKey: boolean|string|number } for the defined child fields
+- You MAY provide answers for fields that would be hidden by visibleIf.
+- Answers must be self-consistent with materiality and ETB; avoid specificity you cannot support.
 
-RETURN JSON (and only JSON):
+OUTPUT JSON SCHEMA (answers only):
 {
-  "procedures": [ { ...same structure but every field now also has "answer": <value> ... } ],
-  "recommendations": "bullet-style or short paragraphs with planning insights"
+  "procedures": [
+    {
+      "sectionId": "same-section-id",
+      "fields": [
+        { "key": "field_key_1", "answer": <typed_value> },
+        { "key": "field_key_2", "answer": <typed_value> }
+      ]
+    }
+  ]
 }
 `;
