@@ -56,7 +56,17 @@ const normalize = (raw) => {
 const OpenAI = require("openai");
 const { jsonrepair } = require("jsonrepair");
 const JSON5 = require("json5");
-const stripJsonComments = require("strip-json-comments");
+async function loadStripJsonComments() {
+  const stripJsonComments = (await import('strip-json-comments')).default;
+
+  // Now you can use stripJsonComments
+  const jsonString = '{"key": "value"}';  // Example JSON
+  const cleanedJson = stripJsonComments(jsonString);
+  console.log(cleanedJson);  // Should output cleaned JSON without comments
+}
+
+loadStripJsonComments();
+
 
 // ---------- OpenAI client (same pattern as fieldwork controller) ----------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

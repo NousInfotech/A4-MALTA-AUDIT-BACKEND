@@ -13,7 +13,17 @@ const { supabase } = require("../config/supabase");
 const OpenAI = require("openai");
 const { jsonrepair } = require("jsonrepair");
 const JSON5 = require("json5");
-const stripJsonComments = require("strip-json-comments");
+async function loadStripJsonComments() {
+  const stripJsonComments = (await import('strip-json-comments')).default;
+
+  // Now you can use stripJsonComments
+  const jsonString = '{"key": "value"}';  // Example JSON
+  const cleanedJson = stripJsonComments(jsonString);
+  console.log(cleanedJson);  // Should output cleaned JSON without comments
+}
+
+loadStripJsonComments();
+
 
 // ---------- OpenAI client ----------
 const openai = new OpenAI({
