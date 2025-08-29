@@ -17,7 +17,11 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:8080",
+    origin: [
+      "http://localhost:8080",
+      "https://audit-portal-1-75ac69871dcd.herokuapp.com"
+    ],
+    credentials: true // optional: if you need to allow cookies/auth headers
   })
 );
 
