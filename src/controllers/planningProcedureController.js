@@ -1,4 +1,3 @@
-// controllers/planningProcedureController.js
 const PlanningProcedure = require("../models/PlanningProcedure");
 const Engagement = require("../models/Engagement");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
@@ -8,6 +7,8 @@ const planningSections = require("../static/planningSections");
 const planningQuestionsPrompt = require("../static/planningQuestionsPrompt");
 const planningAnswersPrompt = require("../static/planningAnswersPrompt");
 const planningRecommendationsPrompt = require("../static/planningRecommendationsPrompt");
+const hybridQuestionsPrompt = require("../static/hybridQuestionsPrompt")
+const hybridAnswersPrompt = require("../static/hybridAnswersPrompt")
 const { supabase } = require("../config/supabase");
 // Build a lookup map from the array export
 const sectionsById = new Map(
@@ -77,8 +78,8 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
 
   cleaned = cleaned
     .replace(/\u00A0/g, " ")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
+    .replace(/[“"]/g, '"')
+    .replace(/[‘']/g, "'")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");
 
   try { return JSON.parse(cleaned); } catch {}
@@ -108,7 +109,7 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
   }
 }
 
-async function callOpenAI(prompt, { maxTokens = 4000 } = {}) {
+async function callOpenAI(prompt) {
     console.log("prompt "+prompt)
     const r = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -116,7 +117,7 @@ async function callOpenAI(prompt, { maxTokens = 4000 } = {}) {
       { role: "system", content: "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested." },
       { role: "user", content: prompt },
     ],
-    max_tokens: maxTokens,
+    max_tokens: 4000,
     temperature: 0.2,
   });
   return r.choices[0].message.content;
@@ -287,7 +288,7 @@ exports.generateQuestions = async (req, res) => {
     { type: "select",     example: { key: "choice",     label: "Pick one", required: true, options: ["A","B","C"], help: "Choose best fit." } },
     { type: "multiselect",example: { key: "tags",       label: "Select all that apply", required: false, options: ["X","Y","Z"], help: "Multiple choices." } },
     { type: "number",     example: { key: "count",      label: "Quantity", required: false, min: 0, help: "Numeric value." } },
-    { type: "currency",   example: { key: "amount",     label: "Amount (€)", required: false, min: 0, help: "Monetary input." } },
+    { type: "currency",   example: { key: "amount",      label: "Amount (€)", required: false, min: 0, help: "Monetary input." } },
     { type: "user",       example: { key: "owner",      label: "Assignee", required: false, help: "Select staff user." } },
     { type: "date",       example: { key: "as_of",      label: "As of date", required: false, help: "Select a date." } }
   ];
@@ -301,7 +302,7 @@ exports.generateQuestions = async (req, res) => {
     .replace("{fieldPalette}", JSON.stringify(fieldPalette))
     .replace("{etbRows}", JSON.stringify(summarizeETB(etbRows, materiality)));
 
-  const raw = await callOpenAI(prompt, { maxTokens: 6000 });
+  const raw = await callOpenAI(prompt);
   const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_step1_sections_only" });
 
   // normalize & strip answers (defensive against leaks)
@@ -432,7 +433,7 @@ exports.generateAnswers = async (req, res) => {
       .replace("{etbRows}", JSON.stringify(etbRows || []))
       .replace("{proceduresSubset}", JSON.stringify(subset || []));
 
-    const raw = await callOpenAI(prompt, { maxTokens: 3500 }); // smaller batch => fewer tokens
+    const raw = await callOpenAI(prompt); // smaller batch => fewer tokens
     const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_step2_batched" });
 
     // Normalize shape defensively
@@ -482,7 +483,7 @@ exports.generateAnswers = async (req, res) => {
         fields: (orig.fields || []).map((f) => ({ ...f, answer: f.answer ?? undefined })),
       };
     }
-    // Ensure missing fields are preserved (model may drop some if it didn’t change them)
+    // Ensure missing fields are preserved (model may drop some if it didn't change them)
     const byFieldKey = new Map((replacement.fields || []).map((f) => [f.key, f]));
     const mergedFields = (orig.fields || []).map((f) => {
       const repl = byFieldKey.get(f.key);
@@ -516,7 +517,7 @@ exports.generateAnswers = async (req, res) => {
       .replace("{materiality}", String(doc.materiality || 0))
       .replace("{etbSummary}", JSON.stringify(etbRows.slice(0, 20)))
       .replace("{keyAnswers}", JSON.stringify(keyAnswers));
-    const recRaw = await callOpenAI(recPrompt, { maxTokens: 1500 });
+    const recRaw = await callOpenAI(recPrompt);
     recommendations = (recRaw || "").trim();
   }
 
@@ -528,4 +529,132 @@ exports.generateAnswers = async (req, res) => {
   await doc.save();
 
   res.json(doc);
+};
+
+exports.generateHybridQuestions = async (req, res) => {
+  const { engagementId } = req.params;
+  const { mode = "hybrid", materiality = 0, selectedSections = [], existingProcedures = [] } = req.body;
+
+  if (mode !== "hybrid") {
+    return res.status(400).json({ message: "This endpoint is for hybrid mode only" });
+  }
+
+  try {
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+    // client profile
+    const { data: clientProfile } = await supabase
+      .from("profiles")
+      .select("company_summary,industry")
+      .eq("user_id", engagement.clientId)
+      .single();
+
+    // ETB summary
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etbRows = Array.isArray(etb?.rows) ? etb.rows : [];
+    const summarizeETB = (rows, materialityNum) => {
+      const top = [...rows]
+        .sort((a, b) => Math.abs(b.amount || 0) - Math.abs(a.amount || 0))
+        .slice(0, 20)
+        .map(({ account, amount, type }) => ({ account, amount, type }));
+      const material = top.filter((r) => Math.abs(r.amount || 0) >= (Number(materialityNum) || 0) * 0.5);
+      return { top, material, count: rows.length };
+    };
+
+    // Build enhanced prompt for hybrid mode - request only additional questions
+    const prompt = String(hybridQuestionsPrompt)
+      .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+      .replace("{materiality}", String(materiality))
+      .replace("{etbRows}", JSON.stringify(summarizeETB(etbRows, materiality)))
+      .replace("{selectedSections}", JSON.stringify(selectedSections))
+      .replace("{existingProcedures}", JSON.stringify(existingProcedures || []));
+
+    const raw = await callOpenAI(prompt);
+    const parsed = await robustParseJSON(raw, openai, { debugLabel: "hybrid_additional_questions" });
+
+    // Return only the additional fields, not the entire procedures
+    res.json({
+      additionalFields: parsed?.additionalFields || [],
+      recommendations: parsed?.recommendations || ""
+    });
+  } catch (error) {
+    console.error("Error generating hybrid additional questions:", error);
+    res.status(500).json({ message: "Failed to generate additional questions", error: error.message });
+  }
+};
+
+exports.generateHybridAnswers = async (req, res) => {
+  const { engagementId } = req.params;
+  const { procedures: incomingProcedures, materiality = 0 } = req.body;
+
+  try {
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+    // Use incoming procedures directly instead of fetching from database
+    const baseProcedures = Array.isArray(incomingProcedures) && incomingProcedures.length ? incomingProcedures : [];
+
+    if (!baseProcedures.length) {
+      return res.status(400).json({ message: "No procedures to answer." });
+    }
+
+    // Get client profile and ETB
+    const { data: clientProfile } = await supabase
+      .from("profiles")
+      .select("company_summary,industry")
+      .eq("user_id", engagement.clientId)
+      .single();
+
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etbRows = etb?.rows || [];
+
+    // Build prompt for hybrid answers with recommendations
+    const prompt = String(hybridAnswersPrompt)
+      .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+      .replace("{materiality}", String(materiality))
+      .replace("{etbRows}", JSON.stringify(etbRows || []))
+      .replace("{proceduresSubset}", JSON.stringify(baseProcedures || []));
+
+    const raw = await callOpenAI(prompt);
+    const parsed = await robustParseJSON(raw, openai, { debugLabel: "hybrid_answers_generation" });
+
+    // Extract recommendations if provided
+    const recommendations = parsed?.recommendations || "";
+
+    // Merge answers back into procedures, excluding file fields
+    const answeredProcedures = baseProcedures.map((origProc) => {
+      const answeredProc = (parsed?.procedures || []).find(
+        (p) => p.sectionId === origProc.sectionId || p.id === origProc.id,
+      );
+
+      if (!answeredProc) return origProc;
+
+      const fieldsWithAnswers = (origProc.fields || []).map((origField) => {
+        // Skip file fields - user must upload manually
+        if (origField.type === "file") {
+          return origField;
+        }
+
+        const answeredField = (answeredProc.fields || []).find((f) => f.key === origField.key);
+        if (answeredField && answeredField.answer !== undefined) {
+          return { ...origField, answer: answeredField.answer };
+        }
+        return origField;
+      });
+
+      return { ...origProc, fields: fieldsWithAnswers };
+    });
+
+    // Return the answered procedures and recommendations
+    // Don't save to database here - let the frontend handle saving
+    res.json({ 
+      procedures: answeredProcedures, 
+      recommendations: recommendations,
+      answersGeneratedAt: new Date()
+    });
+  } catch (error) {
+    console.error("Error generating hybrid answers:", error);
+    res.status(500).json({ message: "Failed to generate hybrid answers", error: error.message });
+  }
 };

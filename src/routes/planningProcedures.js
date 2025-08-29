@@ -15,5 +15,10 @@ router.post("/:engagementId/generate/questions", planningCtrl.generateQuestions)
 
 // AI/Hybrid Step-2: fill answers (+ optional files)
 router.post("/:engagementId/generate/answers", upload.array("files"), planningCtrl.generateAnswers);
+// Hybrid Step-1: generate enhanced questions (predefined + AI)
+router.post("/:engagementId/generate/hybrid-questions", planningCtrl.generateHybridQuestions)
+
+// Hybrid Step-2: fill answers (excluding file uploads)
+router.post("/:engagementId/generate/hybrid-answers", planningCtrl.generateHybridAnswers)
 
 module.exports = router;
