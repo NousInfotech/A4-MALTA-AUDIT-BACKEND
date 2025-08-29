@@ -1,4 +1,4 @@
-export default {
+module.exports = {
   "Assets > Current > Cash & Cash Equivalents": [
     {
       id: "cash_1",
