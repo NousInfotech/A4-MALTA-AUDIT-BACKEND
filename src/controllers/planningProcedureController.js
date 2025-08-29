@@ -15,7 +15,43 @@ const sectionsById = new Map(
     ? planningSections.map(s => [s.sectionId, s])
     : Object.values(planningSections || {}).map(s => [s.sectionId, s]) // safety if it ever changes shape
 );
+const normalize = (raw) => {
+      const out = { ...raw };
 
+      out.mode = ["manual", "ai", "hybrid"].includes(out.mode) ? out.mode : "manual";
+      out.status = ["draft", "in-progress", "completed"].includes(out.status) ? out.status : "in-progress";
+
+      out.selectedSections = Array.isArray(out.selectedSections) ? out.selectedSections : [];
+      out.procedures = Array.isArray(out.procedures) ? out.procedures : [];
+
+      out.procedures = out.procedures.map((sec) => ({
+        id: sec?.id,
+        sectionId: sec?.sectionId,
+        title: sec?.title,
+        standards: Array.isArray(sec?.standards) ? sec.standards : undefined,
+        currency: sec?.currency,
+        footer: sec?.footer ?? null, // can be string or object
+
+        fields: Array.isArray(sec?.fields)
+          ? sec.fields.map((f) => ({
+              key: f?.key,
+              type: f?.type,
+              label: f?.label ?? "",
+              required: !!f?.required,
+              help: f?.help ?? "",
+              options: Array.isArray(f?.options) ? f.options : undefined,
+              columns: Array.isArray(f?.columns) ? f.columns : undefined,
+              fields: f?.fields,          // Mixed
+              content: f?.content ?? "",  // for markdown
+              visibleIf: f?.visibleIf,    // Mixed
+              answer: f?.answer,          // Mixed (can be filename, URL, etc.)
+            }))
+          : [],
+      }));
+
+      if (!Array.isArray(out.files)) out.files = [];
+      return out;
+    };
 const OpenAI = require("openai");
 const { jsonrepair } = require("jsonrepair");
 const JSON5 = require("json5");
@@ -23,6 +59,10 @@ const stripJsonComments = require("strip-json-comments");
 
 // ---------- OpenAI client (same pattern as fieldwork controller) ----------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Helper function to remove spaces from file names
+function sanitizeFileName(fileName) {
+  return fileName.replace(/\s+/g, "_");
+}
 
 // ---------- Robust JSON parsing helper (same as your fieldwork) ----------
 async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
@@ -108,86 +148,41 @@ exports.get = async (req, res) => {
   res.json(doc);
 };
 
-// controllers/planningProcedureController.js (only the save handler)
 exports.save = async (req, res) => {
   try {
     const { engagementId } = req.params;
     if (!engagementId) return res.status(400).json({ error: "Missing engagementId" });
 
-    // Accept JSON or multipart(form-data) with "data" JSON
-    const raw = req.body?.data ? JSON.parse(req.body.data) : (req.body || {});
-    // Optional mapping of uploaded files to specific fields:
-    // [{ sectionId, fieldKey, originalName }]   (stringified JSON in body.fileMap)
-    const fileMap = (() => {
-      try {
-        if (typeof req.body?.fileMap === "string") return JSON.parse(req.body.fileMap);
-        if (Array.isArray(req.body?.fileMap)) return req.body.fileMap;
-      } catch {}
-      return [];
-    })();
-
-    // --- normalize shape (works for manual / ai / hybrid)
-    const normalize = (raw) => {
-      const out = { ...raw };
-
-      out.mode = ["manual", "ai", "hybrid"].includes(out.mode) ? out.mode : "manual";
-      out.status = ["draft", "in-progress", "completed"].includes(out.status) ? out.status : "in-progress";
-
-      out.selectedSections = Array.isArray(out.selectedSections) ? out.selectedSections : [];
-      out.procedures = Array.isArray(out.procedures) ? out.procedures : [];
-
-      out.procedures = out.procedures.map((sec) => ({
-        id: sec?.id,
-        sectionId: sec?.sectionId,
-        title: sec?.title,
-        standards: Array.isArray(sec?.standards) ? sec.standards : undefined,
-        currency: sec?.currency,
-        footer: sec?.footer ?? null, // can be string or object
-
-        fields: Array.isArray(sec?.fields)
-          ? sec.fields.map((f) => ({
-              key: f?.key,
-              type: f?.type,
-              label: f?.label ?? "",
-              required: !!f?.required,
-              help: f?.help ?? "",
-              options: Array.isArray(f?.options) ? f.options : undefined,
-              columns: Array.isArray(f?.columns) ? f.columns : undefined,
-              fields: f?.fields,          // Mixed
-              content: f?.content ?? "",  // for markdown
-              visibleIf: f?.visibleIf,    // Mixed
-              answer: f?.answer,          // Mixed (can be filename, URL, etc.)
-            }))
-          : [],
-      }));
-
-      if (!Array.isArray(out.files)) out.files = [];
-      return out;
-    };
+    const raw = req.body?.data ? JSON.parse(req.body.data) : req.body || {};
+    const fileMap = req.body?.fileMap ? JSON.parse(req.body.fileMap) : [];
 
     const payload = normalize(raw);
 
-    // ---- base upsert
-    let doc = await PlanningProcedure.findOneAndUpdate(
-      { engagement: engagementId },
-      {
+    // Fetch the document to update (don't overwrite the file field)
+    let doc = await PlanningProcedure.findOne({ engagement: engagementId });
+
+    // If document doesn't exist, create a new one
+    if (!doc) {
+      doc = new PlanningProcedure({
         engagement: engagementId,
         procedureType: "planning",
-        materiality: payload.materiality,
-        procedures: payload.procedures,
-        recommendations: payload.recommendations || "",
-        status: payload.status,
-        mode: payload.mode,
-        files: payload.files,
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+      });
+    }
 
-    // ---- upload any files posted (covers per-field uploads & the optional "Attach files" area)
+    // Save the rest of the fields (procedures, recommendations, etc.)
+    doc.procedures = payload.procedures;
+    doc.recommendations = payload.recommendations || "";
+    doc.status = payload.status;
+    doc.mode = payload.mode;
+
+    // Handle file uploads
     const uploaded = [];
     const files = req.files || [];
     for (const f of files) {
-      const filePath = `${engagementId}/Planning/${f.originalname}`;
+      const sanitizedFileName = f.originalname.replace(/\s+/g, "_");
+      const filePath = `${engagementId}/Planning/${sanitizedFileName}`;
+
+      // Upload file to Cloudinary or Supabase storage
       const upload = async () =>
         supabase.storage.from("engagement-documents").upload(filePath, f.buffer, {
           contentType: f.mimetype,
@@ -197,17 +192,18 @@ exports.save = async (req, res) => {
 
       let { data, error } = await upload();
       if (error && String(error.message).toLowerCase().includes("exists")) {
-        try { await supabase.storage.from("engagement-documents").remove([filePath]); } catch {}
+        try {
+          await supabase.storage.from("engagement-documents").remove([filePath]);
+        } catch {}
         ({ data, error } = await upload());
       }
       if (error) throw error;
 
       const { data: pub } = supabase.storage.from("engagement-documents").getPublicUrl(data.path);
       const url = `${pub.publicUrl}?v=${Date.now()}`;
-      const meta = { name: f.originalname, url, size: f.size, mimetype: f.mimetype };
+      const meta = { name: sanitizedFileName, url, size: f.size, mimetype: f.mimetype };
       uploaded.push(meta);
 
-      // Add to library
       await EngagementLibrary.create({
         engagement: engagementId,
         category: "Planning",
@@ -215,42 +211,33 @@ exports.save = async (req, res) => {
       });
     }
 
-    // ---- write URLs back into field answers where appropriate
+    // Add uploaded files to the procedure object
     if (uploaded.length) {
-      // Quick lookup
       const byName = new Map(uploaded.map((u) => [u.name, u.url]));
 
-      // If fileMap provided, use it first (exact section+field)
-      if (Array.isArray(fileMap) && fileMap.length) {
-        for (const m of fileMap) {
-          const url = byName.get(m.originalName);
-          if (!url) continue;
-          const sec = (doc.procedures || []).find((s) => s.sectionId === m.sectionId || s.id === m.sectionId);
-          if (!sec) continue;
-          const fld = (sec.fields || []).find((ff) => ff.key === m.fieldKey);
-          if (!fld) continue;
-          // Set the answer to the uploaded URL
-          fld.answer = url;
-        }
+      // Update file links in procedure fields using fileMap
+      for (const m of fileMap) {
+        const url = byName.get(m.originalName);
+        if (!url) continue;
+
+        const sec = (doc.procedures || []).find((s) => s.sectionId === m.sectionId || s.id === m.sectionId);
+        if (!sec) continue;
+
+        const fld = (sec.fields || []).find((ff) => ff.key === m.fieldKey);
+        if (!fld) continue;
+
+        fld.answer = url; // Set the uploaded file URL in the field's answer
       }
 
-      // Fallback: if a field has type "file" and its current answer equals a filename we uploaded, replace with the URL
-      for (const sec of doc.procedures || []) {
-        for (const fld of sec.fields || []) {
-          if (fld?.type === "file" && typeof fld.answer === "string" && byName.has(fld.answer)) {
-            fld.answer = byName.get(fld.answer);
-          }
-        }
-      }
-
-      // Also keep a flat list of uploaded files on the doc
-      doc.files = [...(doc.files || []), ...uploaded];
-      await doc.save();
+      doc.files = [...(doc.files || []), ...uploaded]; // Preserve existing files and add new ones
     }
 
-    res.json(doc);
+    // Save the document
+    await doc.save();
+
+    res.json(doc); // Return the saved document
   } catch (e) {
-    console.error("planning save error:", e);
+    console.error("Error saving planning procedure:", e);
     res.status(400).json({ error: e.message });
   }
 };
