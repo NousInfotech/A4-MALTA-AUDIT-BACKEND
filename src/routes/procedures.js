@@ -1,21 +1,23 @@
-const router = require("express").Router()
-const pc = require("../controllers/procedureController")
-const { requireAuth, requireRole } = require("../middlewares/auth")
+// src/routes/procedure.routes.js
+const { Router } = require("express");
+const {
+  getManualProcedures,
+  generateAIQuestions,
+  generateAIAnswers,
+  hybridGenerateQuestions,
+  hybridGenerateAnswers,
+  saveProcedure,
+  getProcedure,
+} = require("../controllers/procedureController");
 
-// Get procedure for engagement
-router.get("/:engagementId", requireAuth, pc.getProcedure)
+const router = Router();
 
-// Create or update procedure
-router.post("/:engagementId", requireAuth, requireRole("employee"), pc.saveProcedure)
+router.post("/manual", getManualProcedures);
+router.post("/ai/questions", generateAIQuestions);
+router.post("/ai/answers", generateAIAnswers);
+router.post("/hybrid/questions", hybridGenerateQuestions);
+router.post("/hybrid/answers", hybridGenerateAnswers);
+router.post("/:engagementId", saveProcedure);
+router.get("/:engagementId", getProcedure);
 
-// Generate procedures (AI/Hybrid modes)
-router.post("/:engagementId/generate", requireAuth, requireRole("employee"), pc.generateProcedures)
-
-// Update procedure status
-router.patch("/:engagementId/status", requireAuth, requireRole("employee"), pc.updateProcedureStatus)
-
-// Delete procedure
-router.delete("/:engagementId", requireAuth, requireRole("employee"), pc.deleteProcedure)
-
-module.exports = router
-
+module.exports = router;
