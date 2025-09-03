@@ -25,6 +25,5 @@ const classificationSectionSchema = new mongoose.Schema(
   },
 )
 
-classificationSectionSchema.index({ engagement: 1, classification: 1 }, { unique: true })
 
 module.exports = mongoose.model("ClassificationSection", classificationSectionSchema)

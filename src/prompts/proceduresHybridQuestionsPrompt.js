@@ -6,10 +6,7 @@ You are an audit assistant. Given the MANUAL procedures below, propose ADDITIONA
 questions to broaden coverage and depth for ${framework}.
 
 MANUAL INPUT (digest):
-${JSON.stringify(manualPacks.map(p => ({
-    title: p.title,
-    fields: p.fields.slice(0, 8).map(f => ({ key: f.key, label: f.label }))
-})), null, 2)}
+${JSON.stringify(manualPacks)}
 
 USER CONTEXT:
 ${JSON.stringify(context ?? {}, null, 2)}

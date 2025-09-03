@@ -1,5 +1,5 @@
 // src/prompts/proceduresQuestionsPrompt.js
-function buildProceduresQuestionsPrompt({ framework, classifications, context, oneShotExamples }) {
+function buildProceduresQuestionsPrompt({ framework = '', classifications = [], context = {}, oneShotExamples = [] }) {
   return `
 SYSTEM:
 You are an audit assistant. Generate a comprehensive list of audit fieldwork QUESTIONS only
@@ -9,7 +9,7 @@ USER CONTEXT:
 - Engagement artifacts: ${JSON.stringify(context ?? {}, null, 2)}
 
 SELECTED CLASSIFICATIONS:
-${classifications.map(s => `- ${s}`).join("\n")}
+${Array.isArray(classifications) ? classifications.map(s => `- ${s}`).join("\n") : ''}
 
 STYLE & SCOPE:
 - Follow ISA/IFRS/GAPSME tone, fieldwork-level detail.
@@ -29,8 +29,10 @@ Return a SINGLE JSON object with this shape:
   ]
 }
 
+***IMPORTANT NOTE***
+The  "classificationTag" should be only all the SELECTED CLASSIFICATIONS, nothing except those
 ONE-SHOT EXAMPLES (style cues; do not copy text):
-${oneShotExamples.map(o => `- ${o.classificationTitle}: e.g., "${o.sample?.label || o.sample?.question || 'Representative step'}"`).join("\n")}
+${Array.isArray(oneShotExamples) ? oneShotExamples.map(o => `- ${o.classificationTitle}: e.g., "${o.sample?.label || o.sample?.question || 'Representative step'}"`).join("\n") : ''}
 `;
 }
 module.exports = buildProceduresQuestionsPrompt;
