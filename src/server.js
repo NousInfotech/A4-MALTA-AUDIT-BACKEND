@@ -13,6 +13,8 @@ const usersRoutes = require("./routes/users");
 const checklistRoutes = require("./routes/checklist");
 const bodyParser = require("body-parser");
 const globalRoutes = require("./routes/global-library");
+const saltedgeRoutes = require("./routes/saltedge");
+const apideckRoutes = require("./routes/apideck");
 const app = express();
 
 app.use(
@@ -45,6 +47,8 @@ app.use("/api/engagements", engagementRoutes);
 app.use("/api/document-requests", documentRequestRoutes);
 app.use("/api/procedures", procedureRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/saltedge", saltedgeRoutes);
+app.use("/api/apideck", apideckRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 

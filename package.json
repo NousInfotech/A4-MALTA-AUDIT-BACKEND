@@ -7,10 +7,13 @@
     "dev": "nodemon src/server.js"
   },
   "engines": {
-  "node": ">=20.0.0"
-},
+    "node": ">=20.0.0"
+  },
   "dependencies": {
+    "@apideck/node": "^3.8.0",
+    "@apideck/unify": "^0.29.7",
     "@supabase/supabase-js": "^2.53.1",
+    "axios": "^1.11.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
