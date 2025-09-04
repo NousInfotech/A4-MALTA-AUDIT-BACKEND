@@ -14,7 +14,7 @@ FORMAT:
   "answers": [
     { "key": "<same question key>", "answer": "..." }
   ],
-  "recommendations": "long string with title and description and proper formatting using * and ##, i will format it using markdown on my own"
+  "recommendations": "long string with title and description and proper formatting using * and ##, separate them on the basis of classifications too, and make it look really really beautiful and professional formatting, i will format it using markdown on my own"
 }
 
 GUIDELINES:

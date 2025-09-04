@@ -8,6 +8,9 @@ const QuestionSchema = new mongoose.Schema({
   question: { type: String },
   assertions: [{ type: String }],
   commentable: { type: Boolean, default: true },
+  id: { type: String },
+  classification: { type: String },
+  answer: { type: String },
   // manual fields compatibility
   type: { type: String },   // "procedure" | "textarea" | "label"
   label: { type: String },
@@ -15,30 +18,51 @@ const QuestionSchema = new mongoose.Schema({
   help: { type: String }
 }, { _id: false });
 
-const AnswerSchema = new mongoose.Schema({
-  key: { type: String, required: true },
-  answer: { type: String, required: true }
+const ValiditySelectionSchema = new mongoose.Schema({
+  rowId: { type: String },
+  code: { type: String },
+  accountName: { type: String },
+  finalBalance: { type: Number },
+  classification: { type: String },
+  isValid: { type: Boolean }
 }, { _id: false });
 
 const ProcedureSchema = new mongoose.Schema({
-     engagement: {
-      type: Schema.Types.ObjectId,
-      ref: "Engagement",
-    },
+  engagement: {
+    type: Schema.Types.ObjectId,
+    ref: "Engagement",
+    required: true,
+    unique: true
+  },
   createdBy: { type: String },
-  framework: { type: String, enum: ["IFRS", "GAPSME"], default: "IFRS" },
-  mode: { type: String, enum: ["manual", "ai", "hybrid"], required: true },
-  classificationsSelected: [String],
-  manualPacks: [{
-    sectionId: String,
-    title: String,
-    standards: [String],
-    fields: [QuestionSchema]
-  }],
-  aiQuestions: [QuestionSchema],
-  aiAnswers: [AnswerSchema],
-  recommendations:  { type: String, default:"" },
-  status: { type: String, enum: ["draft", "final"], default: "draft" }
-}, { timestamps: true });
+  framework: { 
+    type: String, 
+    enum: ["IFRS", "GAPSME"], 
+    default: "IFRS" 
+  },
+  mode: { 
+    type: String, 
+    enum: ["manual", "ai", "hybrid"], 
+    required: true 
+  },
+  materiality: { type: Number },
+  validitySelections: [ValiditySelectionSchema],
+  selectedClassifications: [{ type: String }],
+  questions: [QuestionSchema],
+  recommendations: { 
+    type: String, 
+    default: "" 
+  },
+  status: { 
+    type: String, 
+    enum: ["draft", "completed"], 
+    default: "draft" 
+  }
+}, { 
+  timestamps: true 
+});
+
+// Index for faster queries
+ProcedureSchema.index({ engagement: 1 });
 
 module.exports = mongoose.model("Procedure", ProcedureSchema);

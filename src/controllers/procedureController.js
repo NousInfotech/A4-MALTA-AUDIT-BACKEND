@@ -13,6 +13,7 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 // Add this small util near the top of the file:
 function coerceQuestionsArray(out) {
   // Handles: raw array, {questions: [...]}, {items: [...]}, {data: [...]}
@@ -25,6 +26,7 @@ function coerceQuestionsArray(out) {
   if (out.result && Array.isArray(out.result.questions)) return out.result.questions;
   return [];
 }
+
 async function buildContext(engagementId, classifications = []) {
   // 1) Core engagement
   const engagement = await Engagement.findById(engagementId).lean();
@@ -75,22 +77,43 @@ async function getManualProcedures(req, res) {
     const { engagementId, framework = "IFRS", classifications = [], createdBy } = req.body || {};
     const manualPacks = buildManualPacks(framework, classifications);
 
-    const doc = await Procedure.create({
-      engagementId,
-      framework,
-      mode: "manual",
-      classificationsSelected: classifications,
-      manualPacks,
-      status: "draft",
-      createdBy
-    });
+    // Check if a procedure already exists for this engagement
+    let procedure = await Procedure.findOne({ engagement: engagementId });
+    
+    if (procedure) {
+      // Update existing procedure
+      procedure = await Procedure.findByIdAndUpdate(
+        procedure._id,
+        {
+          framework,
+          mode: "manual",
+          classificationsSelected: classifications,
+          manualPacks,
+          status: "draft",
+          createdBy
+        },
+        { new: true }
+      );
+    } else {
+      // Create new procedure
+      procedure = await Procedure.create({
+        engagement: engagementId,
+        framework,
+        mode: "manual",
+        classificationsSelected: classifications,
+        manualPacks,
+        status: "draft",
+        createdBy
+      });
+    }
 
-    res.json({ ok: true, procedureId: doc._id, manualPacks });
+    res.json({ ok: true, procedureId: procedure._id, manualPacks });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (manual)" });
   }
 }
+
 // AI STEP-1 — questions only
 async function generateAIQuestions(req, res) {
   try {
@@ -113,17 +136,37 @@ async function generateAIQuestions(req, res) {
     const aiQuestions = coerceQuestionsArray(out);
     console.log("Coerced aiQuestions:", aiQuestions);
 
-    const doc = await Procedure.create({
-      engagementId,
-      framework,
-      mode: "ai",
-      classificationsSelected: classifications,
-      aiQuestions,
-      status: "draft",
-    });
-    console.log("Created Procedure doc:", doc);
+    // Check if a procedure already exists for this engagement
+    let procedure = await Procedure.findOne({ engagement: engagementId });
+    
+    if (procedure) {
+      // Update existing procedure
+      procedure = await Procedure.findByIdAndUpdate(
+        procedure._id,
+        {
+          framework,
+          mode: "ai",
+          classificationsSelected: classifications,
+          aiQuestions,
+          status: "draft",
+        },
+        { new: true }
+      );
+    } else {
+      // Create new procedure
+      procedure = await Procedure.create({
+        engagement: engagementId,
+        framework,
+        mode: "ai",
+        classificationsSelected: classifications,
+        aiQuestions,
+        status: "draft",
+      });
+    }
+    
+    console.log("Created/Updated Procedure doc:", procedure);
 
-    res.json({ ok: true, procedureId: doc._id, aiQuestions });
+    res.json({ ok: true, procedureId: procedure._id, aiQuestions });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (ai questions)" });
@@ -133,42 +176,58 @@ async function generateAIQuestions(req, res) {
 // AI STEP-2 — answers + recommendations
 async function generateAIAnswers(req, res) {
   try {
-    const { procedureId, engagementId, framework = "IFRS",classifications, questions = [] } = req.body || {};
+    const { procedureId, engagementId, framework = "IFRS", questions = [] } = req.body || {};
 
-    const context = await buildContext(engagementId,classifications)
-    console.log("Built context:", context);
+    const context = await buildContext(engagementId)
     const prompt = buildProceduresAnswersPrompt({ framework, context, questions });
-    console.log("AI ans Built prompt:", prompt);
-
+    
     const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });
-    const aiAnswers = out.answers || [];
-    const recommendations = out.recommendations || [];
+    
+    // Update questions with answers
+    const questionsWithAnswers = questions.map((question, index) => {
+      return {
+        ...question,
+        answer: out.answers && out.answers[index] ? out.answers[index].answer : ""
+      };
+    });
 
-    let doc;
+    let procedure;
     if (procedureId) {
-      doc = await Procedure.findByIdAndUpdate(procedureId, { $set: { aiAnswers, recommendations } }, { new: true });
+      procedure = await Procedure.findByIdAndUpdate(
+        procedureId, 
+        { 
+          $set: { 
+            questions: questionsWithAnswers,
+            recommendations: out.recommendations || ""
+          } 
+        }, 
+        { new: true }
+      );
     } else {
-      doc = await Procedure.create({
-        engagementId,
-        framework,
-        mode: "ai",
-        aiQuestions: questions,
-        aiAnswers,
-        recommendations,
-        status: "draft"
-      });
+      procedure = await Procedure.findOneAndUpdate(
+        { engagement: engagementId },
+        {
+          engagement: engagementId,
+          framework,
+          mode: "ai",
+          questions: questionsWithAnswers,
+          recommendations: out.recommendations || "",
+          status: "draft"
+        },
+        { upsert: true, new: true }
+      );
     }
-    res.json({ ok: true, procedureId: doc._id, aiAnswers, recommendations });
+    
+    res.json({ ok: true, procedureId: procedure._id, questions: questionsWithAnswers, recommendations: out.recommendations });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (ai answers)" });
   }
 }
-
 // HYBRID STEP-1 — manual + extra AI questions
 async function hybridGenerateQuestions(req, res) {
   try {
-    const { engagementId, framework = "IFRS", classifications,manualQuestions } = req.body || {};
+    const { engagementId, framework = "IFRS", classifications, manualQuestions } = req.body || {};
 
     const context = await buildContext(engagementId,classifications)
     console.log("Built context:", context);
@@ -176,20 +235,40 @@ async function hybridGenerateQuestions(req, res) {
     const prompt = buildHybridQuestionsPrompt({ framework, manualPacks, context });
     console.log("Hybrid ques Built prompt:", prompt);
 
-const out = await generateJson({ prompt, model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini" });
-const aiQuestions = coerceQuestionsArray(out);
-    const doc = await Procedure.create({
-      engagementId,
-      framework,
-      mode: "hybrid",
-      classificationsSelected: classifications,
-      manualPacks,
-      aiQuestions,
-      status: "draft",
-  
-    });
+    const out = await generateJson({ prompt, model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini" });
+    const aiQuestions = coerceQuestionsArray(out);
+    
+    // Check if a procedure already exists for this engagement
+    let procedure = await Procedure.findOne({ engagement: engagementId });
+    
+    if (procedure) {
+      // Update existing procedure
+      procedure = await Procedure.findByIdAndUpdate(
+        procedure._id,
+        {
+          framework,
+          mode: "hybrid",
+          classificationsSelected: classifications,
+          manualPacks,
+          aiQuestions,
+          status: "draft",
+        },
+        { new: true }
+      );
+    } else {
+      // Create new procedure
+      procedure = await Procedure.create({
+        engagement: engagementId,
+        framework,
+        mode: "hybrid",
+        classificationsSelected: classifications,
+        manualPacks,
+        aiQuestions,
+        status: "draft",
+      });
+    }
 
-    res.json({ ok: true, procedureId: doc._id, manualPacks, aiQuestions });
+    res.json({ ok: true, procedureId: procedure._id, manualPacks, aiQuestions });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (hybrid questions)" });
@@ -199,7 +278,7 @@ const aiQuestions = coerceQuestionsArray(out);
 // HYBRID STEP-2 — answers + recommendations using all questions (manual+AI+user-added)
 async function hybridGenerateAnswers(req, res) {
   try {
-    const { procedureId,engagementId, framework = "IFRS", allQuestions = [] } = req.body || {};
+    const { procedureId, engagementId, framework = "IFRS", classifications, allQuestions = [] } = req.body || {};
 
     const context = await buildContext(engagementId,classifications)
     console.log("Built context:", context);
@@ -208,52 +287,110 @@ async function hybridGenerateAnswers(req, res) {
 
     const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });
     const aiAnswers = out.answers || [];
-    const recommendations = out.recommendations || [];
+    const recommendations = out.recommendations || "";
 
-    const doc = await Procedure.findByIdAndUpdate(
-      procedureId,
-      { $set: { aiAnswers, recommendations } },
-      { new: true }
-    );
+    let procedure;
+    if (procedureId) {
+      // Update the existing procedure
+      procedure = await Procedure.findByIdAndUpdate(
+        procedureId,
+        { 
+          $set: { 
+            aiAnswers, 
+            recommendations,
+            classificationsSelected: classifications || []
+          } 
+        },
+        { new: true }
+      );
+    } else {
+      // Try to find an existing procedure for this engagement
+      procedure = await Procedure.findOne({ engagement: engagementId });
+      
+      if (procedure) {
+        // Update existing procedure
+        procedure = await Procedure.findByIdAndUpdate(
+          procedure._id,
+          {
+            framework,
+            mode: "hybrid",
+            classificationsSelected: classifications || [],
+            aiAnswers,
+            recommendations,
+            status: "draft"
+          },
+          { new: true }
+        );
+      } else {
+        // Create new procedure if none exists
+        procedure = await Procedure.create({
+          engagement: engagementId,
+          framework,
+          mode: "hybrid",
+          classificationsSelected: classifications || [],
+          aiAnswers,
+          recommendations,
+          status: "draft"
+        });
+      }
+    }
 
-    res.json({ ok: true, procedureId: doc?._id, aiAnswers, recommendations });
+    res.json({ ok: true, procedureId: procedure._id, aiAnswers, recommendations });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (hybrid answers)" });
   }
 }
+
 // Create or update procedure (manual edits)
-async function saveProcedure (req, res) {
+async function saveProcedure(req, res) {
   try {
     const { engagementId } = req.params;
     const procedureData = req.body;
+    
+    // Transform the data structure to match our updated schema
+    const transformedData = {
+      engagement: engagementId,
+      framework: procedureData.framework || "IFRS",
+      mode: procedureData.mode || "ai",
+      materiality: procedureData.materiality,
+      validitySelections: procedureData.validitySelections || [],
+      selectedClassifications: procedureData.selectedClassifications || [],
+      questions: procedureData.questions || [],
+      recommendations: procedureData.recommendations || "",
+      status: procedureData.status || "draft",
+      createdBy: procedureData.createdBy
+    };
 
     const procedure = await Procedure.findOneAndUpdate(
       { engagement: engagementId },
-      { ...procedureData, engagement: engagementId },
-      { upsert: true, new: true }
+      transformedData,
+      { upsert: true, new: true, runValidators: true }
     );
 
-    res.json(procedure);
+    res.json({ ok: true, procedure });
   } catch (error) {
     console.error("Error saving procedure:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
-};
-
+}
 // Get procedure for an engagement
-  async function getProcedure (req, res) {
+async function getProcedure(req, res) {
   try {
     const { engagementId } = req.params;
     const procedure = await Procedure.findOne({ engagement: engagementId });
-    if (!procedure) return res.status(404).json({ message: "Procedure not found" });
-    res.json(procedure);
+    
+    if (!procedure) {
+      return res.status(404).json({ ok: false, message: "Procedure not found" });
+    }
+    
+    // Return the procedure as-is since we've updated the schema
+    res.json({ ok: true, procedure });
   } catch (error) {
     console.error("Error fetching procedure:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
-};
-
+}
 module.exports = {
   saveProcedure,
   getManualProcedures,
