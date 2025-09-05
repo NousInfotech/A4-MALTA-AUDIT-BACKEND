@@ -23,13 +23,13 @@ INPUTS:
 
 OUTPUT FORMAT:
 Section 1: Engagement Setup, Acceptance & Independence
-* [Bullet point 1]
-* [Bullet point 2]
-* [Bullet point 3]
+[Bullet point 1]
+[Bullet point 2]
+[Bullet point 3]
 Section 2: Understanding the Entity & Its Environment
-* [Bullet point 1]
-* [Bullet point 2]
-* [Bullet point 3]
+[Bullet point 1]
+[Bullet point 2]
+[Bullet point 3]
 [Continue with all 6 sections]
 These recommendations are designed to ensure a thorough and effective audit planning process, addressing all critical areas of risk and compliance.
 
