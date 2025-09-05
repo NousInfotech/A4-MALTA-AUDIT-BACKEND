@@ -8,19 +8,26 @@ for the ${framework} framework, strictly using the provided context, ETB, WPs.
 INPUT:
 - CONTEXT: ${JSON.stringify(context ?? {}, null, 2)}
 - QUESTIONS: ${JSON.stringify(questions ?? [], null, 2)}
-- CLASSIFICATIONS: ${JSON.stringify(classifications ?? [],null,2)}
+- CLASSIFICATIONS: ${JSON.stringify(classifications ?? [], null, 2)}
 
 FORMAT:
 {
   "answers": [
     { "key": "<same question key>", "answer": "..." }
   ],
-  "recommendations": "long string with title and description and proper formatting using * and ##, separate them on the basis of CLASSIFICATIONS in the INPUT(Do NOT add or subract any if them) too, and make it look really really beautiful and professional formatting, i will format it using markdown on my own"
+  "recommendations": "A plain-text string where:
+    1. Classification lines MUST match exactly from INPUT (e.g., 'Assets > Current Assets', 'Expenses').
+    2. NEVER use Markdown (#, *, _) or bullets in classification lines.
+    3. Place each classification on its own line, followed by its recommendations.
+    4. Recommendations under each classification should use '-' bullets and natural language.
+    5. Separate classifications with a single newline.
+  "
 }
 
 GUIDELINES:
-- Be specific: tie to ETB refs, sample sizes, dates/thresholds where possible.
-- Recommendations should be actionable (control/process improvements, disclosure fixes).
+- Be specific: tie to ETB refs, sample sizes, dates/thresholds.
+- Recommendations should be actionable (e.g., 'Update control documentation for X').
+- NEVER add/remove/merge classifications—use EXACTLY those provided.
 `;
 }
 module.exports = buildProceduresAnswersPrompt;
