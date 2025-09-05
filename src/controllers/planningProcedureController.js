@@ -526,7 +526,8 @@ exports.generateAnswers = async (req, res) => {
       .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
       .replace("{materiality}", String(doc.materiality || 0))
       .replace("{etbSummary}", JSON.stringify(etbRows.slice(0, 20)))
-      .replace("{keyAnswers}", JSON.stringify(keyAnswers));
+      .replace("{keyAnswers}", JSON.stringify(keyAnswers))
+      .replace("{sections}",JSON.stringify(planningSections));
     const recRaw = await callOpenAI(recPrompt);
     recommendations = (recRaw || "").trim();
   }

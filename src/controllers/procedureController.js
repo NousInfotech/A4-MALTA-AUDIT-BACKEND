@@ -176,10 +176,10 @@ async function generateAIQuestions(req, res) {
 // AI STEP-2 — answers + recommendations
 async function generateAIAnswers(req, res) {
   try {
-    const { procedureId, engagementId, framework = "IFRS", questions = [] } = req.body || {};
+    const { procedureId, engagementId,classifications, framework = "IFRS", questions = [] } = req.body || {};
 
     const context = await buildContext(engagementId)
-    const prompt = buildProceduresAnswersPrompt({ framework, context, questions });
+    const prompt = buildProceduresAnswersPrompt({ framework, context, questions,classifications });
     
     const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });
     
@@ -282,7 +282,7 @@ async function hybridGenerateAnswers(req, res) {
 
     const context = await buildContext(engagementId,classifications)
     console.log("Built context:", context);
-    const prompt = buildProceduresAnswersPrompt({ framework, context, questions: allQuestions });
+    const prompt = buildProceduresAnswersPrompt({ framework, context, questions: allQuestions,classifications });
     console.log("Hybrid answer Built prompt:", prompt);
 
     const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });

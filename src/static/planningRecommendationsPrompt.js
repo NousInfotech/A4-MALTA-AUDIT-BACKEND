@@ -7,5 +7,6 @@ Inputs:
 - ETB summary: {etbSummary}
 - Sections and key answers: {keyAnswers}
 
-Return ONLY PLAIN TEXT bullet points (no JSON).
+  "recommendations": "long string with title and description and proper formatting using * and ##, separate them on the basis of SECTIONS{sections} in the INPUT(Do NOT add or subract any if them) too, and make it look really really beautiful and professional formatting, i will format it using markdown on my own"
+
 `;

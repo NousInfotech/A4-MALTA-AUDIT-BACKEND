@@ -1,5 +1,5 @@
 // src/prompts/proceduresAnswersPrompt.js
-function buildProceduresAnswersPrompt({ framework, context, questions }) {
+function buildProceduresAnswersPrompt({ framework, context, questions, classifications }) {
   return `
 SYSTEM:
 You are an audit assistant. Provide DETAILED fieldwork ANSWERS and RECOMMENDATIONS
@@ -8,13 +8,14 @@ for the ${framework} framework, strictly using the provided context, ETB, WPs.
 INPUT:
 - CONTEXT: ${JSON.stringify(context ?? {}, null, 2)}
 - QUESTIONS: ${JSON.stringify(questions ?? [], null, 2)}
+- CLASSIFICATIONS: ${JSON.stringify(classifications ?? [],null,2)}
 
 FORMAT:
 {
   "answers": [
     { "key": "<same question key>", "answer": "..." }
   ],
-  "recommendations": "long string with title and description and proper formatting using * and ##, separate them on the basis of classifications too, and make it look really really beautiful and professional formatting, i will format it using markdown on my own"
+  "recommendations": "long string with title and description and proper formatting using * and ##, separate them on the basis of CLASSIFICATIONS in the INPUT(Do NOT add or subract any if them) too, and make it look really really beautiful and professional formatting, i will format it using markdown on my own"
 }
 
 GUIDELINES:
