@@ -14,7 +14,7 @@ const SaltedgeController = {
     
     getCustomer: async (req, res) => {
         try {
-            const consumerId = req.bankConnectionId;
+            const consumerId = req.bankconnectionid;
             const customer = await saltEdgeService.getCustomer(consumerId);
             res.status(200).json(customer);
         } catch (error) {
@@ -25,7 +25,7 @@ const SaltedgeController = {
 
     deleteCustomer: async (req, res) => {
         try {
-            const consumerId = req.bankConnectionId;
+            const consumerId = req.bankconnectionid;
             const result = await saltEdgeService.deleteCustomer(consumerId);
             res.status(200).json(result);
         } catch (error) {
@@ -36,7 +36,7 @@ const SaltedgeController = {
 
     createSession: async (req, res) => {
         try {
-            const consumerId = req.bankConnectionId;
+            const consumerId = req.bankconnectionid;
             const { returnTo } = req.body;
             const session = await saltEdgeService.createSession(consumerId, returnTo);
             res.status(200).json(session);
@@ -48,7 +48,7 @@ const SaltedgeController = {
 
     createConnection: async (req, res) => {
         try {
-            const consumerId = req.bankConnectionId;
+            const consumerId = req.bankconnectionid;
             const { providerCode } = req.body;
             const connection = await saltEdgeService.createConnection(consumerId, providerCode);
             res.status(200).json(connection);
@@ -105,7 +105,7 @@ const SaltedgeController = {
 
     getConnectionsByCustomerId: async (req, res) => {
         try {
-            const consumerId = req.bankConnectionId;
+            const consumerId = req.bankconnectionid;
             const connections = await saltEdgeService.getConnectionsByCustomerId(consumerId);
             res.status(200).json(connections);
         } catch (error) {

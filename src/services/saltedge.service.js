@@ -114,29 +114,29 @@ class SaltEdgeServices {
   async getUserConsumerId(user) {
     try {
       const userId = user.id;
-      let bankConnectionId = user.bankConnectionId;
+      let bankconnectionid = user.bankconnectionid;
 
-      // If bankConnectionId is provided and not empty, use it as consumerId
-      if (bankConnectionId && bankConnectionId.trim() !== '') {
-        return bankConnectionId;
+      // If bankconnectionid is provided and not empty, use it as consumerId
+      if (bankconnectionid && bankconnectionid.trim() !== '') {
+        return bankconnectionid;
       }
 
-      // If bankConnectionId is empty or null, create a new customer
+      // If bankconnectionid is empty or null, create a new customer
       const customer = await this.createCustomer(userId);
-      bankConnectionId = customer.id;
+      bankconnectionid = customer.id;
 
-      // Update the user's profile with the new bankConnectionId
+      // Update the user's profile with the new bankconnectionid
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ bankConnectionId: bankConnectionId })
+        .update({ bankconnectionid: bankconnectionid })
         .eq('user_id', userId);
 
       if (updateError) {
-        console.error('Error updating user bankConnectionId:', updateError);
+        console.error('Error updating user bankconnectionid:', updateError);
         throw new Error('Failed to update user profile');
       }
 
-      return bankConnectionId;
+      return bankconnectionid;
     } catch (error) {
       console.error('Error getting user consumerId:', error);
       throw error;

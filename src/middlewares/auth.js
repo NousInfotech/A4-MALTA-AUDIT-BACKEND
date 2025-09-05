@@ -54,10 +54,10 @@ async function saltedgeAuth(req, res, next) {
 
     const userId = req.user.id;
 
-    // Get user profile with bankConnectionId
+    // Get user profile with bankconnectionid
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
-      .select('bankConnectionId')
+      .select('bankconnectionid')
       .eq('user_id', userId)
       .single();
 
@@ -65,22 +65,22 @@ async function saltedgeAuth(req, res, next) {
       return res.status(403).json({ message: 'No profile found for user' });
     }
 
-    let bankConnectionId = profile.bankConnectionId;
+    let bankconnectionid = profile.bankconnectionid;
 
-    // If bankConnectionId is empty or null, create a new customer
-    if (!bankConnectionId || bankConnectionId.trim() === '') {
+    // If bankconnectionid is empty or null, create a new customer
+    if (!bankconnectionid || bankconnectionid.trim() === '') {
       try {
         const customer = await saltEdgeService.createCustomer(userId);
-        bankConnectionId = customer.id;
+        bankconnectionid = customer.id;
 
-        // Update the user's profile with the new bankConnectionId
+        // Update the user's profile with the new bankconnectionid
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({ bankConnectionId: bankConnectionId })
+          .update({ bankconnectionid: bankconnectionid })
           .eq('user_id', userId);
 
         if (updateError) {
-          console.error('Error updating user bankConnectionId:', updateError);
+          console.error('Error updating user bankconnectionid:', updateError);
           return res.status(500).json({ message: 'Failed to update user profile' });
         }
       } catch (error) {
@@ -89,8 +89,8 @@ async function saltedgeAuth(req, res, next) {
       }
     }
 
-    // Add bankConnectionId to request object
-    req.bankConnectionId = bankConnectionId;
+    // Add bankconnectionid to request object
+    req.bankconnectionid = bankconnectionid;
     next();
 
   } catch (err) {
