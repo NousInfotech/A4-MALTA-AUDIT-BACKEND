@@ -1,4 +1,4 @@
-const apideckService = require("../application/services/apideck.service");
+const apideckService = require("../services/apideck.service.js");
 
 const ApideckController = {
     // Vault session management

@@ -1,4 +1,5 @@
-const saltEdgeClient = require("../../config/saltedge.js");
+const saltEdgeClient = require("../config/saltedge.js");
+const { supabase } = require("../config/supabase");
 
 class SaltEdgeServices {
   // 0. Create a new Salt Edge customer (map this to your userId)
@@ -107,6 +108,39 @@ class SaltEdgeServices {
       params: { customer_id: customerId },
     });
     return response.data.data;
+  }
+
+  // Get or create consumerId for a user
+  async getUserConsumerId(user) {
+    try {
+      const userId = user.id;
+      let bankConnectionId = user.bankConnectionId;
+
+      // If bankConnectionId is provided and not empty, use it as consumerId
+      if (bankConnectionId && bankConnectionId.trim() !== '') {
+        return bankConnectionId;
+      }
+
+      // If bankConnectionId is empty or null, create a new customer
+      const customer = await this.createCustomer(userId);
+      bankConnectionId = customer.id;
+
+      // Update the user's profile with the new bankConnectionId
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ bankConnectionId: bankConnectionId })
+        .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('Error updating user bankConnectionId:', updateError);
+        throw new Error('Failed to update user profile');
+      }
+
+      return bankConnectionId;
+    } catch (error) {
+      console.error('Error getting user consumerId:', error);
+      throw error;
+    }
   }
 }
 

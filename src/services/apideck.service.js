@@ -1,4 +1,4 @@
-const getApideckInstance  = require("../../config/apideck.js");
+const getApideckInstance  = require("../config/apideck.js");
 
 class ApideckService {
 // valut api method

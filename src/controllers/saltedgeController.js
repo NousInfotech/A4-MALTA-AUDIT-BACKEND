@@ -1,4 +1,4 @@
-const saltEdgeService = require("../application/services/saltedge.service");
+const saltEdgeService = require("../services/saltedge.service.js");
 
 const SaltedgeController = {
     createCustomer: async (req, res) => {
@@ -14,8 +14,8 @@ const SaltedgeController = {
     
     getCustomer: async (req, res) => {
         try {
-            const { customerId } = req.params;
-            const customer = await saltEdgeService.getCustomer(customerId);
+            const consumerId = req.bankConnectionId;
+            const customer = await saltEdgeService.getCustomer(consumerId);
             res.status(200).json(customer);
         } catch (error) {
             console.error('Error getting customer:', error);
@@ -25,8 +25,8 @@ const SaltedgeController = {
 
     deleteCustomer: async (req, res) => {
         try {
-            const { customerId } = req.params;
-            const result = await saltEdgeService.deleteCustomer(customerId);
+            const consumerId = req.bankConnectionId;
+            const result = await saltEdgeService.deleteCustomer(consumerId);
             res.status(200).json(result);
         } catch (error) {
             console.error('Error deleting customer:', error);
@@ -36,8 +36,9 @@ const SaltedgeController = {
 
     createSession: async (req, res) => {
         try {
-            const { customerId, returnTo } = req.body;
-            const session = await saltEdgeService.createSession(customerId, returnTo);
+            const consumerId = req.bankConnectionId;
+            const { returnTo } = req.body;
+            const session = await saltEdgeService.createSession(consumerId, returnTo);
             res.status(200).json(session);
         } catch (error) {
             console.error('Error creating session:', error);
@@ -47,8 +48,9 @@ const SaltedgeController = {
 
     createConnection: async (req, res) => {
         try {
-            const { customerId, providerCode } = req.body;
-            const connection = await saltEdgeService.createConnection(customerId, providerCode);
+            const consumerId = req.bankConnectionId;
+            const { providerCode } = req.body;
+            const connection = await saltEdgeService.createConnection(consumerId, providerCode);
             res.status(200).json(connection);
         } catch (error) {
             console.error('Error creating connection:', error);
@@ -103,8 +105,8 @@ const SaltedgeController = {
 
     getConnectionsByCustomerId: async (req, res) => {
         try {
-            const { customerId } = req.params;
-            const connections = await saltEdgeService.getConnectionsByCustomerId(customerId);
+            const consumerId = req.bankConnectionId;
+            const connections = await saltEdgeService.getConnectionsByCustomerId(consumerId);
             res.status(200).json(connections);
         } catch (error) {
             console.error('Error getting connections:', error);
