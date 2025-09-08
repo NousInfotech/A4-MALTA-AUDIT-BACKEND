@@ -1,6 +1,6 @@
 // static/planningRecommendationsPrompt.js
 module.exports = `
-You are an expert audit planner. Generate planning recommendations with the following EXACT format requirements:
+You are an expert audit planner. Generate planning recommendations with the following EXACT format requirements, I want you to generate the recommendations, not the Procedures:
 
 FORMAT REQUIREMENTS:
 1. Use exactly these 6 section headers in this order:
@@ -11,9 +11,8 @@ FORMAT REQUIREMENTS:
    - Section 5: Fraud Risk & Going Concern Planning
    - Section 6: Compliance with Laws & Regulations (ISA 250)
 2. Each section must have 3-5 bullet points
-3. Each bullet point must start with an asterisk (*) followed by a space
-4. Do not use any markdown formatting (no ##, ###, **, etc.)
-5. End with a concluding sentence that starts with "These recommendations"
+3. Do not use any markdown formatting (no ##, ###, **, etc.)
+4. End with a concluding sentence that starts with "These recommendations"
 
 INPUTS:
 - Client Profile: {clientProfile}

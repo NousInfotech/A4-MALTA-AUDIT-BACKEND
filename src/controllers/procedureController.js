@@ -391,12 +391,150 @@ async function getProcedure(req, res) {
     res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
 }
+// Add these new functions to procedureController.js
+
+// AI classification-specific questions
+async function generateAIClassificationQuestions(req, res) {
+  try {
+    const { engagementId, framework = "IFRS", classification } = req.body;
+    console.log("generateAIClassificationQuestions called for:", classification);
+
+    const context = await buildContext(engagementId, [classification]);
+    console.log("Built context for classification:", classification);
+
+    let oneShotExamples = buildOneShotExamples(framework, [classification]);
+    if (!Array.isArray(oneShotExamples)) oneShotExamples = [];
+
+    const prompt = buildProceduresQuestionsPrompt({ 
+      framework, 
+      classifications: [classification], 
+      context, 
+      oneShotExamples 
+    });
+    console.log("AI classification ques Built prompt:", prompt);
+
+    const out = await generateJson({ 
+      prompt, 
+      model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini",
+      max_tokens: 4000 // Increased for more detailed responses
+    });
+    console.log("LLM output:", out);
+
+    const aiQuestions = coerceQuestionsArray(out);
+    console.log("Coerced aiQuestions:", aiQuestions);
+
+    // Update procedure with classification-specific questions
+    let procedure = await Procedure.findOne({ engagement: engagementId });
+    
+    if (procedure) {
+      // Remove existing questions for this classification
+      procedure.questions = procedure.questions.filter(q => q.classification !== classification);
+      // Add new questions
+      procedure.questions.push(...aiQuestions.map(q => ({ ...q, classification })));
+      await procedure.save();
+    } else {
+      procedure = await Procedure.create({
+        engagement: engagementId,
+        framework,
+        mode: "ai",
+        classificationsSelected: [classification],
+        questions: aiQuestions.map(q => ({ ...q, classification })),
+        status: "draft",
+      });
+    }
+    
+    console.log("Updated Procedure doc with classification questions:", procedure);
+
+    res.json({ ok: true, procedureId: procedure._id, aiQuestions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: "Server error (ai classification questions)" });
+  }
+}
+
+// AI classification-specific answers
+async function generateAIClassificationAnswers(req, res) {
+  try {
+    const { procedureId, engagementId, framework = "IFRS", classification, questions = [] } = req.body;
+
+    const context = await buildContext(engagementId, [classification]);
+    console.log("Built context for classification answers:", classification);
+    
+    const prompt = buildProceduresAnswersPrompt({ 
+      framework, 
+      context, 
+      questions, 
+      classifications: [classification] 
+    });
+    console.log("AI classification answers Built prompt:", prompt);
+
+    const out = await generateJson({ 
+      prompt, 
+      model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini",
+      max_tokens: 4000 // Increased for more detailed responses
+    });
+    
+    // Update questions with answers
+    const questionsWithAnswers = questions.map((question, index) => {
+      return {
+        ...question,
+        answer: out.answers && out.answers[index] ? out.answers[index].answer : "",
+        classification
+      };
+    });
+
+    let procedure;
+    if (procedureId) {
+      procedure = await Procedure.findById(procedureId);
+      if (procedure) {
+        // Remove existing questions for this classification
+        procedure.questions = procedure.questions.filter(q => q.classification !== classification);
+        // Add updated questions with answers
+        procedure.questions.push(...questionsWithAnswers);
+        
+        // Update recommendations for this classification
+        if (out.recommendations) {
+          // Store recommendations by classification
+          procedure.recommendationsByClassification = procedure.recommendationsByClassification || {};
+          procedure.recommendationsByClassification[classification] = out.recommendations;
+        }
+        
+        await procedure.save();
+      }
+    } else {
+      procedure = await Procedure.findOneAndUpdate(
+        { engagement: engagementId },
+        {
+          engagement: engagementId,
+          framework,
+          mode: "ai",
+          questions: questionsWithAnswers,
+          recommendationsByClassification: { [classification]: out.recommendations || "" },
+          status: "draft"
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({ 
+      ok: true, 
+      procedureId: procedure._id, 
+      questions: questionsWithAnswers, 
+      recommendations: out.recommendations 
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: "Server error (ai classification answers)" });
+  }
+}
 module.exports = {
   saveProcedure,
   getManualProcedures,
   generateAIQuestions,
   generateAIAnswers,
   hybridGenerateQuestions,
+  generateAIClassificationAnswers,
+  generateAIClassificationQuestions,
   hybridGenerateAnswers,
   getProcedure,
 };

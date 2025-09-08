@@ -8,6 +8,8 @@ const {
   hybridGenerateAnswers,
   saveProcedure,
   getProcedure,
+  generateAIClassificationAnswers,
+generateAIClassificationQuestions,
 } = require("../controllers/procedureController");
 
 const router = Router();
@@ -19,5 +21,8 @@ router.post("/hybrid/questions", hybridGenerateQuestions);
 router.post("/hybrid/answers", hybridGenerateAnswers);
 router.post("/:engagementId", saveProcedure);
 router.get("/:engagementId", getProcedure);
+// Add these new routes
+router.post("/ai/classification-questions", generateAIClassificationQuestions);
+router.post("/ai/classification-answers", generateAIClassificationAnswers);
 
 module.exports = router;
