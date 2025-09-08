@@ -18,6 +18,12 @@ class SaltEdgeServices {
     return response.data.data;
   }
 
+  async getCustomerByIdentifier(identifier) {
+    const response = await saltEdgeClient.get(`/customers`);
+    return response.data.data.find(c => c.identifier === identifier);
+  }
+  
+
   // 0.2. Delete customer (optional cleanup if user deletes account)
   async deleteCustomer(customerId) {
     const response = await saltEdgeClient.delete(`/customers/${customerId}`);
