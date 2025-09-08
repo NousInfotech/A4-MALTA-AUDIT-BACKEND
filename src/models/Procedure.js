@@ -53,6 +53,11 @@ const ProcedureSchema = new mongoose.Schema({
     type: String, 
     default: "" 
   },
+  recommendationsByClassification: {
+    type: Map,
+    of: String,
+    default: {}
+  },
   status: { 
     type: String, 
     enum: ["draft", "completed"], 
