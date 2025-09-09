@@ -7,6 +7,8 @@ const planningSections = require("../static/planningSections");
 const planningQuestionsPrompt = require("../static/planningQuestionsPrompt");
 const planningAnswersPrompt = require("../static/planningAnswersPrompt");
 const planningRecommendationsPrompt = require("../static/planningRecommendationsPrompt");
+const planningSectionQuestionsPrompt = require("../static/planningSectionQuestionsPrompt");
+const planningSectionAnswersPrompt = require("../static/planningSectionAnswersPrompt");
 const hybridQuestionsPrompt = require("../static/hybridQuestionsPrompt")
 const hybridAnswersPrompt = require("../static/hybridAnswersPrompt")
 const { supabase } = require("../config/supabase");
@@ -253,6 +255,221 @@ exports.save = async (req, res) => {
   }
 };
 
+// ---------- New endpoint: Generate questions for a specific section ----------
+exports.generateSectionQuestions = async (req, res) => {
+  const { engagementId } = req.params;
+  const { sectionId, materiality = 0 } = req.body;
+
+  const engagement = await Engagement.findById(engagementId);
+  if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+  // client profile
+  const { data: clientProfile } = await supabase
+    .from("profiles")
+    .select("company_summary,industry")
+    .eq("user_id", engagement.clientId)
+    .single();
+
+  // ETB summary
+  const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+  const etbRows = Array.isArray(etb?.rows) ? etb.rows : [];
+  const summarizeETB = (rows, materialityNum) => {
+    const top = [...rows]
+      .sort((a,b) => Math.abs(b.amount || 0) - Math.abs(a.amount || 0))
+      .slice(0, 20)
+      .map(({ account, amount, type }) => ({ account, amount, type }));
+    const material = top.filter(r => Math.abs(r.amount || 0) >= (Number(materialityNum) || 0) * 0.5);
+    return { top, material, count: rows.length };
+  };
+
+  // Get section info
+  const section = sectionsById.get(sectionId);
+  if (!section) return res.status(404).json({ message: "Section not found" });
+
+  // field palette (examples only; NOT actual fields)
+  const fieldPalette = [
+    { type: "text",       example: { key: "short_text", label: "Short input", required: false, help: "One-line text." } },
+    { type: "textarea",   example: { key: "long_text",  label: "Describe...", required: true,  help: "Multi-line narrative." } },
+    { type: "checkbox",   example: { key: "flag",       label: "Is applicable?", required: true, help: "True/false flag." } },
+    { type: "select",     example: { key: "choice",     label: "Pick one", required: true, options: ["A","B","C"], help: "Choose best fit." } },
+    { type: "multiselect",example: { key: "tags",       label: "Select all that apply", required: false, options: ["X","Y","Z"], help: "Multiple choices." } },
+    { type: "number",     example: { key: "count",      label: "Quantity", required: false, min: 0, help: "Numeric value." } },
+    { type: "currency",   example: { key: "amount",      label: "Amount (€)", required: false, min: 0, help: "Monetary input." } },
+    { type: "user",       example: { key: "owner",      label: "Assignee", required: false, help: "Select staff user." } },
+    { type: "date",       example: { key: "as_of",      label: "As of date", required: false, help: "Select a date." } }
+  ];
+
+  // build prompt
+  const prompt = String(planningSectionQuestionsPrompt)
+    .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+    .replace("{materiality}", String(materiality))
+    .replace("{etbRows}", JSON.stringify(summarizeETB(etbRows, materiality)))
+    .replace("{section}", JSON.stringify({ sectionId: section.sectionId, title: section.title }))
+    .replace("{fieldPalette}", JSON.stringify(fieldPalette));
+
+  const raw = await callOpenAI(prompt);
+  const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_section_questions" });
+
+  // normalize & strip answers (defensive against leaks)
+  const ALLOWED_TYPES = new Set(["text","textarea","checkbox","multiselect","number","currency","select","user","date"]);
+  const sectionFields = (parsed?.fields || [])
+    .filter(f => ALLOWED_TYPES.has(f?.type))
+    .map((f) => ({
+      key: String(f.key || "").trim(),
+      type: f.type,
+      label: String(f.label || "").trim(),
+      required: !!f.required,
+      help: String(f.help || "").trim(),
+      options: Array.isArray(f.options) ? f.options.slice(0, 20) : undefined,
+      visibleIf: f.visibleIf,
+      min: typeof f.min === "number" ? f.min : undefined,
+      max: typeof f.max === "number" ? f.max : undefined,
+      placeholder: typeof f.placeholder === "string" ? f.placeholder : undefined,
+      answer: undefined
+    }));
+
+  // Update or create the procedure document
+  let doc = await PlanningProcedure.findOne({ engagement: engagementId });
+  if (!doc) {
+    doc = new PlanningProcedure({
+      engagement: engagementId,
+      procedureType: "planning",
+      mode: "ai",
+      materiality,
+      selectedSections: [sectionId],
+      procedures: [],
+      status: "in-progress",
+    });
+  }
+
+  // Update the specific section
+  const existingSectionIndex = doc.procedures.findIndex(s => s.sectionId === sectionId);
+  if (existingSectionIndex >= 0) {
+    doc.procedures[existingSectionIndex].fields = sectionFields;
+  } else {
+    doc.procedures.push({
+      id: `sec-${doc.procedures.length + 1}`,
+      sectionId: section.sectionId,
+      title: section.title,
+      standards: section.standards,
+      currency: section.currency,
+      fields: sectionFields,
+      footer: section.footer || null
+    });
+  }
+
+  doc.questionsGeneratedAt = new Date();
+  await doc.save();
+
+  res.json({ 
+    sectionId: section.sectionId, 
+    fields: sectionFields
+  });
+};
+
+// ---------- New endpoint: Generate answers for a specific section ----------
+exports.generateSectionAnswers = async (req, res) => {
+  const { engagementId } = req.params;
+  const { sectionId } = req.body;
+
+  const engagement = await Engagement.findById(engagementId);
+  if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+  const doc = await PlanningProcedure.findOne({ engagement: engagementId });
+  if (!doc) return res.status(404).json({ message: "Planning procedure not found" });
+
+  // Find the section to answer
+  const sectionIndex = doc.procedures.findIndex(s => s.sectionId === sectionId);
+  if (sectionIndex === -1) return res.status(404).json({ message: "Section not found in procedure" });
+
+  const section = doc.procedures[sectionIndex];
+
+  // --- client profile + ETB
+  const { data: clientProfile } = await supabase
+    .from("profiles")
+    .select("company_summary,industry")
+    .eq("user_id", engagement.clientId)
+    .single();
+
+  const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+  const etbRows = etb?.rows || [];
+
+  // Build prompt for this section
+  const prompt = String(planningSectionAnswersPrompt)
+    .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+    .replace("{materiality}", String(doc.materiality || 0))
+    .replace("{etbRows}", JSON.stringify(etbRows || []))
+    .replace("{section}", JSON.stringify(section));
+
+  const raw = await callOpenAI(prompt);
+  const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_section_answers" });
+
+  // In the generateSectionAnswers function, update the response handling:
+if (parsed && parsed.sectionId === sectionId && Array.isArray(parsed.fields)) {
+    const answeredFields = section.fields.map(field => {
+      const answeredField = parsed.fields.find(f => f.key === field.key);
+      return answeredField ? { ...field, answer: answeredField.answer } : field;
+    });
+
+    // NEW: Add section recommendations
+    doc.procedures[sectionIndex].fields = answeredFields;
+    doc.procedures[sectionIndex].sectionRecommendations = parsed.sectionRecommendations || "";
+    
+    await doc.save();
+
+    res.json({ 
+      sectionId, 
+      fields: answeredFields,
+      sectionRecommendations: parsed.sectionRecommendations || "" // NEW
+    });
+} else {
+    res.status(500).json({ message: "Failed to generate answers for section" });
+}
+};
+
+// ---------- Generate recommendations for all sections ----------
+exports.generateRecommendations = async (req, res) => {
+  const { engagementId } = req.params;
+
+  const engagement = await Engagement.findById(engagementId);
+  if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+  const doc = await PlanningProcedure.findOne({ engagement: engagementId });
+  if (!doc) return res.status(404).json({ message: "Planning procedure not found" });
+
+  // --- client profile + ETB
+  const { data: clientProfile } = await supabase
+    .from("profiles")
+    .select("company_summary,industry")
+    .eq("user_id", engagement.clientId)
+    .single();
+
+  const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+  const etbRows = etb?.rows || [];
+
+  // Prepare concise answers for your recommendations prompt
+  const keyAnswers = doc.procedures.map((s) => ({
+    section: s.title,
+    answers: (s.fields || [])
+      .slice(0, 6)
+      .map((f) => `${f.label}: ${typeof f.answer === "object" ? JSON.stringify(f.answer) : String(f.answer ?? "")}`),
+  }));
+
+  const recPrompt = String(planningRecommendationsPrompt)
+    .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
+    .replace("{materiality}", String(doc.materiality || 0))
+    .replace("{etbSummary}", JSON.stringify(etbRows.slice(0, 20)))
+    .replace("{keyAnswers}", JSON.stringify(keyAnswers));
+
+  const recommendations = await callOpenAI(recPrompt);
+
+  doc.recommendations = recommendations;
+  doc.answersGeneratedAt = new Date();
+  doc.status = "completed";
+  await doc.save();
+
+  res.json({ recommendations, procedures: doc.procedures });
+};
 
 exports.generateQuestions = async (req, res) => {
   const { engagementId } = req.params;

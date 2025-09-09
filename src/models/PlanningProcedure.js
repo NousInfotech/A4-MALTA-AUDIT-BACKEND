@@ -6,21 +6,15 @@ const { Schema } = mongoose;
 const FieldSchema = new Schema(
   {
     key: { type: String, required: true },
-    type: { type: String, required: true }, // text, textarea, number, checkbox, select, multiselect, table, group, file, user, markdown...
+    type: { type: String, required: true },
     label: { type: String, default: "" },
     required: { type: Boolean, default: false },
     help: { type: String, default: "" },
-
-    // editor configs – allow anything the UI sends
-    options: { type: [String], default: undefined },   // select/multiselect
-    columns: { type: [String], default: undefined },   // table
-    fields:  { type: Schema.Types.Mixed, default: undefined }, // group config (children etc.)
-    content: { type: String, default: "" },            // markdown content
-
-    // conditional visibility of any shape
+    options: { type: [String], default: undefined },
+    columns: { type: [String], default: undefined },
+    fields:  { type: Schema.Types.Mixed, default: undefined },
+    content: { type: String, default: "" },
     visibleIf: { type: Schema.Types.Mixed, default: undefined },
-
-    // answers can be string/number/boolean/object/array
     answer: { type: Schema.Types.Mixed, default: undefined },
   },
   { _id: false, strict: false }
@@ -34,11 +28,9 @@ const SectionSchema = new Schema(
     title: { type: String },
     standards: { type: [String], default: undefined },
     currency: { type: String, default: undefined },
-
     fields: { type: [FieldSchema], default: [] },
-
-    // IMPORTANT: allow string OR object { type, content }
     footer: { type: Schema.Types.Mixed, default: null },
+    sectionRecommendations: { type: String, default: "" }, // NEW: Section-specific recommendations
   },
   { _id: false, strict: false }
 );
@@ -50,31 +42,23 @@ const PlanningProcedureSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Engagement",
       required: true,
-      unique: true, // single doc per engagement
+      unique: true,
     },
-
     procedureType: { type: String, default: "planning" },
-
     materiality: { type: Number, default: undefined },
     selectedSections: { type: [String], default: [] },
-
     procedures: { type: [SectionSchema], default: [] },
-
     recommendations: { type: String, default: "" },
-
     status: {
       type: String,
       enum: ["draft", "in-progress", "completed"],
       default: "in-progress",
     },
-
-    // support manual / ai / hybrid
     mode: {
       type: String,
       enum: ["manual", "ai", "hybrid"],
       default: "manual",
     },
-
     files: {
       type: [
         {
@@ -86,8 +70,6 @@ const PlanningProcedureSchema = new Schema(
       ],
       default: [],
     },
-
-    // timestamps like questionsGeneratedAt / answersGeneratedAt can be added ad-hoc
   },
   { timestamps: true, strict: false }
 );
