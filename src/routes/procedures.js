@@ -7,6 +7,7 @@ const {
   hybridGenerateQuestions,
   hybridGenerateAnswers,
   saveProcedure,
+  generateHybridClassificationQuestion,
   getProcedure,
   generateAIClassificationAnswers,
 generateAIClassificationQuestions,
@@ -24,5 +25,7 @@ router.get("/:engagementId", getProcedure);
 // Add these new routes
 router.post("/ai/classification-questions", generateAIClassificationQuestions);
 router.post("/ai/classification-answers", generateAIClassificationAnswers);
+// Add this new route for hybrid classification questions
+router.post("/hybrid/classification-questions", generateHybridClassificationQuestion);
 
 module.exports = router;

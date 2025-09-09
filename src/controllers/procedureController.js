@@ -492,11 +492,24 @@ async function generateAIClassificationAnswers(req, res) {
         // Add updated questions with answers
         procedure.questions.push(...questionsWithAnswers);
         
-        // Update recommendations for this classification
+        // Update recommendations for this classification - APPEND instead of replace
         if (out.recommendations) {
           // Store recommendations by classification
           procedure.recommendationsByClassification = procedure.recommendationsByClassification || {};
-          procedure.recommendationsByClassification[classification] = out.recommendations;
+          
+          // Get existing recommendations for this classification
+          const existingRecs = procedure.recommendationsByClassification[classification] || "";
+          
+          // Append new recommendations
+          procedure.recommendationsByClassification[classification] = 
+            existingRecs ? `${existingRecs}\n\n${out.recommendations}` : out.recommendations;
+          
+          // Also update the flat recommendations field for backward compatibility
+          let fullRecommendations = "";
+          for (const [cls, rec] of Object.entries(procedure.recommendationsByClassification)) {
+            fullRecommendations += `*${cls}*\n${rec}\n\n`;
+          }
+          procedure.recommendations = fullRecommendations.trim();
         }
         
         await procedure.save();
@@ -510,6 +523,7 @@ async function generateAIClassificationAnswers(req, res) {
           mode: "ai",
           questions: questionsWithAnswers,
           recommendationsByClassification: { [classification]: out.recommendations || "" },
+          recommendations: out.recommendations || "",
           status: "draft"
         },
         { upsert: true, new: true }
@@ -527,6 +541,48 @@ async function generateAIClassificationAnswers(req, res) {
     res.status(500).json({ ok: false, error: "Server error (ai classification answers)" });
   }
 }
+
+  
+async function generateHybridClassificationQuestion (req, res) {
+  try {
+    const { engagementId, materiality, classification, manualQuestions } = req.body;
+    
+    // Get engagement data
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({ message: "Engagement not found" });
+    }
+    
+    // Get context for the AI prompt
+    const context = {
+      materiality,
+      industry: engagement.industry,
+      riskAssessment: engagement.riskAssessment,
+      // Add other relevant context here
+    };
+    
+    // Build the prompt for hybrid question generation
+    const prompt = buildHybridQuestionsPrompt({
+      framework: engagement.framework || "IFRS",
+      manualPacks: manualQuestions.filter(q => q.classification === classification),
+      context,
+    });
+    
+    // Call your AI service
+    const aiResponse = await callAIService(prompt);
+    
+    // Parse and return the response
+    const aiQuestions = aiResponse.questions || [];
+    
+    res.json({
+      aiQuestions,
+      recommendations: aiResponse.recommendations || ""
+    });
+  } catch (error) {
+    console.error("Error generating hybrid classification questions:", error);
+    res.status(500).json({ message: error.message });
+  }
+}
 module.exports = {
   saveProcedure,
   getManualProcedures,
@@ -534,6 +590,7 @@ module.exports = {
   generateAIAnswers,
   hybridGenerateQuestions,
   generateAIClassificationAnswers,
+  generateHybridClassificationQuestion,
   generateAIClassificationQuestions,
   hybridGenerateAnswers,
   getProcedure,
