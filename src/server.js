@@ -16,6 +16,7 @@ const globalRoutes = require("./routes/global-library");
 const saltedgeRoutes = require("./routes/saltedge");
 const apideckRoutes = require("./routes/apideck");
 const pbcRoutes = require("./routes/pbc");
+const kycRoutes = require("./routes/kyc");
 const app = express();
 
 app.use(
@@ -51,6 +52,7 @@ app.use("/api/users", usersRoutes);
 app.use("/api/saltedge", saltedgeRoutes);
 app.use("/api/apideck", apideckRoutes);
 app.use("/api/pbc", pbcRoutes);
+app.use("/api/kyc", kycRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
