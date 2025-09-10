@@ -18,6 +18,7 @@ const apideckRoutes = require("./routes/apideck");
 const pbcRoutes = require("./routes/pbc");
 const kycRoutes = require("./routes/kyc");
 const employeeLogRoutes = require("./routes/employeeLogs");
+const isqmRoutes = require("./routes/isqm");
 const app = express();
 
 app.use(
@@ -55,6 +56,7 @@ app.use("/api/apideck", apideckRoutes);
 app.use("/api/pbc", pbcRoutes);
 app.use("/api/kyc", kycRoutes);
 app.use("/api/employee-logs", employeeLogRoutes);
+app.use("/api/isqm", isqmRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
