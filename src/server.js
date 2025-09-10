@@ -26,10 +26,7 @@ app.use(
     origin: [
       "https://a4-malta-audit-portal.vercel.app",
       "http://localhost:8080",
-      "https://audit-portal-1-75ac69871dcd.herokuapp.com",
       "https://portal.a4.com.mt",
-      "http://portal.a4.com.mt",
-      "https://audit-portal-six.vercel.app",
     ],
     credentials: true // optional: if you need to allow cookies/auth headers
   })
@@ -42,7 +39,6 @@ const io = new Server(server, {
 
 app.set("io", io);
 
-app.use(cors());
 connectDB();
 app.use(express.json());
 app.use("/api/planning-procedures", require("./routes/planningProcedures"));
