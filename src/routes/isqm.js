@@ -10,7 +10,7 @@ const { requireAuth, requireRole } = require('../middlewares/auth');
 router.post(
   '/parents',
   requireAuth,
-  requireRole('employee'), // Only auditors can create ISQM packs
+  requireRole(['employee', 'admin']), // Both auditors and admins can create ISQM packs
   isqmController.createISQMParent
 );
 
@@ -18,7 +18,7 @@ router.post(
 router.get(
   '/parents',
   requireAuth,
-  requireRole('employee'), // Only auditors can view all ISQM packs
+  requireRole(['employee', 'admin']), // Both auditors and admins can view all ISQM packs
   isqmController.getAllISQMParents
 );
 
@@ -33,7 +33,7 @@ router.get(
 router.patch(
   '/parents/:id',
   requireAuth,
-  requireRole('employee'), // Only auditors can update ISQM packs
+  requireRole(['employee', 'admin']), // Both auditors and admins can update ISQM packs
   isqmController.updateISQMParent
 );
 
@@ -41,7 +41,7 @@ router.patch(
 router.delete(
   '/parents/:id',
   requireAuth,
-  requireRole('employee'), // Only auditors can delete ISQM packs
+  requireRole(['employee', 'admin']), // Both auditors and admins can delete ISQM packs
   isqmController.deleteISQMParent
 );
 
@@ -53,7 +53,7 @@ router.delete(
 router.post(
   '/questionnaires',
   requireAuth,
-  requireRole('employee'), // Only auditors can create questionnaires
+  requireRole(['employee', 'admin']), // Both auditors and admins can create questionnaires
   isqmController.createQuestionnaire
 );
 
@@ -75,7 +75,7 @@ router.get(
 router.patch(
   '/questionnaires/:id',
   requireAuth,
-  requireRole('employee'), // Only auditors can update questionnaire structure
+  requireRole(['employee', 'admin']), // Both auditors and admins can update questionnaire structure
   isqmController.updateQuestionnaire
 );
 
@@ -83,7 +83,7 @@ router.patch(
 router.delete(
   '/questionnaires/:id',
   requireAuth,
-  requireRole('employee'), // Only auditors can delete questionnaires
+  requireRole(['employee', 'admin']), // Both auditors and admins can delete questionnaires
   isqmController.deleteQuestionnaire
 );
 
@@ -130,7 +130,7 @@ router.get(
 router.post(
   '/supporting-documents',
   requireAuth,
-  requireRole('employee'), // Only employees can create document requests
+  requireRole(['employee', 'admin']), // Both employees and admins can create document requests
   isqmController.createSupportingDocument
 );
 
@@ -152,7 +152,7 @@ router.get(
 router.patch(
   '/supporting-documents/:id',
   requireAuth,
-  requireRole('employee'), // Only employees can update document requests
+  requireRole(['employee', 'admin']), // Both employees and admins can update document requests
   isqmController.updateSupportingDocument
 );
 
@@ -160,7 +160,7 @@ router.patch(
 router.delete(
   '/supporting-documents/:id',
   requireAuth,
-  requireRole('employee'), // Only employees can delete document requests
+  requireRole(['employee', 'admin']), // Both employees and admins can delete document requests
   isqmController.deleteSupportingDocument
 );
 
@@ -168,7 +168,7 @@ router.delete(
 router.post(
   '/supporting-documents/:id/upload',
   requireAuth,
-  requireRole('employee'), // Only employees can upload files
+  requireRole(['employee', 'admin']), // Both employees and admins can upload files
   isqmController.uploadDocumentFile
 );
 
@@ -176,7 +176,7 @@ router.post(
 router.patch(
   '/supporting-documents/:id/review',
   requireAuth,
-  requireRole('employee'), // Only employees can review documents
+  requireRole(['employee', 'admin']), // Both employees and admins can review documents
   isqmController.reviewSupportingDocument
 );
 

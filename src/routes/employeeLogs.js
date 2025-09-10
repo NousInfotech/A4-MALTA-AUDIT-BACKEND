@@ -18,7 +18,7 @@ router.post(
 router.get(
   '/',
   requireAuth,
-  requireRole('employee'), // Only employees can view all logs
+  requireRole(['employee', 'admin']), // Employees and admins can view all logs
   employeeLogController.getAllLogs
 );
 
@@ -33,7 +33,7 @@ router.get(
 router.get(
   '/statistics',
   requireAuth,
-  requireRole('employee'), // Only employees can view statistics
+  requireRole(['employee', 'admin']), // Employees and admins can view statistics
   employeeLogController.getLogStatistics
 );
 
@@ -72,7 +72,7 @@ router.delete(
 router.get(
   '/export/data',
   requireAuth,
-  requireRole('employee'), // Only employees can export logs
+  requireRole(['employee', 'admin']), // Employees and admins can export logs
   employeeLogController.exportLogs
 );
 
@@ -80,6 +80,7 @@ router.get(
 router.get(
   '/actions/available',
   requireAuth,
+  requireRole(['employee', 'admin']), // Employees and admins can view available actions
   employeeLogController.getAvailableActions
 );
 
