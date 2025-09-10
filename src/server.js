@@ -28,7 +28,8 @@ app.use(
       "https://audit-portal-1-75ac69871dcd.herokuapp.com",
       "https://portal.a4.com.mt",
       "http://portal.a4.com.mt",
-      "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app/login"
+      "https://audit-portal-six.vercel.app",
+      "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app"
     ],
     credentials: true // optional: if you need to allow cookies/auth headers
   })
