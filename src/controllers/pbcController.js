@@ -7,25 +7,35 @@ const Engagement = require('../models/Engagement');
  */
 
 // Create a new PBC workflow
+// Create a new PBC workflow
 exports.createPBC = async (req, res, next) => {
   try {
-    const { engagementId, clientId, auditorId, documentRequests } = req.body;
+    const { 
+      engagementId, 
+      clientId, 
+      auditorId, 
+      documentRequests,
+      entityName,
+      notes,
+      customFields
+    } = req.body;
     
-    // Verify engagement exists
+    // 1️⃣ Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
     if (!engagement) {
       return res.status(404).json({ message: 'Engagement not found' });
     }
 
-    // Check if PBC already exists for this engagement
+    // 2️⃣ Check if PBC already exists for this engagement
     const existingPBC = await PBC.findOne({ engagement: engagementId });
     if (existingPBC) {
       return res.status(400).json({ message: 'PBC workflow already exists for this engagement' });
     }
 
-    // Verify document requests exist if provided
+    // 3️⃣ Verify provided document requests are valid for this engagement
+    let validRequests = [];
     if (documentRequests && documentRequests.length > 0) {
-      const validRequests = await DocumentRequest.find({ 
+      validRequests = await DocumentRequest.find({ 
         _id: { $in: documentRequests },
         engagement: engagementId 
       });
@@ -35,15 +45,31 @@ exports.createPBC = async (req, res, next) => {
       }
     }
 
+    // 4️⃣ Create the PBC workflow
     const pbc = await PBC.create({
       engagement: engagementId,
-      clientId: clientId || req.user.id,
+      clientId: clientId || engagement.clientId,
       auditorId: auditorId || req.user.id,
-      documentRequests: documentRequests || [],
-      status: 'document-collection'
+      documentRequests: validRequests.map(dr => dr._id),
+
+      // ✅ pull directly from Engagement
+      engagementTitle: engagement.title,
+      yearEndDate: engagement.yearEndDate,
+      trialBalanceUrl: engagement.trialBalanceUrl,
+      trialBalance: engagement.trialBalance,
+      excelURL: engagement.excelURL,
+
+      // ✅ extra fields from req.body
+      entityName,
+      notes,
+      customFields,
+
+      status: 'document-collection',
+      createdAt: new Date(),
+      createdBy: req.user.id
     });
 
-    // Update engagement status to include PBC workflow
+    // 5️⃣ Update engagement status
     await Engagement.findByIdAndUpdate(engagementId, { 
       status: 'pbc-data-collection' 
     });
@@ -53,6 +79,7 @@ exports.createPBC = async (req, res, next) => {
     next(err);
   }
 };
+
 
 // Get PBC by engagement ID
 exports.getPBCByEngagement = async (req, res, next) => {
