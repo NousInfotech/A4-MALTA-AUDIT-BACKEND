@@ -30,6 +30,7 @@ app.use(
       "http://portal.a4.com.mt",
       "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app/login",
       "https://a4-malta-audit-portal.vercel.app",
+      "https://audit-portal-six.vercel.app",
     ],
     credentials: true // optional: if you need to allow cookies/auth headers
   })
