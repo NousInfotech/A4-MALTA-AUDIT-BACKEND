@@ -826,4 +826,655 @@ Retrieves statistics for supporting documents in an ISQM pack.
 - **Completion Tracking** - Monitor document completion status
 - **Statistics** - Get insights on document progress
 
-The ISQM API provides comprehensive quality management questionnaire capabilities and supporting document management essential for audit compliance and quality assurance! 🎉
+## 🤖 AI Document Generation API
+
+### 1. Generate Policy Document
+**POST** `/api/isqm/questionnaires/:questionnaireId/generate/policy`
+
+Generates a formal quality management policy based on completed ISQM questionnaire responses.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "firmDetails": {
+    "size": "mid-sized",
+    "specializations": ["audit", "tax", "advisory"],
+    "jurisdiction": "UK",
+    "additionalInfo": "Any additional firm-specific details"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "generatedDocument": "# Quality Management Policy\n\n## 1. Policy Title and Purpose\n\nThis policy establishes the framework for quality management...",
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "promptType": "POLICY_GENERATOR"
+  }
+}
+```
+
+### 2. Generate Procedure Document
+**POST** `/api/isqm/questionnaires/:questionnaireId/generate/procedure`
+
+Generates detailed implementation procedures based on ISQM questionnaire responses and policy requirements.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "firmDetails": {
+    "size": "mid-sized",
+    "specializations": ["audit", "tax", "advisory"],
+    "processes": ["existing process details"],
+    "jurisdiction": "UK"
+  },
+  "policyDetails": {
+    "title": "Quality Management Policy",
+    "requirements": ["requirement1", "requirement2"],
+    "responsibilities": {
+      "engagementPartner": "Overall responsibility",
+      "qualityReviewer": "Review and approval"
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "generatedDocument": "# Quality Management Procedures\n\n## 1. Procedure Title\n\nQuality Management Implementation Procedures...",
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "promptType": "PROCEDURE_GENERATOR"
+  }
+}
+```
+
+### 3. Generate Risk Assessment
+**POST** `/api/isqm/questionnaires/:questionnaireId/generate/risk-assessment`
+
+Generates a comprehensive risk assessment based on ISQM questionnaire responses.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "firmDetails": {
+    "size": "mid-sized",
+    "specializations": ["audit", "tax", "advisory"],
+    "jurisdiction": "UK"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "generatedDocument": "# Quality Management Risk Assessment\n\n## 1. Risk Identification\n\nBased on the questionnaire responses, the following risks have been identified...",
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "promptType": "RISK_ASSESSMENT_GENERATOR"
+  }
+}
+```
+
+### 4. Generate Compliance Checklist
+**POST** `/api/isqm/questionnaires/:questionnaireId/generate/compliance-checklist`
+
+Generates a practical compliance checklist based on ISQM requirements and questionnaire responses.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "firmDetails": {
+    "size": "mid-sized",
+    "specializations": ["audit", "tax", "advisory"],
+    "jurisdiction": "UK"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "generatedDocument": "# ISQM Compliance Checklist\n\n## Compliance Areas\n\n### 1. Quality Management System\n- [ ] Policy documented and approved...",
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "promptType": "COMPLIANCE_CHECKLIST_GENERATOR"
+  }
+}
+```
+
+### 5. Automatic ISQM Document Generation
+**POST** `/api/isqm/parents/:parentId/generate-documents`
+
+Automatically generates both policy and procedure documents for all completed questionnaires in an ISQM pack. This is the main endpoint for bulk document generation.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "firmDetails": {
+    "size": "mid-sized",
+    "specializations": ["audit", "tax", "advisory"],
+    "jurisdiction": "UK",
+    "additionalInfo": "Any additional firm-specific details"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Successfully generated 3 policy documents and 3 procedure documents",
+  "parent": {
+    "id": "64a1b2c3d4e5f6789012345",
+    "title": "ISQM Quality Management Pack 2024",
+    "version": "1.0",
+    "jurisdiction": "UK"
+  },
+  "questionnaires": [
+    {
+      "id": "64a1b2c3d4e5f6789012349",
+      "key": "ISQM_1",
+      "heading": "ISQM 1 - Quality Management",
+      "completionPercentage": 100,
+      "totalQuestions": 25,
+      "answeredQuestions": 25
+    },
+    {
+      "id": "64a1b2c3d4e5f6789012350",
+      "key": "ISQM_2",
+      "heading": "ISQM 2 - Engagement Quality",
+      "completionPercentage": 100,
+      "totalQuestions": 20,
+      "answeredQuestions": 20
+    }
+  ],
+  "policies": [
+    {
+      "questionnaireId": "64a1b2c3d4e5f6789012349",
+      "componentName": "ISQM 1 - Quality Management",
+      "componentKey": "ISQM_1",
+      "document": "# Quality Management Policy\n\n## 1. Policy Title and Purpose\n\nThis policy establishes the framework for quality management...",
+      "pdfPath": "/temp/ISQM_1_policy_2024-01-15T10-30-00-000Z.pdf",
+      "pdfFilename": "ISQM_1_policy_2024-01-15T10-30-00-000Z.pdf",
+      "generatedAt": "2024-01-15T10:30:00.000Z",
+      "generatedBy": "user-123",
+      "model": "gpt-4o-mini",
+      "promptType": "POLICY_GENERATOR"
+    },
+    {
+      "questionnaireId": "64a1b2c3d4e5f6789012350",
+      "componentName": "ISQM 2 - Engagement Quality",
+      "componentKey": "ISQM_2",
+      "document": "# Engagement Quality Policy\n\n## 1. Policy Title and Purpose\n\nThis policy establishes the framework for engagement quality...",
+      "pdfPath": "/temp/ISQM_2_policy_2024-01-15T10-30-00-000Z.pdf",
+      "pdfFilename": "ISQM_2_policy_2024-01-15T10-30-00-000Z.pdf",
+      "generatedAt": "2024-01-15T10:30:00.000Z",
+      "generatedBy": "user-123",
+      "model": "gpt-4o-mini",
+      "promptType": "POLICY_GENERATOR"
+    }
+  ],
+  "procedures": [
+    {
+      "questionnaireId": "64a1b2c3d4e5f6789012349",
+      "componentName": "ISQM 1 - Quality Management",
+      "componentKey": "ISQM_1",
+      "document": "# Quality Management Procedures\n\n## 1. Procedure Title\n\nQuality Management Implementation Procedures...",
+      "pdfPath": "/temp/ISQM_1_procedure_2024-01-15T10-30-00-000Z.pdf",
+      "pdfFilename": "ISQM_1_procedure_2024-01-15T10-30-00-000Z.pdf",
+      "generatedAt": "2024-01-15T10:30:00.000Z",
+      "generatedBy": "user-123",
+      "model": "gpt-4o-mini",
+      "promptType": "PROCEDURE_GENERATOR"
+    },
+    {
+      "questionnaireId": "64a1b2c3d4e5f6789012350",
+      "componentName": "ISQM 2 - Engagement Quality",
+      "componentKey": "ISQM_2",
+      "document": "# Engagement Quality Procedures\n\n## 1. Procedure Title\n\nEngagement Quality Implementation Procedures...",
+      "pdfPath": "/temp/ISQM_2_procedure_2024-01-15T10-30-00-000Z.pdf",
+      "pdfFilename": "ISQM_2_procedure_2024-01-15T10-30-00-000Z.pdf",
+      "generatedAt": "2024-01-15T10:30:00.000Z",
+      "generatedBy": "user-123",
+      "model": "gpt-4o-mini",
+      "promptType": "PROCEDURE_GENERATOR"
+    }
+  ],
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "totalQuestionnaires": 2
+  }
+}
+```
+
+**Error Responses:**
+- `404` - ISQM Parent not found
+- `400` - No completed questionnaires found
+- `500` - Failed to generate any documents
+
+### 6. Get Available Generation Types
+**GET** `/api/isqm/generation/types`
+
+Retrieves available document generation types.
+
+**Response:**
+```json
+{
+  "success": true,
+  "availableTypes": [
+    {
+      "type": "POLICY_GENERATOR",
+      "description": "Generate formal quality management policies"
+    },
+    {
+      "type": "PROCEDURE_GENERATOR",
+      "description": "Generate detailed implementation procedures"
+    },
+    {
+      "type": "RISK_ASSESSMENT_GENERATOR",
+      "description": "Generate comprehensive risk assessments"
+    },
+    {
+      "type": "COMPLIANCE_CHECKLIST_GENERATOR",
+      "description": "Generate compliance checklists"
+    }
+  ]
+}
+```
+
+## 🔧 AI Generation Features
+
+### Document Types
+- **Policy Documents** - Formal quality management policies
+- **Procedure Documents** - Detailed implementation procedures
+- **Risk Assessments** - Comprehensive risk analysis
+- **Compliance Checklists** - Practical compliance tools
+
+### AI Integration
+- **OpenAI GPT-4o-mini** - Advanced language model for document generation
+- **openai_pbc** - Uses dedicated OpenAI instance for ISQM generation
+- **PDF Generation** - Automatically converts generated content to PDF format
+- **Context-Aware** - Uses questionnaire responses and firm details
+- **Professional Quality** - Generates audit-portal-ready documents
+- **Customizable** - Firm-specific details and requirements
+
+### Input Data Format
+The system accepts ISQM questionnaire data in the following JSON structure:
+```json
+{
+  "componentName": "Component Name",
+  "questionnaire": {
+    "key": "ISQM_1",
+    "heading": "Component Heading",
+    "sections": [
+      {
+        "heading": "Section Title",
+        "qna": [
+          {
+            "question": "Question text",
+            "answer": "Response text",
+            "state": true/false
+          }
+        ]
+      }
+    ]
+  },
+  "firmDetails": {
+    "size": "mid-sized",
+    "jurisdiction": "UK",
+    "specializations": ["audit", "tax", "advisory"]
+  }
+}
+```
+
+### Security & Access Control
+- **Employee-only generation** - Only authenticated employees can generate documents
+- **Role-based access** - `requireRole('employee')` for all generation endpoints
+- **Audit logging** - All generation activities are logged
+- **Data validation** - Input data is validated before processing
+
+## 🔗 URL Management API
+
+### 1. Add Procedure URL
+**POST** `/api/isqm/questionnaires/:id/procedure-urls`
+
+Adds a procedure document URL to a questionnaire.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "name": "ISQM 1 Quality Management Procedures v2.0",
+  "url": "https://supabase.com/storage/v1/object/public/procedures/isqm1_procedures_v2.pdf",
+  "version": "2.0",
+  "description": "Updated procedures for quality management implementation"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaire": {
+    "_id": "64a1b2c3d4e5f6789012349",
+    "procedureUrls": [
+      {
+        "_id": "64a1b2c3d4e5f6789012351",
+        "name": "ISQM 1 Quality Management Procedures v2.0",
+        "url": "https://supabase.com/storage/v1/object/public/procedures/isqm1_procedures_v2.pdf",
+        "version": "2.0",
+        "uploadedBy": "user-123",
+        "description": "Updated procedures for quality management implementation",
+        "updatedAt": "2024-01-15T10:30:00.000Z"
+      }
+    ]
+  },
+  "message": "Procedure URL added successfully"
+}
+```
+
+### 2. Add Policy URL
+**POST** `/api/isqm/questionnaires/:id/policy-urls`
+
+Adds a policy document URL to a questionnaire.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "name": "ISQM 1 Quality Management Policy v1.5",
+  "url": "https://supabase.com/storage/v1/object/public/policies/isqm1_policy_v1.5.pdf",
+  "version": "1.5",
+  "description": "Quality management policy document"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaire": {
+    "_id": "64a1b2c3d4e5f6789012349",
+    "policyUrls": [
+      {
+        "_id": "64a1b2c3d4e5f6789012352",
+        "name": "ISQM 1 Quality Management Policy v1.5",
+        "url": "https://supabase.com/storage/v1/object/public/policies/isqm1_policy_v1.5.pdf",
+        "version": "1.5",
+        "uploadedBy": "user-123",
+        "description": "Quality management policy document",
+        "updatedAt": "2024-01-15T10:30:00.000Z"
+      }
+    ]
+  },
+  "message": "Policy URL added successfully"
+}
+```
+
+### 3. Get Questionnaire URLs
+**GET** `/api/isqm/questionnaires/:id/urls`
+
+Retrieves all URLs associated with a questionnaire.
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "componentKey": "ISQM_1",
+  "procedureUrls": [
+    {
+      "_id": "64a1b2c3d4e5f6789012351",
+      "name": "ISQM 1 Quality Management Procedures v2.0",
+      "url": "https://supabase.com/storage/v1/object/public/procedures/isqm1_procedures_v2.pdf",
+      "version": "2.0",
+      "uploadedBy": "user-123",
+      "description": "Updated procedures for quality management implementation",
+      "updatedAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "policyUrls": [
+    {
+      "_id": "64a1b2c3d4e5f6789012352",
+      "name": "ISQM 1 Quality Management Policy v1.5",
+      "url": "https://supabase.com/storage/v1/object/public/policies/isqm1_policy_v1.5.pdf",
+      "version": "1.5",
+      "uploadedBy": "user-123",
+      "description": "Quality management policy document",
+      "updatedAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "latestProcedure": {
+    "_id": "64a1b2c3d4e5f6789012351",
+    "name": "ISQM 1 Quality Management Procedures v2.0",
+    "url": "https://supabase.com/storage/v1/object/public/procedures/isqm1_procedures_v2.pdf",
+    "version": "2.0",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  },
+  "latestPolicy": {
+    "_id": "64a1b2c3d4e5f6789012352",
+    "name": "ISQM 1 Quality Management Policy v1.5",
+    "url": "https://supabase.com/storage/v1/object/public/policies/isqm1_policy_v1.5.pdf",
+    "version": "1.5",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+### 4. Remove Procedure URL
+**DELETE** `/api/isqm/questionnaires/:id/procedure-urls/:urlId`
+
+Removes a procedure URL from a questionnaire.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Procedure URL removed successfully"
+}
+```
+
+### 5. Remove Policy URL
+**DELETE** `/api/isqm/questionnaires/:id/policy-urls/:urlId`
+
+Removes a policy URL from a questionnaire.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Policy URL removed successfully"
+}
+```
+
+## 🏷️ Dynamic Tagging API
+
+### 1. Get Questionnaire Tags
+**GET** `/api/isqm/questionnaires/:id/tags`
+
+Generates and retrieves dynamic tags for a questionnaire based on its key, heading, and other attributes.
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "componentName": "ISQM 1 - Quality Management",
+  "componentKey": "ISQM_1",
+  "generatedTags": [
+    "ISQM_1",
+    "ISQM",
+    "ISQM_1",
+    "quality",
+    "management",
+    "ifrs",
+    "in-progress"
+  ],
+  "tagCount": 7
+}
+```
+
+### 2. Get Questionnaires by Component Type
+**GET** `/api/isqm/questionnaires/component/:componentType`
+
+Retrieves all questionnaires for a specific component type (e.g., ISQM, ISA).
+
+**Query Parameters:**
+- `page` (number): Page number (default: 1)
+- `limit` (number): Items per page (default: 20)
+
+**Response:**
+```json
+{
+  "success": true,
+  "componentType": "ISQM",
+  "questionnaires": [
+    {
+      "_id": "64a1b2c3d4e5f6789012349",
+      "key": "ISQM_1",
+      "heading": "ISQM 1 - Quality Management",
+      "status": "in-progress",
+      "parent": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "metadata": {
+          "title": "ISQM Quality Management Pack 2024"
+        }
+      }
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 1,
+    "totalCount": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+### 3. Get Questionnaires by Tags
+**GET** `/api/isqm/questionnaires/by-tags`
+
+Retrieves questionnaires matching specific tags.
+
+**Query Parameters:**
+- `tags` (string): Comma-separated tags or array of tags
+- `page` (number): Page number (default: 1)
+- `limit` (number): Items per page (default: 20)
+
+**Example:**
+```
+GET /api/isqm/questionnaires/by-tags?tags=ISQM,quality,management&page=1&limit=10
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tags": ["ISQM", "quality", "management"],
+  "questionnaires": [
+    {
+      "_id": "64a1b2c3d4e5f6789012349",
+      "key": "ISQM_1",
+      "heading": "ISQM 1 - Quality Management",
+      "status": "in-progress",
+      "parent": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "metadata": {
+          "title": "ISQM Quality Management Pack 2024"
+        }
+      }
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 1,
+    "totalCount": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+## 🔧 Enhanced Features
+
+### Dynamic Tagging System
+- **Automatic Tag Generation** - Creates tags based on component key, heading, framework, and status
+- **Component-Based Tags** - Extracts ISQM, ISA, etc. from component keys
+- **Heading-Based Tags** - Generates tags from questionnaire headings
+- **Framework Tags** - Adds framework-specific tags (IFRS, GAPSME, etc.)
+- **Status Tags** - Includes current status as tags
+
+### URL Management
+- **Version Control** - Track multiple versions of procedures and policies
+- **Metadata Tracking** - Store upload details, descriptions, and timestamps
+- **Latest Version Access** - Easy access to most recent documents
+- **URL Organization** - Separate procedure and policy URL arrays
+- **Employee Tracking** - Track who uploaded each document
+
+### Advanced Querying
+- **Component Type Filtering** - Find questionnaires by component type
+- **Tag-Based Search** - Search using generated tags
+- **Pagination Support** - Efficient handling of large result sets
+- **Flexible Tag Input** - Support both comma-separated and array formats
+
+### Security & Access Control
+- **Employee-only URL management** - Only authenticated employees can manage URLs
+- **Role-based access** - `requireRole('employee')` for URL operations
+- **Audit logging** - All URL management activities are logged
+- **Data validation** - Input data is validated before processing
+
+The ISQM API provides comprehensive quality management questionnaire capabilities, supporting document management, AI-powered document generation, URL management, and dynamic tagging essential for audit compliance and quality assurance! 🎉

@@ -87,6 +87,25 @@ const ISQMQuestionnaireSchema = new Schema({
   reviewedBy: { type: String }, // User ID who reviewed
   reviewedAt: { type: Date },
   
+  // Document URL tracking
+  procedureUrls: [{
+    name: { type: String, required: true },
+    url: { type: String, required: true },
+    updatedAt: { type: Date, default: Date.now },
+    version: { type: String, default: "1.0" },
+    uploadedBy: { type: String, required: true },
+    description: { type: String }
+  }],
+  
+  policyUrls: [{
+    name: { type: String, required: true },
+    url: { type: String, required: true },
+    updatedAt: { type: Date, default: Date.now },
+    version: { type: String, default: "1.0" },
+    uploadedBy: { type: String, required: true },
+    description: { type: String }
+  }],
+  
   // Overall questionnaire notes
   notes: [{ 
     text: String,
@@ -150,5 +169,122 @@ ISQMQuestionnaireSchema.pre('save', function(next) {
   
   next();
 });
+
+// Dynamic tag method - generates tags based on component key/heading
+ISQMQuestionnaireSchema.methods.generateTags = function() {
+  const tags = [];
+  
+  // Add component-based tags
+  if (this.key) {
+    tags.push(this.key);
+    
+    // Extract component type (ISQM, ISA, etc.)
+    const componentType = this.key.split('_')[0];
+    tags.push(componentType);
+    
+    // Add specific component number if available
+    const componentNumber = this.key.split('_')[1];
+    if (componentNumber) {
+      tags.push(`${componentType}_${componentNumber}`);
+    }
+  }
+  
+  // Add heading-based tags
+  if (this.heading) {
+    const headingWords = this.heading.toLowerCase()
+      .replace(/[^\w\s]/g, '') // Remove special characters
+      .split(' ')
+      .filter(word => word.length > 2); // Filter short words
+    
+    tags.push(...headingWords);
+  }
+  
+  // Add framework tags
+  if (this.framework) {
+    tags.push(this.framework.toLowerCase());
+  }
+  
+  // Add status tags
+  if (this.status) {
+    tags.push(this.status);
+  }
+  
+  // Remove duplicates and return
+  return [...new Set(tags)];
+};
+
+// Method to add procedure URL
+ISQMQuestionnaireSchema.methods.addProcedureUrl = function(urlData) {
+  this.procedureUrls.push({
+    name: urlData.name,
+    url: urlData.url,
+    version: urlData.version || "1.0",
+    uploadedBy: urlData.uploadedBy,
+    description: urlData.description,
+    updatedAt: new Date()
+  });
+  
+  return this.save();
+};
+
+// Method to add policy URL
+ISQMQuestionnaireSchema.methods.addPolicyUrl = function(urlData) {
+  this.policyUrls.push({
+    name: urlData.name,
+    url: urlData.url,
+    version: urlData.version || "1.0",
+    uploadedBy: urlData.uploadedBy,
+    description: urlData.description,
+    updatedAt: new Date()
+  });
+  
+  return this.save();
+};
+
+// Method to get latest procedure URL
+ISQMQuestionnaireSchema.methods.getLatestProcedureUrl = function() {
+  if (this.procedureUrls.length === 0) return null;
+  
+  return this.procedureUrls
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
+};
+
+// Method to get latest policy URL
+ISQMQuestionnaireSchema.methods.getLatestPolicyUrl = function() {
+  if (this.policyUrls.length === 0) return null;
+  
+  return this.policyUrls
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
+};
+
+// Method to remove procedure URL
+ISQMQuestionnaireSchema.methods.removeProcedureUrl = function(urlId) {
+  this.procedureUrls = this.procedureUrls.filter(url => url._id.toString() !== urlId);
+  return this.save();
+};
+
+// Method to remove policy URL
+ISQMQuestionnaireSchema.methods.removePolicyUrl = function(urlId) {
+  this.policyUrls = this.policyUrls.filter(url => url._id.toString() !== urlId);
+  return this.save();
+};
+
+// Static method to get questionnaires by component type
+ISQMQuestionnaireSchema.statics.getByComponentType = function(componentType) {
+  return this.find({ key: new RegExp(`^${componentType}_`, 'i') });
+};
+
+// Static method to get questionnaires by tags
+ISQMQuestionnaireSchema.statics.getByTags = function(tags) {
+  const query = {
+    $or: [
+      { key: { $in: tags } },
+      { heading: { $regex: tags.join('|'), $options: 'i' } },
+      { framework: { $in: tags } }
+    ]
+  };
+  
+  return this.find(query);
+};
 
 module.exports = mongoose.model('ISQMQuestionnaire', ISQMQuestionnaireSchema);

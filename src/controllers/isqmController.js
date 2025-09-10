@@ -1,6 +1,11 @@
 const ISQMParent = require('../models/ISQMParent');
 const ISQMQuestionnaire = require('../models/ISQMQuestionnaire');
 const ISQMSupportingDocument = require('../models/ISQMSupportingDocument');
+const { formatISQMPrompt, validateISQMData, getAvailablePrompts } = require('../prompts/isqmPrompts');
+const { openai_pbc } = require('../config/openai');
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * ISQM Parent Controllers
@@ -762,6 +767,899 @@ exports.getSupportingDocumentStats = async (req, res, next) => {
         averageCompletion: 0
       },
       byCategory: categoryStats
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * ISQM Document Generation Controllers
+ */
+
+// Helper function to generate PDF from text content
+async function generatePDF(content, filename, title) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument();
+      const outputPath = path.join(__dirname, '../temp', `${filename}.pdf`);
+      
+      // Ensure temp directory exists
+      const tempDir = path.dirname(outputPath);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      const stream = fs.createWriteStream(outputPath);
+      doc.pipe(stream);
+      
+      // Add title
+      doc.fontSize(20).text(title, { align: 'center' });
+      doc.moveDown(2);
+      
+      // Add content
+      doc.fontSize(12);
+      
+      // Split content into paragraphs and add to PDF
+      const paragraphs = content.split('\n\n');
+      paragraphs.forEach(paragraph => {
+        if (paragraph.trim()) {
+          // Handle headers (lines starting with #)
+          if (paragraph.startsWith('#')) {
+            const headerText = paragraph.replace(/^#+\s*/, '');
+            doc.fontSize(16).text(headerText, { align: 'left' });
+            doc.moveDown(0.5);
+          } else {
+            doc.fontSize(12).text(paragraph, { align: 'left' });
+            doc.moveDown(1);
+          }
+        }
+      });
+      
+      doc.end();
+      
+      stream.on('finish', () => {
+        resolve(outputPath);
+      });
+      
+      stream.on('error', (err) => {
+        reject(err);
+      });
+      
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Generate policy document from ISQM questionnaire
+exports.generatePolicyDocument = async (req, res, next) => {
+  try {
+    const { questionnaireId } = req.params;
+    const { firmDetails = {} } = req.body;
+
+    // Get the questionnaire with parent information
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId)
+      .populate('parent', 'metadata.title metadata.version metadata.jurisdiction_note');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    // Format ISQM data for prompt
+    const isqmData = {
+      componentName: questionnaire.heading,
+      questionnaire: {
+        key: questionnaire.key,
+        heading: questionnaire.heading,
+        sections: questionnaire.sections.map(section => ({
+          heading: section.heading,
+          qna: section.qna.map(qna => ({
+            question: qna.question,
+            answer: qna.answer,
+            state: qna.state
+          }))
+        }))
+      },
+      firmDetails: {
+        size: firmDetails.size || 'mid-sized',
+        jurisdiction: questionnaire.parent?.metadata?.jurisdiction_note || 'UK',
+        specializations: firmDetails.specializations || ['audit', 'tax', 'advisory'],
+        ...firmDetails
+      }
+    };
+
+    // Validate data structure
+    if (!validateISQMData(isqmData)) {
+      return res.status(400).json({ message: 'Invalid ISQM data structure' });
+    }
+
+    // Format prompt with data
+    const prompt = formatISQMPrompt(isqmData, 'POLICY_GENERATOR');
+
+    // Generate policy using openai_pbc
+    const completion = await openai_pbc.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert in ISQM 1 and audit firm quality management systems. Generate professional, comprehensive policy documents in PDF-ready format.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 4000,
+      temperature: 0.3
+    });
+
+    const generatedPolicy = completion.choices[0].message.content;
+
+    // Log the generation activity
+    console.log(`Policy generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      questionnaireId,
+      componentName: questionnaire.heading,
+      generatedDocument: generatedPolicy,
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        promptType: 'POLICY_GENERATOR'
+      }
+    });
+
+  } catch (err) {
+    console.error('Policy generation error:', err);
+    next(err);
+  }
+};
+
+// Generate procedure document from ISQM questionnaire
+exports.generateProcedureDocument = async (req, res, next) => {
+  try {
+    const { questionnaireId } = req.params;
+    const { firmDetails = {}, policyDetails = {} } = req.body;
+
+    // Get the questionnaire with parent information
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId)
+      .populate('parent', 'metadata.title metadata.version metadata.jurisdiction_note');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    // Format ISQM data for prompt
+    const isqmData = {
+      componentName: questionnaire.heading,
+      policy: {
+        title: policyDetails.title || `${questionnaire.heading} Policy`,
+        requirements: policyDetails.requirements || [],
+        responsibilities: policyDetails.responsibilities || {}
+      },
+      questionnaire: {
+        key: questionnaire.key,
+        heading: questionnaire.heading,
+        sections: questionnaire.sections.map(section => ({
+          heading: section.heading,
+          qna: section.qna.map(qna => ({
+            question: qna.question,
+            answer: qna.answer,
+            state: qna.state
+          }))
+        }))
+      },
+      firmDetails: {
+        size: firmDetails.size || 'mid-sized',
+        jurisdiction: questionnaire.parent?.metadata?.jurisdiction_note || 'UK',
+        specializations: firmDetails.specializations || ['audit', 'tax', 'advisory'],
+        processes: firmDetails.processes || [],
+        ...firmDetails
+      }
+    };
+
+    // Validate data structure
+    if (!validateISQMData(isqmData)) {
+      return res.status(400).json({ message: 'Invalid ISQM data structure' });
+    }
+
+    // Format prompt with data
+    const prompt = formatISQMPrompt(isqmData, 'PROCEDURE_GENERATOR');
+
+    // Generate procedure using openai_pbc
+    const completion = await openai_pbc.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert in ISQM 1 and audit firm operational procedures. Generate detailed, actionable procedure documents in PDF-ready format.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 4000,
+      temperature: 0.3
+    });
+
+    const generatedProcedure = completion.choices[0].message.content;
+
+    // Log the generation activity
+    console.log(`Procedure generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      questionnaireId,
+      componentName: questionnaire.heading,
+      generatedDocument: generatedProcedure,
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        promptType: 'PROCEDURE_GENERATOR'
+      }
+    });
+
+  } catch (err) {
+    console.error('Procedure generation error:', err);
+    next(err);
+  }
+};
+
+// Generate risk assessment from ISQM questionnaire
+exports.generateRiskAssessment = async (req, res, next) => {
+  try {
+    const { questionnaireId } = req.params;
+    const { firmDetails = {} } = req.body;
+
+    // Get the questionnaire with parent information
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId)
+      .populate('parent', 'metadata.title metadata.version metadata.jurisdiction_note');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    // Format ISQM data for prompt
+    const isqmData = {
+      componentName: questionnaire.heading,
+      questionnaire: {
+        key: questionnaire.key,
+        heading: questionnaire.heading,
+        sections: questionnaire.sections.map(section => ({
+          heading: section.heading,
+          qna: section.qna.map(qna => ({
+            question: qna.question,
+            answer: qna.answer,
+            state: qna.state
+          }))
+        }))
+      },
+      firmDetails: {
+        size: firmDetails.size || 'mid-sized',
+        jurisdiction: questionnaire.parent?.metadata?.jurisdiction_note || 'UK',
+        specializations: firmDetails.specializations || ['audit', 'tax', 'advisory'],
+        ...firmDetails
+      }
+    };
+
+    // Validate data structure
+    if (!validateISQMData(isqmData)) {
+      return res.status(400).json({ message: 'Invalid ISQM data structure' });
+    }
+
+    // Format prompt with data
+    const prompt = formatISQMPrompt(isqmData, 'RISK_ASSESSMENT_GENERATOR');
+
+    // Generate risk assessment using OpenAI
+    const completion = await openai_pbc.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert in audit risk management and ISQM 1 quality management systems. Generate comprehensive risk assessments in PDF-ready format.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 3000,
+      temperature: 0.3
+    });
+
+    const generatedRiskAssessment = completion.choices[0].message.content;
+
+    // Log the generation activity
+    console.log(`Risk assessment generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      questionnaireId,
+      componentName: questionnaire.heading,
+      generatedDocument: generatedRiskAssessment,
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        promptType: 'RISK_ASSESSMENT_GENERATOR'
+      }
+    });
+
+  } catch (err) {
+    console.error('Risk assessment generation error:', err);
+    next(err);
+  }
+};
+
+// Generate compliance checklist from ISQM questionnaire
+exports.generateComplianceChecklist = async (req, res, next) => {
+  try {
+    const { questionnaireId } = req.params;
+    const { firmDetails = {} } = req.body;
+
+    // Get the questionnaire with parent information
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId)
+      .populate('parent', 'metadata.title metadata.version metadata.jurisdiction_note');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    // Format ISQM data for prompt
+    const isqmData = {
+      componentName: questionnaire.heading,
+      questionnaire: {
+        key: questionnaire.key,
+        heading: questionnaire.heading,
+        sections: questionnaire.sections.map(section => ({
+          heading: section.heading,
+          qna: section.qna.map(qna => ({
+            question: qna.question,
+            answer: qna.answer,
+            state: qna.state
+          }))
+        }))
+      },
+      firmDetails: {
+        size: firmDetails.size || 'mid-sized',
+        jurisdiction: questionnaire.parent?.metadata?.jurisdiction_note || 'UK',
+        specializations: firmDetails.specializations || ['audit', 'tax', 'advisory'],
+        ...firmDetails
+      }
+    };
+
+    // Validate data structure
+    if (!validateISQMData(isqmData)) {
+      return res.status(400).json({ message: 'Invalid ISQM data structure' });
+    }
+
+    // Format prompt with data
+    const prompt = formatISQMPrompt(isqmData, 'COMPLIANCE_CHECKLIST_GENERATOR');
+
+    // Generate compliance checklist using OpenAI
+    const completion = await openai_pbc.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert in ISQM 1 compliance and audit firm quality management. Generate practical, actionable compliance checklists in PDF-ready format.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 3000,
+      temperature: 0.3
+    });
+
+    const generatedChecklist = completion.choices[0].message.content;
+
+    // Log the generation activity
+    console.log(`Compliance checklist generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      questionnaireId,
+      componentName: questionnaire.heading,
+      generatedDocument: generatedChecklist,
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        promptType: 'COMPLIANCE_CHECKLIST_GENERATOR'
+      }
+    });
+
+  } catch (err) {
+    console.error('Compliance checklist generation error:', err);
+    next(err);
+  }
+};
+
+// Get available generation types
+exports.getGenerationTypes = async (req, res, next) => {
+  try {
+    const availableTypes = getAvailablePrompts();
+    
+    res.json({
+      success: true,
+      availableTypes: availableTypes.map(type => ({
+        type,
+        description: getTypeDescription(type)
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Helper function to get type descriptions
+function getTypeDescription(type) {
+  const descriptions = {
+    'POLICY_GENERATOR': 'Generate formal quality management policies',
+    'PROCEDURE_GENERATOR': 'Generate detailed implementation procedures',
+    'RISK_ASSESSMENT_GENERATOR': 'Generate comprehensive risk assessments',
+    'COMPLIANCE_CHECKLIST_GENERATOR': 'Generate compliance checklists'
+  };
+  
+  return descriptions[type] || 'Unknown generation type';
+}
+
+/**
+ * Automatic ISQM Document Generation
+ */
+
+// Generate both policy and procedure documents automatically from completed ISQM
+exports.generateISQMDocuments = async (req, res, next) => {
+  try {
+    const { parentId } = req.params;
+    const { firmDetails = {} } = req.body;
+
+    // Get the ISQM parent with all completed questionnaires
+    const parent = await ISQMParent.findById(parentId)
+      .populate({
+        path: 'children',
+        match: { status: 'completed' }, // Only get completed questionnaires
+        populate: {
+          path: 'parent',
+          select: 'metadata.title metadata.version metadata.jurisdiction_note'
+        }
+      });
+
+    if (!parent) {
+      return res.status(404).json({ message: 'ISQM Parent not found' });
+    }
+
+    // Check if there are any completed questionnaires
+    const completedQuestionnaires = parent.children.filter(child => child.status === 'completed');
+    if (completedQuestionnaires.length === 0) {
+      return res.status(400).json({ 
+        message: 'No completed questionnaires found. Please complete at least one questionnaire before generating documents.' 
+      });
+    }
+
+    const generatedDocuments = {
+      parent: {
+        id: parent._id,
+        title: parent.metadata.title,
+        version: parent.metadata.version,
+        jurisdiction: parent.metadata.jurisdiction_note
+      },
+      questionnaires: [],
+      policies: [],
+      procedures: [],
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        totalQuestionnaires: completedQuestionnaires.length
+      }
+    };
+
+    // Process each completed questionnaire
+    for (const questionnaire of completedQuestionnaires) {
+      try {
+        // Format ISQM data for prompt
+        const isqmData = {
+          componentName: questionnaire.heading,
+          questionnaire: {
+            key: questionnaire.key,
+            heading: questionnaire.heading,
+            sections: questionnaire.sections.map(section => ({
+              heading: section.heading,
+              qna: section.qna.map(qna => ({
+                question: qna.question,
+                answer: qna.answer,
+                state: qna.state
+              }))
+            }))
+          },
+          firmDetails: {
+            size: firmDetails.size || 'mid-sized',
+            jurisdiction: parent.metadata.jurisdiction_note || 'UK',
+            specializations: firmDetails.specializations || ['audit', 'tax', 'advisory'],
+            ...firmDetails
+          }
+        };
+
+        // Validate data structure
+        if (!validateISQMData(isqmData)) {
+          console.warn(`Invalid data structure for questionnaire ${questionnaire._id}`);
+          continue;
+        }
+
+        // Generate Policy Document using openai_pbc
+        const policyPrompt = formatISQMPrompt(isqmData, 'POLICY_GENERATOR');
+        const policyCompletion = await openai_pbc.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert in ISQM 1 and audit firm quality management systems. Generate professional, comprehensive policy documents in PDF-ready format.'
+            },
+            {
+              role: 'user',
+              content: policyPrompt
+            }
+          ],
+          max_tokens: 4000,
+          temperature: 0.3
+        });
+
+        // Generate Procedure Document using openai_pbc
+        const procedurePrompt = formatISQMPrompt({
+          ...isqmData,
+          policy: {
+            title: `${questionnaire.heading} Policy`,
+            requirements: [],
+            responsibilities: {}
+          }
+        }, 'PROCEDURE_GENERATOR');
+        
+        const procedureCompletion = await openai_pbc.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert in ISQM 1 and audit firm operational procedures. Generate detailed, actionable procedure documents in PDF-ready format.'
+            },
+            {
+              role: 'user',
+              content: procedurePrompt
+            }
+          ],
+          max_tokens: 4000,
+          temperature: 0.3
+        });
+
+        // Generate PDFs from the content
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const policyFilename = `${questionnaire.key}_policy_${timestamp}`;
+        const procedureFilename = `${questionnaire.key}_procedure_${timestamp}`;
+        
+        const policyPDFPath = await generatePDF(
+          policyCompletion.choices[0].message.content,
+          policyFilename,
+          `${questionnaire.heading} - Policy Document`
+        );
+        
+        const procedurePDFPath = await generatePDF(
+          procedureCompletion.choices[0].message.content,
+          procedureFilename,
+          `${questionnaire.heading} - Procedure Document`
+        );
+
+        // Store generated documents
+        const questionnaireData = {
+          id: questionnaire._id,
+          key: questionnaire.key,
+          heading: questionnaire.heading,
+          completionPercentage: questionnaire.stats.completionPercentage,
+          totalQuestions: questionnaire.stats.totalQuestions,
+          answeredQuestions: questionnaire.stats.answeredQuestions
+        };
+
+        const policyDocument = {
+          questionnaireId: questionnaire._id,
+          componentName: questionnaire.heading,
+          componentKey: questionnaire.key,
+          document: policyCompletion.choices[0].message.content,
+          pdfPath: policyPDFPath,
+          pdfFilename: `${policyFilename}.pdf`,
+          generatedAt: new Date(),
+          generatedBy: req.user.id,
+          model: 'gpt-4o-mini',
+          promptType: 'POLICY_GENERATOR'
+        };
+
+        const procedureDocument = {
+          questionnaireId: questionnaire._id,
+          componentName: questionnaire.heading,
+          componentKey: questionnaire.key,
+          document: procedureCompletion.choices[0].message.content,
+          pdfPath: procedurePDFPath,
+          pdfFilename: `${procedureFilename}.pdf`,
+          generatedAt: new Date(),
+          generatedBy: req.user.id,
+          model: 'gpt-4o-mini',
+          promptType: 'PROCEDURE_GENERATOR'
+        };
+
+        generatedDocuments.questionnaires.push(questionnaireData);
+        generatedDocuments.policies.push(policyDocument);
+        generatedDocuments.procedures.push(procedureDocument);
+
+        // Log successful generation
+        console.log(`Generated documents for questionnaire ${questionnaire._id} (${questionnaire.key})`);
+
+      } catch (err) {
+        console.error(`Error generating documents for questionnaire ${questionnaire._id}:`, err);
+        // Continue with other questionnaires even if one fails
+      }
+    }
+
+    // Check if any documents were generated
+    if (generatedDocuments.policies.length === 0) {
+      return res.status(500).json({ 
+        message: 'Failed to generate any documents. Please check questionnaire completion status and try again.' 
+      });
+    }
+
+    // Log the overall generation activity
+    console.log(`Generated ${generatedDocuments.policies.length} policies and ${generatedDocuments.procedures.length} procedures for ISQM parent ${parentId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      message: `Successfully generated ${generatedDocuments.policies.length} policy documents and ${generatedDocuments.procedures.length} procedure documents`,
+      ...generatedDocuments
+    });
+
+  } catch (err) {
+    console.error('Automatic ISQM document generation error:', err);
+    next(err);
+  }
+};
+
+/**
+ * ISQM URL Management Controllers
+ */
+
+// Add procedure URL to questionnaire
+exports.addProcedureUrl = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, url, version = "1.0", description } = req.body;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    await questionnaire.addProcedureUrl({
+      name,
+      url,
+      version,
+      uploadedBy: req.user.id,
+      description
+    });
+
+    res.json({
+      success: true,
+      questionnaire: questionnaire,
+      message: 'Procedure URL added successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Add policy URL to questionnaire
+exports.addPolicyUrl = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, url, version = "1.0", description } = req.body;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    await questionnaire.addPolicyUrl({
+      name,
+      url,
+      version,
+      uploadedBy: req.user.id,
+      description
+    });
+
+    res.json({
+      success: true,
+      questionnaire: questionnaire,
+      message: 'Policy URL added successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get questionnaire URLs
+exports.getQuestionnaireUrls = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id)
+      .select('key heading procedureUrls policyUrls')
+      .populate('parent', 'metadata.title');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    res.json({
+      success: true,
+      questionnaireId: id,
+      componentName: questionnaire.heading,
+      componentKey: questionnaire.key,
+      procedureUrls: questionnaire.procedureUrls,
+      policyUrls: questionnaire.policyUrls,
+      latestProcedure: questionnaire.getLatestProcedureUrl(),
+      latestPolicy: questionnaire.getLatestPolicyUrl()
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Remove procedure URL
+exports.removeProcedureUrl = async (req, res, next) => {
+  try {
+    const { id, urlId } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    await questionnaire.removeProcedureUrl(urlId);
+
+    res.json({
+      success: true,
+      message: 'Procedure URL removed successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Remove policy URL
+exports.removePolicyUrl = async (req, res, next) => {
+  try {
+    const { id, urlId } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    await questionnaire.removePolicyUrl(urlId);
+
+    res.json({
+      success: true,
+      message: 'Policy URL removed successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get questionnaires by component type
+exports.getQuestionnairesByComponentType = async (req, res, next) => {
+  try {
+    const { componentType } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const questionnaires = await ISQMQuestionnaire.getByComponentType(componentType)
+      .populate('parent', 'metadata.title')
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ createdAt: -1 });
+
+    const totalCount = await ISQMQuestionnaire.countDocuments({ 
+      key: new RegExp(`^${componentType}_`, 'i') 
+    });
+
+    res.json({
+      success: true,
+      componentType,
+      questionnaires,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNext: skip + questionnaires.length < totalCount,
+        hasPrev: parseInt(page) > 1
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get questionnaires by tags
+exports.getQuestionnairesByTags = async (req, res, next) => {
+  try {
+    const { tags } = req.query;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!tags) {
+      return res.status(400).json({ message: 'Tags parameter is required' });
+    }
+
+    const tagArray = Array.isArray(tags) ? tags : tags.split(',');
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const questionnaires = await ISQMQuestionnaire.getByTags(tagArray)
+      .populate('parent', 'metadata.title')
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ createdAt: -1 });
+
+    // Count total matching questionnaires
+    const query = {
+      $or: [
+        { key: { $in: tagArray } },
+        { heading: { $regex: tagArray.join('|'), $options: 'i' } },
+        { framework: { $in: tagArray } }
+      ]
+    };
+    const totalCount = await ISQMQuestionnaire.countDocuments(query);
+
+    res.json({
+      success: true,
+      tags: tagArray,
+      questionnaires,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNext: skip + questionnaires.length < totalCount,
+        hasPrev: parseInt(page) > 1
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get questionnaire tags
+exports.getQuestionnaireTags = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(id)
+      .select('key heading framework status');
+
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    const tags = questionnaire.generateTags();
+
+    res.json({
+      success: true,
+      questionnaireId: id,
+      componentName: questionnaire.heading,
+      componentKey: questionnaire.key,
+      generatedTags: tags,
+      tagCount: tags.length
     });
   } catch (err) {
     next(err);

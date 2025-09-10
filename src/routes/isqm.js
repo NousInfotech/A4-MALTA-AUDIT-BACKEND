@@ -194,4 +194,119 @@ router.get(
   isqmController.getSupportingDocumentStats
 );
 
+/**
+ * ISQM Document Generation Routes
+ */
+
+// Generate policy document from questionnaire
+router.post(
+  '/questionnaires/:questionnaireId/generate/policy',
+  requireAuth,
+  requireRole('employee'), // Only employees can generate documents
+  isqmController.generatePolicyDocument
+);
+
+// Generate procedure document from questionnaire
+router.post(
+  '/questionnaires/:questionnaireId/generate/procedure',
+  requireAuth,
+  requireRole('employee'), // Only employees can generate documents
+  isqmController.generateProcedureDocument
+);
+
+// Generate risk assessment from questionnaire
+router.post(
+  '/questionnaires/:questionnaireId/generate/risk-assessment',
+  requireAuth,
+  requireRole('employee'), // Only employees can generate documents
+  isqmController.generateRiskAssessment
+);
+
+// Generate compliance checklist from questionnaire
+router.post(
+  '/questionnaires/:questionnaireId/generate/compliance-checklist',
+  requireAuth,
+  requireRole('employee'), // Only employees can generate documents
+  isqmController.generateComplianceChecklist
+);
+
+// Get available generation types
+router.get(
+  '/generation/types',
+  requireAuth,
+  isqmController.getGenerationTypes
+);
+
+// Automatic ISQM document generation (Policy + Procedure)
+router.post(
+  '/parents/:parentId/generate-documents',
+  requireAuth,
+  requireRole('employee'), // Only employees can generate documents
+  isqmController.generateISQMDocuments
+);
+
+/**
+ * ISQM URL Management Routes
+ */
+
+// Add procedure URL to questionnaire
+router.post(
+  '/questionnaires/:id/procedure-urls',
+  requireAuth,
+  requireRole('employee'), // Only employees can manage URLs
+  isqmController.addProcedureUrl
+);
+
+// Add policy URL to questionnaire
+router.post(
+  '/questionnaires/:id/policy-urls',
+  requireAuth,
+  requireRole('employee'), // Only employees can manage URLs
+  isqmController.addPolicyUrl
+);
+
+// Get questionnaire URLs
+router.get(
+  '/questionnaires/:id/urls',
+  requireAuth,
+  isqmController.getQuestionnaireUrls
+);
+
+// Remove procedure URL
+router.delete(
+  '/questionnaires/:id/procedure-urls/:urlId',
+  requireAuth,
+  requireRole('employee'), // Only employees can manage URLs
+  isqmController.removeProcedureUrl
+);
+
+// Remove policy URL
+router.delete(
+  '/questionnaires/:id/policy-urls/:urlId',
+  requireAuth,
+  requireRole('employee'), // Only employees can manage URLs
+  isqmController.removePolicyUrl
+);
+
+// Get questionnaires by component type
+router.get(
+  '/questionnaires/component/:componentType',
+  requireAuth,
+  isqmController.getQuestionnairesByComponentType
+);
+
+// Get questionnaires by tags
+router.get(
+  '/questionnaires/by-tags',
+  requireAuth,
+  isqmController.getQuestionnairesByTags
+);
+
+// Get questionnaire tags
+router.get(
+  '/questionnaires/:id/tags',
+  requireAuth,
+  isqmController.getQuestionnaireTags
+);
+
 module.exports = router;

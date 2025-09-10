@@ -1,7 +1,7 @@
 const { PBC, QnACategory } = require('../models/ProvidedByClient');
 const DocumentRequest = require('../models/DocumentRequest');
 const Engagement = require('../models/Engagement');
-const { pbcPromptGenerator } = require("../services/pbcPromptGenerator")
+const { pbcPromptGenerator } = require("../prompts/pbcPromptGenerator")
 const { openai_pbc } = require("../config/openai");
 // controllers/pbcAIController.js
 const fetch = require('node-fetch'); // npm i node-fetch
