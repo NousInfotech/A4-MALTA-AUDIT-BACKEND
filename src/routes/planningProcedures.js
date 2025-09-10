@@ -31,4 +31,10 @@ router.post("/:engagementId/generate/hybrid-questions", planningCtrl.generateHyb
 // Hybrid Step-2: fill answers (excluding file uploads)
 router.post("/:engagementId/generate/hybrid-answers", planningCtrl.generateHybridAnswers)
 
+// NEW: Hybrid Section Questions
+router.post("/:engagementId/generate/hybrid-section-questions", planningCtrl.generateHybridSectionQuestions)
+
+// NEW: Hybrid Section Answers
+router.post("/:engagementId/generate/hybrid-section-answers", planningCtrl.generateHybridSectionAnswers)
+
 module.exports = router;

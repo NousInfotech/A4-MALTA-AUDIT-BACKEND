@@ -14,7 +14,11 @@ generateAIClassificationQuestions,
 } = require("../controllers/procedureController");
 
 const router = Router();
+// Add this import
+const { generateRecommendations } = require("../controllers/procedureController");
 
+// Add this route before module.exports
+router.post("/recommendations", generateRecommendations);
 router.post("/manual", getManualProcedures);
 router.post("/ai/questions", generateAIQuestions);
 router.post("/ai/answers", generateAIAnswers);
