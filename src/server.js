@@ -27,7 +27,8 @@ app.use(
       "http://localhost:8080",
       "https://audit-portal-1-75ac69871dcd.herokuapp.com",
       "https://portal.a4.com.mt",
-      "http://portal.a4.com.mt"
+      "http://portal.a4.com.mt",
+      "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app/login"
     ],
     credentials: true // optional: if you need to allow cookies/auth headers
   })
