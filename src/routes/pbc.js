@@ -57,6 +57,13 @@ router.post(
   pbcController.createCategory
 );
 
+router.post(
+  '/:pbcId/generate-qna-ai',
+  requireAuth,
+  requireRole('employee'),
+  pbcController.generateQnAUsingAI
+);
+
 // Get categories by PBC ID
 router.get(
   '/categories/pbc/:pbcId',
