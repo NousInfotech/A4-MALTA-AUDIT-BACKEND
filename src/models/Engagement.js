@@ -50,4 +50,17 @@ EngagementSchema.virtual("procedures", {
   foreignField: "engagement",
 });
 
+EngagementSchema.virtual("pbc", {
+  ref: "PBC",
+  localField: "_id",
+  foreignField: "engagement",
+});
+
+EngagementSchema.virtual("kyc",{
+  ref: "KYC",
+  localField: "_id",
+  foreignField: "engagement",
+})
+
+
 module.exports = mongoose.model("Engagement", EngagementSchema);
