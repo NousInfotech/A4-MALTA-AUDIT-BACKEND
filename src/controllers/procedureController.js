@@ -13,6 +13,8 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+// Add this import at the top
+const buildProceduresRecommendationsPrompt = require("../prompts/proceduresRecommendationsPrompt.js");
 
 // Add this small util near the top of the file:
 function coerceQuestionsArray(out) {
@@ -392,7 +394,71 @@ async function getProcedure(req, res) {
   }
 }
 // Add these new functions to procedureController.js
-
+async function generateRecommendations(req, res) {
+  try {
+    const { procedureId, engagementId, framework = "IFRS", classifications, questions = [] } = req.body;
+    console.log(req.body," body")
+    const context = await buildContext(engagementId, classifications);
+    
+    const prompt = buildProceduresRecommendationsPrompt({ 
+      framework, 
+      context, 
+      classifications,
+      questions 
+    });
+    console.log(prompt," prompt")
+    
+    const out = await generateJson({ 
+      prompt, 
+      model: "gpt-4o-mini",
+    });
+    console.log(out," out")
+    
+    // Handle different response formats from LLM
+    let recommendations = "";
+    if (typeof out === "string") {
+      recommendations = out;
+    } else if (out && typeof out.recommendations === "string") {
+      recommendations = out.recommendations;
+    } else if (out && typeof out === "object") {
+      // Try to find a string field that might contain recommendations
+      for (const key in out) {
+        if (typeof out[key] === "string" && out[key].length > 100) {
+          recommendations = out[key];
+          break;
+        }
+      }
+    }
+    
+    // Update procedure with recommendations
+    let procedure;
+    if (procedureId) {
+      procedure = await Procedure.findByIdAndUpdate(
+        procedureId, 
+        { 
+          $set: { 
+            recommendations: recommendations || ""
+          } 
+        }, 
+        { new: true }
+      );
+    } else {
+      procedure = await Procedure.findOneAndUpdate(
+        { engagement: engagementId },
+        {
+          recommendations: recommendations || "",
+          status: "draft"
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({ ok: true, procedureId: procedure._id, recommendations: recommendations || "" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: "Server error (recommendations)" });
+  }
+}
 // AI classification-specific questions
 async function generateAIClassificationQuestions(req, res) {
   try {
@@ -492,26 +558,6 @@ async function generateAIClassificationAnswers(req, res) {
         // Add updated questions with answers
         procedure.questions.push(...questionsWithAnswers);
         
-        // Update recommendations for this classification - APPEND instead of replace
-        if (out.recommendations) {
-          // Store recommendations by classification
-          procedure.recommendationsByClassification = procedure.recommendationsByClassification || {};
-          
-          // Get existing recommendations for this classification
-          const existingRecs = procedure.recommendationsByClassification[classification] || "";
-          
-          // Append new recommendations
-          procedure.recommendationsByClassification[classification] = 
-            existingRecs ? `${existingRecs}\n\n${out.recommendations}` : out.recommendations;
-          
-          // Also update the flat recommendations field for backward compatibility
-          let fullRecommendations = "";
-          for (const [cls, rec] of Object.entries(procedure.recommendationsByClassification)) {
-            fullRecommendations += `*${cls}*\n${rec}\n\n`;
-          }
-          procedure.recommendations = fullRecommendations.trim();
-        }
-        
         await procedure.save();
       }
     } else {
@@ -534,7 +580,6 @@ async function generateAIClassificationAnswers(req, res) {
       ok: true, 
       procedureId: procedure._id, 
       questions: questionsWithAnswers, 
-      recommendations: out.recommendations 
     });
   } catch (err) {
     console.error(err);
@@ -594,4 +639,5 @@ module.exports = {
   generateAIClassificationQuestions,
   hybridGenerateAnswers,
   getProcedure,
+  generateRecommendations,
 };
