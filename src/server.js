@@ -25,7 +25,8 @@ app.use(
   cors({
     origin: [
       "http://localhost:8080",
-      "https://audit-portal-1-75ac69871dcd.herokuapp.com"
+      "https://audit-portal-1-75ac69871dcd.herokuapp.com",
+      "https://Portal.a4.com.mt"
     ],
     credentials: true // optional: if you need to allow cookies/auth headers
   })
