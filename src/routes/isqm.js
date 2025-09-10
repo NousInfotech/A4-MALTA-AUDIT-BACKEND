@@ -41,7 +41,7 @@ router.patch(
 router.delete(
   '/parents/:id',
   requireAuth,
-  requireRole(['employee', 'admin']), // Both auditors and admins can delete ISQM packs
+  requireRole(['admin']), // Only admins can delete ISQM packs
   isqmController.deleteISQMParent
 );
 
@@ -83,7 +83,7 @@ router.patch(
 router.delete(
   '/questionnaires/:id',
   requireAuth,
-  requireRole(['employee', 'admin']), // Both auditors and admins can delete questionnaires
+  requireRole(['admin']), // Only admins can delete questionnaires
   isqmController.deleteQuestionnaire
 );
 
@@ -99,6 +99,45 @@ router.post(
   '/questionnaires/:questionnaireId/sections/:sectionIndex/notes',
   requireAuth,
   isqmController.addSectionNote
+);
+
+// Update question text
+router.patch(
+  '/questionnaires/:questionnaireId/sections/:sectionIndex/questions/:questionIndex/text',
+  requireAuth,
+  requireRole(['employee', 'admin']),
+  isqmController.updateQuestionText
+);
+
+// Delete question
+router.delete(
+  '/questionnaires/:questionnaireId/sections/:sectionIndex/questions/:questionIndex',
+  requireAuth,
+  requireRole(['admin']),
+  isqmController.deleteQuestion
+);
+
+// Add question note
+router.post(
+  '/questionnaires/:questionnaireId/sections/:sectionIndex/questions/:questionIndex/notes',
+  requireAuth,
+  isqmController.addQuestionNote
+);
+
+// Update section heading
+router.patch(
+  '/questionnaires/:questionnaireId/sections/:sectionIndex/heading',
+  requireAuth,
+  requireRole(['employee', 'admin']),
+  isqmController.updateSectionHeading
+);
+
+// Delete section
+router.delete(
+  '/questionnaires/:questionnaireId/sections/:sectionIndex',
+  requireAuth,
+  requireRole(['admin']),
+  isqmController.deleteSection
 );
 
 // Get questionnaire statistics
@@ -160,7 +199,7 @@ router.patch(
 router.delete(
   '/supporting-documents/:id',
   requireAuth,
-  requireRole(['employee', 'admin']), // Both employees and admins can delete document requests
+  requireRole(['admin']), // Only admins can delete document requests
   isqmController.deleteSupportingDocument
 );
 

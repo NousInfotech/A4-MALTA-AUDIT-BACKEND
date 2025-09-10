@@ -472,6 +472,179 @@ exports.exportQuestionnaire = async (req, res, next) => {
   }
 };
 
+// Update question text
+exports.updateQuestionText = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionIndex, questionIndex } = req.params;
+    const { text } = req.body;
+
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    const section = questionnaire.sections[sectionIndex];
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    const question = section.qna[questionIndex];
+    if (!question) {
+      return res.status(404).json({ message: 'Question not found' });
+    }
+
+    // Update question text
+    question.question = text;
+    question.updatedAt = new Date();
+    question.updatedBy = req.user.id;
+
+    await questionnaire.save();
+
+    res.json({
+      message: 'Question text updated successfully',
+      question: question
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete question
+exports.deleteQuestion = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionIndex, questionIndex } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    const section = questionnaire.sections[sectionIndex];
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    if (questionIndex >= section.qna.length) {
+      return res.status(404).json({ message: 'Question not found' });
+    }
+
+    // Remove question from section
+    section.qna.splice(questionIndex, 1);
+
+    await questionnaire.save();
+
+    res.json({
+      message: 'Question deleted successfully',
+      questionnaire: questionnaire
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Add question note
+exports.addQuestionNote = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionIndex, questionIndex } = req.params;
+    const { note } = req.body;
+
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    const section = questionnaire.sections[sectionIndex];
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    const question = section.qna[questionIndex];
+    if (!question) {
+      return res.status(404).json({ message: 'Question not found' });
+    }
+
+    // Add note to question
+    if (!question.notes) {
+      question.notes = [];
+    }
+    
+    question.notes.push({
+      note: note,
+      addedBy: req.user.id,
+      addedAt: new Date()
+    });
+
+    await questionnaire.save();
+
+    res.json({
+      message: 'Question note added successfully',
+      question: question
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update section heading
+exports.updateSectionHeading = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionIndex } = req.params;
+    const { heading } = req.body;
+
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    const section = questionnaire.sections[sectionIndex];
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    // Update section heading
+    section.heading = heading;
+    section.updatedAt = new Date();
+    section.updatedBy = req.user.id;
+
+    await questionnaire.save();
+
+    res.json({
+      message: 'Section heading updated successfully',
+      section: section
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete section
+exports.deleteSection = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionIndex } = req.params;
+
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    if (sectionIndex >= questionnaire.sections.length) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    // Remove section from questionnaire
+    questionnaire.sections.splice(sectionIndex, 1);
+
+    await questionnaire.save();
+
+    res.json({
+      message: 'Section deleted successfully',
+      questionnaire: questionnaire
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 /**
  * ISQM Supporting Document Controllers
  */
