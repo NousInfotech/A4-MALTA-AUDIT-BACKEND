@@ -420,7 +420,17 @@ exports.getAvailableActions = async (req, res, next) => {
         UPLOAD_DOCUMENT: 'Employee uploaded a document',
         VIEW_CLIENT_FILE: 'Employee viewed a client file',
         UPDATE_PROFILE: 'Employee updated their profile',
-        DELETE_DOCUMENT: 'Employee deleted a document'
+        DELETE_DOCUMENT: 'Employee deleted a document',
+        VIEW_DASHBOARD: 'Employee viewed the dashboard',
+        CREATE_ENGAGEMENT: 'Employee created a new engagement',
+        UPDATE_ENGAGEMENT: 'Employee updated an engagement',
+        CREATE_CLIENT: 'Employee created a new client',
+        UPDATE_CLIENT: 'Employee updated a client',
+        VIEW_ENGAGEMENT: 'Employee viewed an engagement',
+        START_ENGAGEMENT: 'Employee started an engagement',
+        KYC_SETUP: 'Employee initiated KYC setup',
+        KYC_COMPLETE: 'Employee completed KYC setup',
+        E_SIGNATURE: 'Employee performed e-signature action'
       }
     });
   } catch (err) {
