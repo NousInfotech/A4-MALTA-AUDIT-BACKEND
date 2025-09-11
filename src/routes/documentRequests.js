@@ -22,11 +22,43 @@ router.patch(
   drc.updateRequest
 );
 
+// Bulk upload documents
 router.post(
   '/:id/documents',
   requireAuth,
   upload.array('files'),    
   drc.uploadDocuments
+);
+
+// Upload single document
+router.post(
+  '/:id/document',
+  requireAuth,
+  upload.single('file'),
+  drc.uploadSingleDocument
+);
+
+// Update individual document status
+router.patch(
+  '/:id/documents/:documentIndex/status',
+  requireAuth,
+  requireRole('employee'), // Only auditors can change document status
+  drc.updateDocumentStatus
+);
+
+// Bulk update document statuses
+router.patch(
+  '/:id/documents/bulk-status',
+  requireAuth,
+  requireRole('employee'), // Only auditors can bulk update statuses
+  drc.bulkUpdateDocumentStatuses
+);
+
+// Get document request statistics
+router.get(
+  '/engagement/:engagementId/stats',
+  requireAuth,
+  drc.getDocumentRequestStats
 );
 
 module.exports = router;

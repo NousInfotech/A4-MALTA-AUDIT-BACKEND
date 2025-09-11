@@ -15,8 +15,13 @@ const DocumentRequestSchema = new Schema({
   completedAt:  { type: Date },
   documents: [{
     name:       { type: String, required: true },
-    url:        { type: String, required: true }, // Supabase file URL
-    uploadedAt: { type: Date,   default: Date.now }
+    url:        { type: String}, // Supabase file URL 
+    uploadedAt: { type: Date,   default: Date.now },
+    status: {
+      type:String,
+      enum:['pending','uploaded','in-review','approved','rejected'],
+      default:'pending'
+    },
   }],
 });
 

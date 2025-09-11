@@ -544,6 +544,8 @@ exports.generateQnAUsingAI = async (req, res, next) => {
       return res.status(500).json({ success: false, message: 'OpenAI returned empty response' });
     }
 
+    console.log(rawOutput)
+
     // Attempt to parse JSON (AI should return JSON array of categories)
     let parsed;
     try {
@@ -593,6 +595,440 @@ exports.generateQnAUsingAI = async (req, res, next) => {
     return res.json(result);
   } catch (err) {
     console.error('generateQnAUsingAI error:', err);
+    next(err);
+  }
+};
+
+/**
+ * PBC Document Request Controllers
+ */
+
+// Create PBC Document Request
+exports.createPBCDocumentRequest = async (req, res, next) => {
+  try {
+    const { engagementId, description, requiredDocuments = [] } = req.body;
+
+    // Verify engagement exists
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({ message: 'Engagement not found' });
+    }
+
+    const documents = requiredDocuments.map(docname => {
+      return {
+        name: docname
+      }
+    })
+
+    // Create document request with PBC category
+    const documentRequest = await DocumentRequest.create({
+      engagement: engagementId,
+      clientId: req.user.id, // Assuming the user is the client
+      category: 'pbc', // Auto-set category to 'pbc'
+      description,
+      documents,
+      status: 'pending'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'PBC document request created successfully',
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get PBC Document Requests by Engagement
+exports.getPBCDocumentRequests = async (req, res, next) => {
+  try {
+    const { engagementId } = req.params;
+    const { status, page = 1, limit = 20 } = req.query;
+
+    // Build filter
+    let filter = {
+      engagement: engagementId,
+      category: 'pbc' // Only PBC document requests
+    };
+    if (status) filter.status = status;
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const documentRequests = await DocumentRequest.find(filter)
+      .populate('engagement', 'entityName status')
+      .sort({ requestedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalCount = await DocumentRequest.countDocuments(filter);
+
+    res.json({
+      success: true,
+      documentRequests,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNext: skip + documentRequests.length < totalCount,
+        hasPrev: parseInt(page) > 1
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update PBC Document Request
+exports.updatePBCDocumentRequest = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const updates = req.body;
+
+    // Ensure category remains 'pbc' and engagement doesn't change
+    delete updates.category;
+    delete updates.engagement;
+
+    const documentRequest = await DocumentRequest.findOneAndUpdate(
+      {
+        _id: requestId,
+        category: 'pbc' // Only allow updates to PBC requests
+      },
+      updates,
+      { new: true }
+    ).populate('engagement', 'entityName status');
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    // Auto-update completion timestamp if status changed to completed
+    if (updates.status === 'completed' && !documentRequest.completedAt) {
+      documentRequest.completedAt = new Date();
+      await documentRequest.save();
+    }
+
+    res.json({
+      success: true,
+      message: 'PBC document request updated successfully',
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete PBC Document Request
+exports.deletePBCDocumentRequest = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+
+    const documentRequest = await DocumentRequest.findOneAndDelete({
+      _id: requestId,
+      category: 'pbc' // Only allow deletion of PBC requests
+    });
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'PBC document request deleted successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Upload documents to PBC Document Request
+exports.uploadPBCDocuments = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const { markCompleted = false } = req.body;
+
+    // Find the PBC document request
+    const documentRequest = await DocumentRequest.findOne({
+      _id: requestId,
+      category: 'pbc'
+    });
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    // Check if user is authorized (client or auditor)
+    if (documentRequest.clientId !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden: You can only upload to your own document requests' });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    const bucket = "engagement-documents";
+    const categoryFolder = "pbc/";
+
+    for (const file of req.files) {
+      const ext = file.originalname.split(".").pop();
+      const filename = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}.${ext}`;
+      const path = `${documentRequest.engagement.toString()}/${categoryFolder}${filename}`;
+
+      const { data: up, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+      
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(up.path);
+
+      documentRequest.documents.push({
+        name: file.originalname,
+        url: urlData.publicUrl,
+        uploadedAt: new Date(),
+        status: 'uploaded' // Set initial status to uploaded
+      });
+    }
+
+    // Mark as completed if requested
+    if (markCompleted === true || markCompleted === 'true') {
+      documentRequest.status = "completed";
+      documentRequest.completedAt = new Date();
+    }
+
+    await documentRequest.save();
+
+    res.json({
+      success: true,
+      message: `${req.files.length} document(s) uploaded successfully`,
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Upload single document to PBC Document Request
+exports.uploadSinglePBCDocument = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+
+    // Find the PBC document request
+    const documentRequest = await DocumentRequest.findOne({
+      _id: requestId,
+      category: 'pbc'
+    });
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    // Check if user is authorized (client or auditor)
+    if (documentRequest.clientId !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden: You can only upload to your own document requests' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const bucket = "engagement-documents";
+    const categoryFolder = "pbc/";
+    const file = req.file;
+
+    const ext = file.originalname.split(".").pop();
+    const filename = `${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 5)}.${ext}`;
+    const path = `${documentRequest.engagement.toString()}/${categoryFolder}${filename}`;
+
+    const { data: up, error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+    
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(up.path);
+
+    const newDocument = {
+      name: file.originalname,
+      url: urlData.publicUrl,
+      uploadedAt: new Date(),
+      status: 'uploaded'
+    };
+
+    documentRequest.documents.push(newDocument);
+    await documentRequest.save();
+
+    res.json({
+      success: true,
+      message: 'Document uploaded successfully',
+      document: newDocument,
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update PBC document status
+exports.updatePBCDocumentStatus = async (req, res, next) => {
+  try {
+    const { requestId, documentIndex } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['pending', 'uploaded', 'in-review', 'approved', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        message: 'Invalid status. Must be one of: pending, uploaded, in-review, approved, rejected' 
+      });
+    }
+
+    const documentRequest = await DocumentRequest.findOne({
+      _id: requestId,
+      category: 'pbc'
+    });
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    if (documentIndex >= documentRequest.documents.length) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    // Update document status
+    documentRequest.documents[documentIndex].status = status;
+    await documentRequest.save();
+
+    res.json({
+      success: true,
+      message: 'PBC document status updated successfully',
+      document: documentRequest.documents[documentIndex],
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Bulk update PBC document statuses
+exports.bulkUpdatePBCDocumentStatuses = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const { updates } = req.body; // Array of { documentIndex, status }
+
+    const validStatuses = ['pending', 'uploaded', 'in-review', 'approved', 'rejected'];
+    
+    // Validate all statuses first
+    for (const update of updates) {
+      if (!validStatuses.includes(update.status)) {
+        return res.status(400).json({ 
+          message: `Invalid status '${update.status}'. Must be one of: pending, uploaded, in-review, approved, rejected` 
+        });
+      }
+    }
+
+    const documentRequest = await DocumentRequest.findOne({
+      _id: requestId,
+      category: 'pbc'
+    });
+
+    if (!documentRequest) {
+      return res.status(404).json({ message: 'PBC document request not found' });
+    }
+
+    let updatedCount = 0;
+    for (const update of updates) {
+      if (update.documentIndex < documentRequest.documents.length) {
+        documentRequest.documents[update.documentIndex].status = update.status;
+        updatedCount++;
+      }
+    }
+
+    await documentRequest.save();
+
+    res.json({
+      success: true,
+      message: `${updatedCount} PBC document status(es) updated successfully`,
+      updatedCount,
+      documentRequest
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get PBC Document Request Statistics
+exports.getPBCDocumentRequestStats = async (req, res, next) => {
+  try {
+    const { engagementId } = req.params;
+
+    const stats = await DocumentRequest.aggregate([
+      {
+        $match: {
+          engagement: Types.ObjectId(engagementId),
+          category: 'pbc'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRequests: { $sum: 1 },
+          pendingRequests: {
+            $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+          },
+          completedRequests: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+          },
+          totalDocuments: {
+            $sum: { $size: '$documents' }
+          }
+        }
+      }
+    ]);
+
+    const monthlyStats = await DocumentRequest.aggregate([
+      {
+        $match: {
+          engagement: Types.ObjectId(engagementId),
+          category: 'pbc'
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$requestedAt' },
+            month: { $month: '$requestedAt' }
+          },
+          count: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { '_id.year': -1, '_id.month': -1 } },
+      { $limit: 12 }
+    ]);
+
+    res.json({
+      success: true,
+      stats: stats[0] || {
+        totalRequests: 0,
+        pendingRequests: 0,
+        completedRequests: 0,
+        totalDocuments: 0
+      },
+      monthlyStats
+    });
+  } catch (err) {
     next(err);
   }
 };

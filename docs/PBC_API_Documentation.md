@@ -280,8 +280,358 @@ Deletes a category and all its questions.
 }
 ```
 
+## PBC Document Request Endpoints
+
+### 1. Create PBC Document Request
+**POST** `/api/pbc/document-requests`
+
+Creates a new document request specifically for PBC workflow with auto-categorization.
+
+**Body:**
+```json
+{
+  "engagementId": "64a1b2c3d4e5f6789012345",
+  "description": "Annual financial statements for PBC review",
+  "documents": []
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PBC document request created successfully",
+  "documentRequest": {
+    "_id": "64a1b2c3d4e5f6789012346",
+    "engagement": "64a1b2c3d4e5f6789012345",
+    "clientId": "client-user-id",
+    "category": "pbc",
+    "description": "Annual financial statements for PBC review",
+    "status": "pending",
+    "requestedAt": "2024-01-15T10:30:00.000Z",
+    "documents": []
+  }
+}
+```
+
+### 2. Get PBC Document Requests by Engagement
+**GET** `/api/pbc/document-requests/engagement/:engagementId`
+
+Retrieves all PBC document requests for a specific engagement.
+
+**Response:**
+```json
+{
+  "success": true,
+  "documentRequests": [
+    {
+      "_id": "64a1b2c3d4e5f6789012346",
+      "engagement": "64a1b2c3d4e5f6789012345",
+      "clientId": "client-user-id",
+      "category": "pbc",
+      "description": "Annual financial statements for PBC review",
+      "status": "pending",
+      "requestedAt": "2024-01-15T10:30:00.000Z",
+      "documents": [
+        {
+          "name": "balance-sheet.pdf",
+          "url": "https://supabase.url/file.pdf",
+          "uploadedAt": "2024-01-15T10:30:00.000Z",
+          "status": "uploaded"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 3. Update PBC Document Request
+**PATCH** `/api/pbc/document-requests/:requestId`
+
+Updates PBC document request properties (category and engagement cannot be changed).
+
+**Body:**
+```json
+{
+  "description": "Updated description for PBC document request",
+  "status": "completed"
+}
+```
+
+### 4. Delete PBC Document Request
+**DELETE** `/api/pbc/document-requests/:requestId`
+
+Deletes a PBC document request (auditors only).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PBC document request deleted successfully"
+}
+```
+
+### 5. Bulk Upload Documents to PBC Request
+**POST** `/api/pbc/document-requests/:requestId/documents`
+
+Uploads multiple documents to a PBC document request.
+
+**Headers:**
+- `Content-Type: multipart/form-data`
+
+**Body:**
+- `files`: Array of files to upload
+- `markCompleted`: Optional boolean to mark request as completed
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "2 document(s) uploaded successfully",
+  "documentRequest": {
+    "_id": "64a1b2c3d4e5f6789012346",
+    "documents": [
+      {
+        "name": "balance-sheet.pdf",
+        "url": "https://supabase.url/file1.pdf",
+        "uploadedAt": "2024-01-15T10:30:00.000Z",
+        "status": "uploaded"
+      },
+      {
+        "name": "income-statement.pdf",
+        "url": "https://supabase.url/file2.pdf",
+        "uploadedAt": "2024-01-15T10:30:00.000Z",
+        "status": "uploaded"
+      }
+    ]
+  }
+}
+```
+
+### 6. Upload Single Document to PBC Request
+**POST** `/api/pbc/document-requests/:requestId/document`
+
+Uploads a single document to a PBC document request.
+
+**Headers:**
+- `Content-Type: multipart/form-data`
+
+**Body:**
+- `file`: Single file to upload
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Document uploaded successfully",
+  "document": {
+    "name": "balance-sheet.pdf",
+    "url": "https://supabase.url/file.pdf",
+    "uploadedAt": "2024-01-15T10:30:00.000Z",
+    "status": "uploaded"
+  },
+  "documentRequest": {
+    "_id": "64a1b2c3d4e5f6789012346",
+    "documents": [...]
+  }
+}
+```
+
+### 7. Update Individual Document Status
+**PATCH** `/api/pbc/document-requests/:requestId/documents/:documentIndex/status`
+
+Updates the status of a specific document within a PBC request (auditors only).
+
+**Body:**
+```json
+{
+  "status": "approved"
+}
+```
+
+**Valid Status Values:**
+- `pending`: Document not yet uploaded
+- `uploaded`: Document uploaded by client
+- `in-review`: Document under auditor review
+- `approved`: Document approved by auditor
+- `rejected`: Document rejected by auditor
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PBC document status updated successfully",
+  "document": {
+    "name": "balance-sheet.pdf",
+    "url": "https://supabase.url/file.pdf",
+    "uploadedAt": "2024-01-15T10:30:00.000Z",
+    "status": "approved"
+  },
+  "documentRequest": {
+    "_id": "64a1b2c3d4e5f6789012346",
+    "documents": [...]
+  }
+}
+```
+
+### 8. Bulk Update Document Statuses
+**PATCH** `/api/pbc/document-requests/:requestId/documents/bulk-status`
+
+Updates multiple document statuses at once (auditors only).
+
+**Body:**
+```json
+{
+  "updates": [
+    {
+      "documentIndex": 0,
+      "status": "approved"
+    },
+    {
+      "documentIndex": 1,
+      "status": "rejected"
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "2 PBC document status(es) updated successfully",
+  "updatedCount": 2,
+  "documentRequest": {
+    "_id": "64a1b2c3d4e5f6789012346",
+    "documents": [...]
+  }
+}
+```
+
+### 9. Get PBC Document Request Statistics
+**GET** `/api/pbc/document-requests/engagement/:engagementId/stats`
+
+Retrieves comprehensive statistics for PBC document requests.
+
+**Response:**
+```json
+{
+  "success": true,
+  "stats": {
+    "totalRequests": 5,
+    "pendingRequests": 2,
+    "completedRequests": 3,
+    "totalDocuments": 15,
+    "uploadedDocuments": 12,
+    "inReviewDocuments": 2,
+    "approvedDocuments": 10,
+    "rejectedDocuments": 1
+  }
+}
+```
+
+## AI QnA Generation
+
+### Generate QnA Using AI
+**POST** `/api/pbc/:pbcId/generate-qna-ai`
+
+Generates Q&A questions using OpenAI based on engagement context and uploaded documents.
+
+**Body:**
+```json
+{
+  "context": "Annual audit for manufacturing company",
+  "focusAreas": ["revenue recognition", "inventory valuation", "fixed assets"]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Q&A generated successfully using AI",
+  "generatedCategories": [
+    {
+      "title": "Revenue Recognition",
+      "questions": [
+        {
+          "question": "How do you recognize revenue from product sales?",
+          "isMandatory": true
+        },
+        {
+          "question": "What is your policy for recognizing revenue from service contracts?",
+          "isMandatory": false
+        }
+      ]
+    }
+  ],
+  "pbc": {
+    "_id": "64a1b2c3d4e5f6789012348",
+    "categories": [...]
+  }
+}
+```
+
+## Document Status Management
+
+Both PBC document requests and regular document requests support the complete document lifecycle:
+
+- **`pending`**: Document not yet uploaded
+- **`uploaded`**: Document uploaded by client
+- **`in-review`**: Document under auditor review
+- **`approved`**: Document approved by auditor
+- **`rejected`**: Document rejected by auditor
+
 ## Role Permissions
 
-- **employee** (auditor): Can create, update, delete PBC workflows and categories
-- **client**: Can view PBC workflows, answer questions, and add discussions
+- **employee** (auditor): Can create, update, delete PBC workflows, categories, and document requests; can change document statuses
+- **client**: Can view PBC workflows, answer questions, add discussions, upload documents to their own requests
 - **admin**: Full access to all PBC operations
+
+## Usage Examples
+
+### 1. Create PBC Document Request:
+```javascript
+POST /api/pbc/document-requests
+{
+  "engagementId": "64a1b2c3d4e5f6789012345",
+  "description": "Annual financial statements for PBC review"
+}
+```
+
+### 2. Upload Multiple Documents:
+```javascript
+POST /api/pbc/document-requests/:requestId/documents
+Content-Type: multipart/form-data
+Body: files (multiple files)
+```
+
+### 3. Update Document Status:
+```javascript
+PATCH /api/pbc/document-requests/:requestId/documents/:documentIndex/status
+{
+  "status": "approved"
+}
+```
+
+### 4. Generate AI QnA:
+```javascript
+POST /api/pbc/:pbcId/generate-qna-ai
+{
+  "context": "Annual audit for manufacturing company",
+  "focusAreas": ["revenue recognition", "inventory valuation"]
+}
+```
+
+### 5. Get Statistics:
+```javascript
+GET /api/pbc/document-requests/engagement/:engagementId/stats
+```
+
+## Integration Notes
+
+- PBC document requests are automatically categorized as "pbc"
+- Document status tracking provides complete audit trail
+- AI QnA generation uses OpenAI to create contextually relevant questions
+- File uploads are stored in Supabase with proper organization
+- Role-based access control ensures proper security
