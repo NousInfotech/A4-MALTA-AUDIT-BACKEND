@@ -241,7 +241,7 @@ router.get(
 router.post(
   '/questionnaires/:questionnaireId/generate/policy',
   requireAuth,
-  requireRole('employee'), // Only employees can generate documents
+  requireRole(['employee', 'admin']), // Both employees and admins can generate documents
   isqmController.generatePolicyDocument
 );
 
@@ -249,7 +249,7 @@ router.post(
 router.post(
   '/questionnaires/:questionnaireId/generate/procedure',
   requireAuth,
-  requireRole('employee'), // Only employees can generate documents
+  requireRole(['employee', 'admin']), // Both employees and admins can generate documents
   isqmController.generateProcedureDocument
 );
 
@@ -257,7 +257,7 @@ router.post(
 router.post(
   '/questionnaires/:questionnaireId/generate/risk-assessment',
   requireAuth,
-  requireRole('employee'), // Only employees can generate documents
+  requireRole(['employee', 'admin']), // Both employees and admins can generate documents
   isqmController.generateRiskAssessment
 );
 
@@ -265,7 +265,7 @@ router.post(
 router.post(
   '/questionnaires/:questionnaireId/generate/compliance-checklist',
   requireAuth,
-  requireRole('employee'), // Only employees can generate documents
+  requireRole(['employee', 'admin']), // Both employees and admins can generate documents
   isqmController.generateComplianceChecklist
 );
 
@@ -280,7 +280,7 @@ router.get(
 router.post(
   '/parents/:parentId/generate-documents',
   requireAuth,
-  requireRole('employee'), // Only employees can generate documents
+  requireRole(['employee', 'admin']), // Both employees and admins can generate documents
   isqmController.generateISQMDocuments
 );
 
@@ -292,7 +292,7 @@ router.post(
 router.post(
   '/questionnaires/:id/procedure-urls',
   requireAuth,
-  requireRole('employee'), // Only employees can manage URLs
+  requireRole(['employee', 'admin']), // Both employees and admins can manage URLs
   isqmController.addProcedureUrl
 );
 
@@ -300,7 +300,7 @@ router.post(
 router.post(
   '/questionnaires/:id/policy-urls',
   requireAuth,
-  requireRole('employee'), // Only employees can manage URLs
+  requireRole(['employee', 'admin']), // Both employees and admins can manage URLs
   isqmController.addPolicyUrl
 );
 
@@ -315,7 +315,7 @@ router.get(
 router.delete(
   '/questionnaires/:id/procedure-urls/:urlId',
   requireAuth,
-  requireRole('employee'), // Only employees can manage URLs
+  requireRole(['employee', 'admin']), // Both employees and admins can manage URLs
   isqmController.removeProcedureUrl
 );
 
@@ -323,7 +323,7 @@ router.delete(
 router.delete(
   '/questionnaires/:id/policy-urls/:urlId',
   requireAuth,
-  requireRole('employee'), // Only employees can manage URLs
+  requireRole(['employee', 'admin']), // Both employees and admins can manage URLs
   isqmController.removePolicyUrl
 );
 
