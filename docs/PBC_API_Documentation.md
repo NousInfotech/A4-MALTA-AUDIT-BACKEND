@@ -28,21 +28,98 @@ Creates a new PBC workflow for an engagement.
   "engagementId": "64a1b2c3d4e5f6789012345",
   "clientId": "client-user-id",
   "auditorId": "auditor-user-id",
-  "documentRequests": ["64a1b2c3d4e5f6789012346", "64a1b2c3d4e5f6789012347"]
+  "entityName": "ABC Company Ltd",
+  "notes": "Additional notes for PBC workflow",
+  "customFields": {
+    "industry": "Manufacturing",
+    "size": "Mid-size"
+  },
+  "documentRequests": [
+    {
+      "name": "Financial Statements",
+      "description": "Annual financial statements for PBC review",
+      "documents": ["balance-sheet.pdf", "income-statement.pdf", "cash-flow.pdf"]
+    },
+    {
+      "name": "Supporting Documents",
+      "description": "Supporting documentation for audit",
+      "documents": ["bank-statements.pdf", "invoices.pdf"]
+    }
+  ]
 }
 ```
 
 **Response:**
 ```json
 {
-  "_id": "64a1b2c3d4e5f6789012348",
-  "engagement": "64a1b2c3d4e5f6789012345",
-  "clientId": "client-user-id",
-  "auditorId": "auditor-user-id",
-  "documentRequests": ["64a1b2c3d4e5f6789012346"],
-  "status": "document-collection",
-  "createdAt": "2024-01-15T10:30:00.000Z",
-  "updatedAt": "2024-01-15T10:30:00.000Z"
+  "success": true,
+  "message": "PBC workflow created successfully",
+  "pbc": {
+    "_id": "64a1b2c3d4e5f6789012348",
+    "engagement": {
+      "_id": "64a1b2c3d4e5f6789012345",
+      "title": "Annual Audit 2024",
+      "yearEndDate": "2023-12-31T00:00:00.000Z",
+      "clientId": "client-user-id"
+    },
+    "clientId": "client-user-id",
+    "auditorId": "auditor-user-id",
+    "entityName": "ABC Company Ltd",
+    "notes": "Additional notes for PBC workflow",
+    "customFields": {
+      "industry": "Manufacturing",
+      "size": "Mid-size"
+    },
+    "documentRequests": [
+      {
+        "_id": "64a1b2c3d4e5f6789012346",
+        "engagement": "64a1b2c3d4e5f6789012345",
+        "clientId": "client-user-id",
+        "name": "Financial Statements",
+        "category": "pbc",
+        "description": "Annual financial statements for PBC review",
+        "status": "pending",
+        "requestedAt": "2024-01-15T10:30:00.000Z",
+        "documents": [
+          {
+            "name": "balance-sheet.pdf",
+            "status": "pending"
+          },
+          {
+            "name": "income-statement.pdf",
+            "status": "pending"
+          },
+          {
+            "name": "cash-flow.pdf",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "_id": "64a1b2c3d4e5f6789012347",
+        "engagement": "64a1b2c3d4e5f6789012345",
+        "clientId": "client-user-id",
+        "name": "Supporting Documents",
+        "category": "pbc",
+        "description": "Supporting documentation for audit",
+        "status": "pending",
+        "requestedAt": "2024-01-15T10:30:00.000Z",
+        "documents": [
+          {
+            "name": "bank-statements.pdf",
+            "status": "pending"
+          },
+          {
+            "name": "invoices.pdf",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    "status": "document-collection",
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
 }
 ```
 
@@ -594,14 +671,31 @@ Both PBC document requests and regular document requests support the complete do
 
 ## Usage Examples
 
-### 1. Create PBC Document Request:
+### 1. Create PBC Workflow with Document Requests:
 ```javascript
-POST /api/pbc/document-requests
+POST /api/pbc/
 {
   "engagementId": "64a1b2c3d4e5f6789012345",
-  "name": "Annual Financial Statements Review",
-  "description": "Annual financial statements for PBC review",
-  "requiredDocuments": ["balance-sheet.pdf", "income-statement.pdf"]
+  "clientId": "client-user-id",
+  "auditorId": "auditor-user-id",
+  "entityName": "ABC Company Ltd",
+  "notes": "Additional notes for PBC workflow",
+  "customFields": {
+    "industry": "Manufacturing",
+    "size": "Mid-size"
+  },
+  "documentRequests": [
+    {
+      "name": "Financial Statements",
+      "description": "Annual financial statements for PBC review",
+      "documents": ["balance-sheet.pdf", "income-statement.pdf", "cash-flow.pdf"]
+    },
+    {
+      "name": "Supporting Documents",
+      "description": "Supporting documentation for audit",
+      "documents": ["bank-statements.pdf", "invoices.pdf"]
+    }
+  ]
 }
 ```
 
@@ -636,8 +730,11 @@ GET /api/pbc/document-requests/engagement/:engagementId/stats
 
 ## Integration Notes
 
-- PBC document requests are automatically categorized as "pbc"
+- PBC workflows are created with document requests automatically generated from the provided document request objects
+- Document requests are automatically categorized as "pbc" and linked to the engagement
+- Document names in the `documents` array are converted to document objects with `status: 'pending'`
 - Document status tracking provides complete audit trail
 - AI QnA generation uses OpenAI to create contextually relevant questions
 - File uploads are stored in Supabase with proper organization
 - Role-based access control ensures proper security
+- All document requests are returned as populated objects in PBC responses
