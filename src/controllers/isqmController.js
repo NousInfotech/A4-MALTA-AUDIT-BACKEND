@@ -3,6 +3,7 @@ const ISQMQuestionnaire = require('../models/ISQMQuestionnaire');
 const ISQMSupportingDocument = require('../models/ISQMSupportingDocument');
 const { formatISQMPrompt, validateISQMData, getAvailablePrompts } = require('../prompts/isqmPrompts');
 const { openai_pbc } = require('../config/openai');
+const { supabase } = require('../config/supabase');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
@@ -1005,6 +1006,48 @@ async function generatePDF(content, filename, title) {
   });
 }
 
+// Helper function to upload PDF to Supabase
+async function uploadPDFToSupabase(filePath, fileName, bucketName = 'global-documents') {
+  try {
+    // Read the file
+    const fileBuffer = fs.readFileSync(filePath);
+    
+    // Create folder structure: isqm-documents/policies/ or isqm-documents/procedures/
+    const fullPath = `isqm-documents/${fileName}`;
+    
+    // Upload to global-documents bucket with isqm-documents folder structure
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(fullPath, fileBuffer, {
+        contentType: 'application/pdf',
+        upsert: true,
+        cacheControl: '0'
+      });
+
+    if (error) {
+      throw new Error(`Supabase upload error: ${error.message}`);
+    }
+
+    // Get the public URL with versioning (same pattern as other controllers)
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(data.path);
+
+    const versionedUrl = `${urlData.publicUrl}?v=${Date.now()}`;
+
+    return {
+      success: true,
+      fileName: data.path,
+      publicUrl: versionedUrl,
+      bucketName,
+      folderPath: 'isqm-documents'
+    };
+  } catch (error) {
+    console.error('Error uploading PDF to Supabase:', error);
+    throw error;
+  }
+}
+
 // Generate policy document from ISQM questionnaire
 exports.generatePolicyDocument = async (req, res, next) => {
   try {
@@ -1069,14 +1112,41 @@ exports.generatePolicyDocument = async (req, res, next) => {
 
     const generatedPolicy = completion.choices[0].message.content;
 
+    // Generate PDF from the content
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const policyFilename = `${questionnaire.key}_policy_${timestamp}`;
+    
+    const policyPDFPath = await generatePDF(
+      generatedPolicy,
+      policyFilename,
+      `${questionnaire.heading} - Policy Document`
+    );
+
+    // Upload PDF to Supabase
+    const supabaseFileName = `policies/${policyFilename}.pdf`;
+    const uploadResult = await uploadPDFToSupabase(policyPDFPath, supabaseFileName);
+
+    // Add policy URL to questionnaire
+    await questionnaire.addPolicyUrl({
+      name: `${questionnaire.heading} Policy`,
+      url: uploadResult.publicUrl, // Using Supabase public URL
+      version: "1.0",
+      uploadedBy: req.user.id,
+      description: `AI-generated policy document for ${questionnaire.heading}`
+    });
+
     // Log the generation activity
-    console.log(`Policy generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+    console.log(`Policy generated and URL added for questionnaire ${questionnaireId} by user ${req.user.id}`);
 
     res.json({
       success: true,
       questionnaireId,
       componentName: questionnaire.heading,
       generatedDocument: generatedPolicy,
+      pdfPath: policyPDFPath,
+      pdfFilename: `${policyFilename}.pdf`,
+      supabaseUrl: uploadResult.publicUrl,
+      supabaseFileName: uploadResult.fileName,
       metadata: {
         generatedAt: new Date(),
         generatedBy: req.user.id,
@@ -1161,14 +1231,41 @@ exports.generateProcedureDocument = async (req, res, next) => {
 
     const generatedProcedure = completion.choices[0].message.content;
 
+    // Generate PDF from the content
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const procedureFilename = `${questionnaire.key}_procedure_${timestamp}`;
+    
+    const procedurePDFPath = await generatePDF(
+      generatedProcedure,
+      procedureFilename,
+      `${questionnaire.heading} - Procedure Document`
+    );
+
+    // Upload PDF to Supabase
+    const supabaseFileName = `procedures/${procedureFilename}.pdf`;
+    const uploadResult = await uploadPDFToSupabase(procedurePDFPath, supabaseFileName);
+
+    // Add procedure URL to questionnaire
+    await questionnaire.addProcedureUrl({
+      name: `${questionnaire.heading} Procedure`,
+      url: uploadResult.publicUrl, // Using Supabase public URL
+      version: "1.0",
+      uploadedBy: req.user.id,
+      description: `AI-generated procedure document for ${questionnaire.heading}`
+    });
+
     // Log the generation activity
-    console.log(`Procedure generated for questionnaire ${questionnaireId} by user ${req.user.id}`);
+    console.log(`Procedure generated and URL added for questionnaire ${questionnaireId} by user ${req.user.id}`);
 
     res.json({
       success: true,
       questionnaireId,
       componentName: questionnaire.heading,
       generatedDocument: generatedProcedure,
+      pdfPath: procedurePDFPath,
+      pdfFilename: `${procedureFilename}.pdf`,
+      supabaseUrl: uploadResult.publicUrl,
+      supabaseFileName: uploadResult.fileName,
       metadata: {
         generatedAt: new Date(),
         generatedBy: req.user.id,
@@ -1528,6 +1625,30 @@ exports.generateISQMDocuments = async (req, res, next) => {
           `${questionnaire.heading} - Procedure Document`
         );
 
+        // Upload PDFs to Supabase
+        const policySupabaseFileName = `policies/${policyFilename}.pdf`;
+        const procedureSupabaseFileName = `procedures/${procedureFilename}.pdf`;
+        
+        const policyUploadResult = await uploadPDFToSupabase(policyPDFPath, policySupabaseFileName);
+        const procedureUploadResult = await uploadPDFToSupabase(procedurePDFPath, procedureSupabaseFileName);
+
+        // Add URLs to questionnaire
+        await questionnaire.addPolicyUrl({
+          name: `${questionnaire.heading} Policy`,
+          url: policyUploadResult.publicUrl,
+          version: "1.0",
+          uploadedBy: req.user.id,
+          description: `AI-generated policy document for ${questionnaire.heading}`
+        });
+
+        await questionnaire.addProcedureUrl({
+          name: `${questionnaire.heading} Procedure`,
+          url: procedureUploadResult.publicUrl,
+          version: "1.0",
+          uploadedBy: req.user.id,
+          description: `AI-generated procedure document for ${questionnaire.heading}`
+        });
+
         // Store generated documents
         const questionnaireData = {
           id: questionnaire._id,
@@ -1545,6 +1666,8 @@ exports.generateISQMDocuments = async (req, res, next) => {
           document: policyCompletion.choices[0].message.content,
           pdfPath: policyPDFPath,
           pdfFilename: `${policyFilename}.pdf`,
+          supabaseUrl: policyUploadResult.publicUrl,
+          supabaseFileName: policyUploadResult.fileName,
           generatedAt: new Date(),
           generatedBy: req.user.id,
           model: 'gpt-4o-mini',
@@ -1558,6 +1681,8 @@ exports.generateISQMDocuments = async (req, res, next) => {
           document: procedureCompletion.choices[0].message.content,
           pdfPath: procedurePDFPath,
           pdfFilename: `${procedureFilename}.pdf`,
+          supabaseUrl: procedureUploadResult.publicUrl,
+          supabaseFileName: procedureUploadResult.fileName,
           generatedAt: new Date(),
           generatedBy: req.user.id,
           model: 'gpt-4o-mini',
