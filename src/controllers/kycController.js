@@ -9,7 +9,7 @@ const Engagement = require('../models/Engagement');
 // Create a new KYC workflow
 exports.createKYC = async (req, res, next) => {
   try {
-    const { engagementId, clientId, auditorId, documentRequestId } = req.body;
+    const { engagementId, clientId, auditorId, documentRequest } = req.body;
     
     // Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
@@ -23,27 +23,39 @@ exports.createKYC = async (req, res, next) => {
       return res.status(400).json({ message: 'KYC workflow already exists for this engagement' });
     }
 
-    // Verify document request exists if provided
-    if (documentRequestId) {
-      const documentRequest = await DocumentRequest.findOne({ 
-        _id: documentRequestId,
-        engagement: engagementId 
-      });
-      
-      if (!documentRequest) {
-        return res.status(400).json({ message: 'Document request not found or not associated with this engagement' });
-      }
+    let createdDocumentRequest = null;
+
+    // Create document request if provided
+    if (documentRequest) {
+      // Set category to 'kyc' and add engagement info
+      const documentRequestData = {
+        ...documentRequest,
+        engagement: engagementId,
+        clientId: clientId || req.user.id,
+        category: 'kyc'
+      };
+
+      createdDocumentRequest = await DocumentRequest.create(documentRequestData);
     }
 
     const kyc = await KYC.create({
       engagement: engagementId,
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
-      documentRequests: documentRequestId || null,
+      documentRequests: createdDocumentRequest ? createdDocumentRequest._id : null,
       status: 'pending'
     });
 
-    res.status(201).json(kyc);
+    // Populate the document request to return as object
+    const populatedKYC = await KYC.findById(kyc._id)
+      .populate('engagement', 'entityName status yearEndDate')
+      .populate('documentRequests');
+
+    res.status(201).json({
+      success: true,
+      message: 'KYC workflow created successfully',
+      kyc: populatedKYC
+    });
   } catch (err) {
     next(err);
   }

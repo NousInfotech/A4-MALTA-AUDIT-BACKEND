@@ -61,15 +61,20 @@ exports.uploadDocuments = async (req, res, next) => {
 
 exports.createRequest = async (req, res, next) => {
   try {
-    const { engagementId, category, description,documents } = req.body;
+    const { engagementId, category, name, description, documents } = req.body;
     const dr = await DocumentRequest.create({
       engagement: engagementId,
       clientId: req.body.clientId || req.user.id,
+      name: name || `${category} Request - ${new Date().toLocaleDateString()}`, // Add name field with default
       category,
       description,
       documents,
     });
-    return res.status(201).json(dr);
+    return res.status(201).json({
+      success: true,
+      message: 'Document request created successfully',
+      documentRequest: dr
+    });
   } catch (err) {
     next(err);
   }

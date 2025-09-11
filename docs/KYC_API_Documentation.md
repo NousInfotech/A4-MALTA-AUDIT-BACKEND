@@ -28,22 +28,45 @@ Creates a new KYC workflow for an engagement.
   "engagementId": "64a1b2c3d4e5f6789012345",
   "clientId": "client-user-id",
   "auditorId": "auditor-user-id",
-  "documentRequestId": "64a1b2c3d4e5f6789012346"
+  "documentRequest": {
+    "name": "KYC Financial Documents",
+    "description": "Annual financial statements for KYC review",
+    "documents": []
+  }
 }
 ```
 
 **Response:**
 ```json
 {
-  "_id": "64a1b2c3d4e5f6789012348",
-  "engagement": "64a1b2c3d4e5f6789012345",
-  "clientId": "client-user-id",
-  "auditorId": "auditor-user-id",
-  "documentRequests": "64a1b2c3d4e5f6789012346",
-  "discussions": [],
-  "status": "pending",
-  "createdAt": "2024-01-15T10:30:00.000Z",
-  "updatedAt": "2024-01-15T10:30:00.000Z"
+  "success": true,
+  "message": "KYC workflow created successfully",
+  "kyc": {
+    "_id": "64a1b2c3d4e5f6789012348",
+    "engagement": {
+      "_id": "64a1b2c3d4e5f6789012345",
+      "entityName": "ABC Company Ltd",
+      "status": "active",
+      "yearEndDate": "2023-12-31T00:00:00.000Z"
+    },
+    "clientId": "client-user-id",
+    "auditorId": "auditor-user-id",
+    "documentRequests": {
+      "_id": "64a1b2c3d4e5f6789012346",
+      "engagement": "64a1b2c3d4e5f6789012345",
+      "clientId": "client-user-id",
+      "name": "KYC Financial Documents",
+      "category": "kyc",
+      "description": "Financial statements for KYC review",
+      "status": "pending",
+      "requestedAt": "2024-01-15T10:30:00.000Z",
+      "documents": []
+    },
+    "discussions": [],
+    "status": "pending",
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
 }
 ```
 
@@ -66,14 +89,19 @@ Retrieves KYC workflow details for a specific engagement.
   "auditorId": "auditor-user-id",
   "documentRequests": {
     "_id": "64a1b2c3d4e5f6789012346",
-    "category": "Financial Statements",
+    "engagement": "64a1b2c3d4e5f6789012345",
+    "clientId": "client-user-id",
+    "name": "KYC Financial Documents",
+    "category": "kyc",
     "description": "Annual financial statements",
     "status": "pending",
+    "requestedAt": "2024-01-15T10:30:00.000Z",
     "documents": [
       {
         "name": "balance-sheet.pdf",
         "url": "https://supabase.url/file.pdf",
-        "uploadedAt": "2024-01-15T10:30:00.000Z"
+        "uploadedAt": "2024-01-15T10:30:00.000Z",
+        "status": "uploaded"
       }
     ]
   },
@@ -160,9 +188,14 @@ Retrieves all KYC workflows for the authenticated client.
     "auditorId": "auditor-user-id",
     "documentRequests": {
       "_id": "64a1b2c3d4e5f6789012346",
-      "category": "Financial Statements",
+      "engagement": "64a1b2c3d4e5f6789012345",
+      "clientId": "client-user-id",
+      "name": "KYC Financial Documents",
+      "category": "kyc",
       "description": "Annual financial statements",
-      "status": "pending"
+      "status": "pending",
+      "requestedAt": "2024-01-15T10:30:00.000Z",
+      "documents": []
     },
     "status": "pending"
   }
@@ -342,9 +375,13 @@ Attaches a new DocumentRequest to an existing KYC workflow.
   "auditorId": "auditor-user-id",
   "documentRequests": {
     "_id": "64a1b2c3d4e5f6789012347",
-    "category": "Tax Documents",
+    "engagement": "64a1b2c3d4e5f6789012345",
+    "clientId": "client-user-id",
+    "name": "KYC Tax Documents",
+    "category": "kyc",
     "description": "Corporate tax returns",
     "status": "pending",
+    "requestedAt": "2024-01-15T10:30:00.000Z",
     "documents": []
   },
   "discussions": [],
@@ -414,7 +451,12 @@ POST /api/kyc/
 {
   "engagementId": "64a1b2c3d4e5f6789012345",
   "clientId": "client-user-id",
-  "documentRequestId": "64a1b2c3d4e5f6789012346"
+  "auditorId": "auditor-user-id",
+  "documentRequest": {
+    "name": "KYC Financial Documents",
+    "description": "Annual financial statements for KYC review",
+    "documents": []
+  }
 }
 ```
 
@@ -485,7 +527,9 @@ PATCH /api/kyc/kycId/status
 ## Integration Notes
 
 - KYC workflows are linked to engagements and document requests
+- Document requests are created automatically when creating a KYC workflow with category set to 'kyc'
 - Discussions can reference specific documents within document requests
 - Role-based access control ensures clients can only edit their own discussions
 - Document references use documentRequestId and documentIndex for precise targeting
 - New DocumentRequests can be attached to existing KYC workflows without recreating the entire workflow
+- Document requests are returned as populated objects in all KYC responses

@@ -291,8 +291,9 @@ Creates a new document request specifically for PBC workflow with auto-categoriz
 ```json
 {
   "engagementId": "64a1b2c3d4e5f6789012345",
+  "name": "Annual Financial Statements Review",
   "description": "Annual financial statements for PBC review",
-  "documents": []
+  "requiredDocuments": ["balance-sheet.pdf", "income-statement.pdf"]
 }
 ```
 
@@ -305,6 +306,7 @@ Creates a new document request specifically for PBC workflow with auto-categoriz
     "_id": "64a1b2c3d4e5f6789012346",
     "engagement": "64a1b2c3d4e5f6789012345",
     "clientId": "client-user-id",
+    "name": "Annual Financial Statements Review",
     "category": "pbc",
     "description": "Annual financial statements for PBC review",
     "status": "pending",
@@ -328,6 +330,7 @@ Retrieves all PBC document requests for a specific engagement.
       "_id": "64a1b2c3d4e5f6789012346",
       "engagement": "64a1b2c3d4e5f6789012345",
       "clientId": "client-user-id",
+      "name": "Annual Financial Statements Review",
       "category": "pbc",
       "description": "Annual financial statements for PBC review",
       "status": "pending",
@@ -353,6 +356,7 @@ Updates PBC document request properties (category and engagement cannot be chang
 **Body:**
 ```json
 {
+  "name": "Updated Financial Statements Review",
   "description": "Updated description for PBC document request",
   "status": "completed"
 }
@@ -595,7 +599,9 @@ Both PBC document requests and regular document requests support the complete do
 POST /api/pbc/document-requests
 {
   "engagementId": "64a1b2c3d4e5f6789012345",
-  "description": "Annual financial statements for PBC review"
+  "name": "Annual Financial Statements Review",
+  "description": "Annual financial statements for PBC review",
+  "requiredDocuments": ["balance-sheet.pdf", "income-statement.pdf"]
 }
 ```
 

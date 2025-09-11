@@ -606,7 +606,7 @@ exports.generateQnAUsingAI = async (req, res, next) => {
 // Create PBC Document Request
 exports.createPBCDocumentRequest = async (req, res, next) => {
   try {
-    const { engagementId, description, requiredDocuments = [] } = req.body;
+    const { engagementId, name, description, requiredDocuments = [] } = req.body;
 
     // Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
@@ -624,6 +624,7 @@ exports.createPBCDocumentRequest = async (req, res, next) => {
     const documentRequest = await DocumentRequest.create({
       engagement: engagementId,
       clientId: req.user.id, // Assuming the user is the client
+      name: name || `PBC Request - ${new Date().toLocaleDateString()}`, // Add name field with default
       category: 'pbc', // Auto-set category to 'pbc'
       description,
       documents,
