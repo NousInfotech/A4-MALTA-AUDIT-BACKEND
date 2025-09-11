@@ -37,16 +37,25 @@ exports.createPBC = async (req, res, next) => {
       return res.status(400).json({ message: 'PBC workflow already exists for this engagement' });
     }
 
-    // 3️⃣ Verify provided document requests are valid for this engagement
-    let validRequests = [];
+    // 3️⃣ Create document requests if provided
+    let createdDocumentRequests = [];
     if (documentRequests && documentRequests.length > 0) {
-      validRequests = await DocumentRequest.find({
-        _id: { $in: documentRequests },
-        engagement: engagementId
-      });
+      for (const docRequest of documentRequests) {
+        const documentRequestData = {
+          engagement: engagementId,
+          clientId: clientId || engagement.clientId,
+          name: docRequest.name,
+          category: 'pbc', // Auto-set category to 'pbc'
+          description: docRequest.description,
+          documents: docRequest.documents ? docRequest.documents.map(docName => ({
+            name: docName,
+            status: 'pending'
+          })) : [],
+          status: 'pending'
+        };
 
-      if (validRequests.length !== documentRequests.length) {
-        return res.status(400).json({ message: 'Some document requests are invalid or not associated with this engagement' });
+        const createdRequest = await DocumentRequest.create(documentRequestData);
+        createdDocumentRequests.push(createdRequest._id);
       }
     }
 
@@ -55,7 +64,7 @@ exports.createPBC = async (req, res, next) => {
       engagement: engagementId,
       clientId: clientId || engagement.clientId,
       auditorId: auditorId || req.user.id,
-      documentRequests: validRequests.map(dr => dr._id),
+      documentRequests: createdDocumentRequests,
 
       // ✅ pull directly from Engagement
       engagementTitle: engagement.title,
@@ -79,7 +88,16 @@ exports.createPBC = async (req, res, next) => {
       status: 'pbc-data-collection'
     });
 
-    res.status(201).json(pbc);
+    // 6️⃣ Populate document requests to return as objects
+    const populatedPBC = await PBC.findById(pbc._id)
+      .populate('engagement', 'title yearEndDate clientId')
+      .populate('documentRequests');
+
+    res.status(201).json({
+      success: true,
+      message: 'PBC workflow created successfully',
+      pbc: populatedPBC
+    });
   } catch (err) {
     next(err);
   }
