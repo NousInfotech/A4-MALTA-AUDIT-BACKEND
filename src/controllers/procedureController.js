@@ -13,7 +13,6 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
-// Add this import at the top
 const buildProceduresRecommendationsPrompt = require("../prompts/proceduresRecommendationsPrompt.js");
 
 // Add this small util near the top of the file:
@@ -393,42 +392,91 @@ async function getProcedure(req, res) {
     res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
 }
-// Add these new functions to procedureController.js
+
 async function generateRecommendations(req, res) {
   try {
     const { procedureId, engagementId, framework = "IFRS", classifications, questions = [] } = req.body;
-    console.log(req.body," body")
+    console.log(req.body, " body")
+    
     const context = await buildContext(engagementId, classifications);
+    let allRecommendations = [];
     
-    const prompt = buildProceduresRecommendationsPrompt({ 
-      framework, 
-      context, 
-      classifications,
-      questions 
-    });
-    console.log(prompt," prompt")
-    
-    const out = await generateJson({ 
-      prompt, 
-      model: "gpt-4o-mini",
-    });
-    console.log(out," out")
-    
-    // Handle different response formats from LLM
-    let recommendations = "";
-    if (typeof out === "string") {
-      recommendations = out;
-    } else if (out && typeof out.recommendations === "string") {
-      recommendations = out.recommendations;
-    } else if (out && typeof out === "object") {
-      // Try to find a string field that might contain recommendations
-      for (const key in out) {
-        if (typeof out[key] === "string" && out[key].length > 100) {
-          recommendations = out[key];
-          break;
+    // Process each classification individually
+    for (let i = 0; i < classifications.length; i++) {
+      const classification = classifications[i];
+      console.log(`Processing classification ${i+1}/${classifications.length}:`, classification);
+      
+      const prompt = buildProceduresRecommendationsPrompt({ 
+        framework, 
+        context, 
+        classifications: [classification],
+        questions: questions.filter(q => q.classification === classification),
+        batchIndex: i,
+        totalBatches: classifications.length
+      });
+      
+      console.log("Prompt for", classification, ":", prompt.substring(0, 200) + "...");
+      
+      const out = await generateJson({ 
+        prompt, 
+        model: "gpt-4o-mini",
+        max_tokens: 2000 // Limit tokens per classification
+      });
+      
+      // Handle different response formats from LLM
+      let recommendations = "";
+      if (typeof out === "string") {
+        recommendations = out;
+        console.log("LLM output for", classification, ":", out.substring(0, 200) + "...");
+      } else if (out && typeof out.recommendations === "string") {
+        recommendations = out.recommendations;
+        console.log("LLM output for", classification, ":", out.recommendations.substring(0, 200) + "...");
+      } else if (out && Array.isArray(out.recommendations)) {
+        // Handle array of recommendations
+        recommendations = `*${classification}*\n` + out.recommendations.map(rec => `- ${rec}`).join('\n');
+        console.log("LLM output for", classification, ":", recommendations.substring(0, 200) + "...");
+      } else if (out && typeof out === "object") {
+        // Try to find a string field that might contain recommendations
+        for (const key in out) {
+          if (typeof out[key] === "string" && out[key].length > 100) {
+            recommendations = out[key];
+            console.log("LLM output for", classification, ":", out[key].substring(0, 200) + "...");
+            break;
+          }
         }
+        // If no string field found, stringify the object
+        if (!recommendations) {
+          recommendations = `*${classification}*\n- Error: Invalid response format from AI`;
+          console.log("LLM output for", classification, ":", JSON.stringify(out).substring(0, 200) + "...");
+        }
+      } else {
+        console.log("LLM output for", classification, ":", "No output or unexpected format");
+        recommendations = `*${classification}*\n- No specific recommendations generated for this classification.`;
+      }
+      
+      // Ensure the format is correct for the frontend
+      if (!recommendations.startsWith(`*${classification}*`)) {
+        recommendations = `*${classification}*\n${recommendations}`;
+      }
+      
+      // Clean up any JSON artifacts
+      recommendations = recommendations
+        .replace(/\{"classification":".*?",/g, '')
+        .replace(/"recommendations":\[/g, '')
+        .replace(/\]\}/g, '')
+        .replace(/",/g, '')
+        .replace(/"/g, '');
+      
+      allRecommendations.push(recommendations);
+      
+      // Add a small delay between requests to avoid rate limiting
+      if (i < classifications.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
+    
+    // Combine all recommendations into a single formatted string
+    const combinedRecommendations = allRecommendations.join('\n\n');
     
     // Update procedure with recommendations
     let procedure;
@@ -437,7 +485,7 @@ async function generateRecommendations(req, res) {
         procedureId, 
         { 
           $set: { 
-            recommendations: recommendations || ""
+            recommendations: combinedRecommendations || ""
           } 
         }, 
         { new: true }
@@ -446,19 +494,24 @@ async function generateRecommendations(req, res) {
       procedure = await Procedure.findOneAndUpdate(
         { engagement: engagementId },
         {
-          recommendations: recommendations || "",
+          recommendations: combinedRecommendations || "",
           status: "draft"
         },
         { upsert: true, new: true }
       );
     }
     
-    res.json({ ok: true, procedureId: procedure._id, recommendations: recommendations || "" });
+    res.json({ 
+      ok: true, 
+      procedureId: procedure._id, 
+      recommendations: combinedRecommendations || "" 
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (recommendations)" });
   }
 }
+
 // AI classification-specific questions
 async function generateAIClassificationQuestions(req, res) {
   try {

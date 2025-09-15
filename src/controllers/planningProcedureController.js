@@ -462,13 +462,14 @@ exports.generateRecommendations = async (req, res) => {
     .replace("{materiality}", String(doc.materiality || 0))
     .replace("{etbSummary}", JSON.stringify(etbRows.slice(0, 20)))
     .replace("{keyAnswers}", JSON.stringify(keyAnswers));
-
+  console.log(recPrompt," rec");
   const recommendations = await callOpenAI(recPrompt);
 
   doc.recommendations = recommendations;
   doc.answersGeneratedAt = new Date();
   doc.status = "completed";
   await doc.save();
+  console.log(recommendations," recommendations");
 
   res.json({ recommendations, procedures: doc.procedures });
 };
