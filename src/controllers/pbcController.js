@@ -377,7 +377,7 @@ exports.getAllPBCs = async (req, res, next) => {
 
     const pbcs = await PBC.find(filter)
       .populate('engagement', 'title yearEndDate')
-      .populate('documentRequests', 'category description status')
+      .populate('documentRequests', 'category description status documents')
       .sort({ createdAt: -1 });
 
     res.json(pbcs);
@@ -561,21 +561,30 @@ exports.generateQnAUsingAI = async (req, res, next) => {
     if (!rawOutput) {
       return res.status(500).json({ success: false, message: 'OpenAI returned empty response' });
     }
-
-    console.log(rawOutput)
-
     // Attempt to parse JSON (AI should return JSON array of categories)
     let parsed;
     try {
-      parsed = JSON.parse(rawOutput);
+      const clean = rawOutput
+        // remove leading ```json or ```JSON
+        .replace(/^\s*```json\s*/i, "")
+        // remove trailing ```
+        .replace(/```$/i, "")
+        // also remove any stray ```
+        .replace(/```/g, "")
+        .trim();
+    
+      parsed = JSON.parse(clean);
+    
+      console.log("✅ Parsed successfully:", parsed);
     } catch (err) {
-      // If parse fails, return raw output for debug
+      console.error("❌ JSON parse failed:", err.message);
       return res.status(500).json({
         success: false,
-        message: 'Failed to parse AI response as JSON. Raw output included.',
+        message: "Failed to parse AI response as JSON. Raw output included.",
         raw: rawOutput
       });
     }
+
 
     // Validate parsed shape (basic)
     if (!Array.isArray(parsed)) {
@@ -597,6 +606,8 @@ exports.generateQnAUsingAI = async (req, res, next) => {
         qnaQuestions
       };
     });
+
+    console.log(categoriesToInsert)
 
     let insertedCats = [];
     if (categoriesToInsert.length > 0) {
@@ -799,7 +810,7 @@ exports.uploadPBCDocuments = async (req, res, next) => {
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
-      
+
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
@@ -869,7 +880,7 @@ exports.uploadSinglePBCDocument = async (req, res, next) => {
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
-    
+
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
@@ -905,8 +916,8 @@ exports.updatePBCDocumentStatus = async (req, res, next) => {
 
     const validStatuses = ['pending', 'uploaded', 'in-review', 'approved', 'rejected'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ 
-        message: 'Invalid status. Must be one of: pending, uploaded, in-review, approved, rejected' 
+      return res.status(400).json({
+        message: 'Invalid status. Must be one of: pending, uploaded, in-review, approved, rejected'
       });
     }
 
@@ -945,12 +956,12 @@ exports.bulkUpdatePBCDocumentStatuses = async (req, res, next) => {
     const { updates } = req.body; // Array of { documentIndex, status }
 
     const validStatuses = ['pending', 'uploaded', 'in-review', 'approved', 'rejected'];
-    
+
     // Validate all statuses first
     for (const update of updates) {
       if (!validStatuses.includes(update.status)) {
-        return res.status(400).json({ 
-          message: `Invalid status '${update.status}'. Must be one of: pending, uploaded, in-review, approved, rejected` 
+        return res.status(400).json({
+          message: `Invalid status '${update.status}'. Must be one of: pending, uploaded, in-review, approved, rejected`
         });
       }
     }

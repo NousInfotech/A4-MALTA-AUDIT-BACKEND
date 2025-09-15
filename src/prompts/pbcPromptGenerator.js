@@ -28,21 +28,47 @@ function pbcPromptGenerator(pbc, documentRequests) {
     )
     .join("\n")}
   
-  ⚠️ Instructions:
-  Return the output as a JSON structure with the following format:
-  [
-    {
-      "category": "Revenue",
-      "questions": [
-        {
-          "question": "Please provide a detailed breakdown of revenue by major product lines.",
-          "isMandatory": true,
-          "acceptanceCriteria": "Excel or CSV, reconciled to TB balances",
-          "reason": "Material revenue fluctuations noted"
-        }
-      ]
-    }
-  ]
+ ⚠️ Instructions:
+Return the output as a JSON structure with the following format:
+[
+  {
+    "category": "Revenue",
+    "questions": [
+      {
+        "question": "Provide a breakdown of revenue by major product lines.",
+        "isMandatory": true,
+        "acceptanceCriteria": "Excel or CSV, reconciled to TB balances",
+        "reason": "Material revenue fluctuations noted"
+      },
+      {
+        "question": "Provide copies of significant revenue contracts signed during the period.",
+        "isMandatory": false,
+        "acceptanceCriteria": "PDF or scanned contract copies",
+        "reason": "New large customers identified in TB"
+      }
+    ]
+  },
+  {
+    "category": "Loans",
+    "questions": [
+      {
+        "question": "Provide loan agreements for all new loans during the year.",
+        "isMandatory": true,
+        "acceptanceCriteria": "PDF signed agreements",
+        "reason": "New borrowings detected in TB"
+      },
+      {
+        "question": "Provide loan amortization schedules.",
+        "isMandatory": false,
+        "acceptanceCriteria": "Excel schedule with principal and interest",
+        "reason": "Testing completeness of loan balances"
+      }
+    ]
+  }
+]
+
+For each relevant category, generate multiple questions (minimum 2–3) under "questions".
+Do not limit to one question per category.
     `;
   }
   

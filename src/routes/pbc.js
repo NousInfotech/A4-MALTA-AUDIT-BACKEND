@@ -59,8 +59,6 @@ router.post(
 
 router.post(
   '/:pbcId/generate-qna-ai',
-  requireAuth,
-  requireRole('employee'),
   pbcController.generateQnAUsingAI
 );
 
