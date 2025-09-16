@@ -26,6 +26,9 @@ Return a SINGLE JSON object with this shape:
   "questions": [
     {
       "key": "string-unique-detailed",
+      "isRequired":"boolean",
+      "reference: "isa-reference",
+      "framework: "financial-reporting-framework",
       "classificationTag": "string",
       "question": "highly specific, actionable question with quantitative elements and testing methodology",
       "assertions": ["Existence","Completeness","Accuracy","Cutoff","Classification","Rights/Obligations"],
@@ -40,6 +43,7 @@ Return a SINGLE JSON object with this shape:
 - Cover ALL risk areas: fraud risks, control weaknesses, complex estimates, related parties, compliance requirements
 - Include questions about IT systems, data analytics, and automated controls where relevant
 - Ensure comprehensive coverage of all significant accounts and transactions in the ETB
+- MUST ENSURE that All procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 
 ONE-SHOT EXAMPLES (style cues; do not copy text):
 ${Array.isArray(oneShotExamples) ? oneShotExamples.map(o => `- ${o.classificationTitle}: e.g., "${o.sample?.label || o.sample?.question || 'Representative step including specific testing methodology and sample size calculation'}"`).join("\n") : ''}

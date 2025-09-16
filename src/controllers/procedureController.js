@@ -1,6 +1,6 @@
 // src/controllers/procedure.controller.js
 const Procedure = require("../models/Procedure.js");
-const { buildManualPacks, buildOneShotExamples } = require("../services/classification.service.js");
+const { buildOneShotExamples } = require("../services/classification.service.js");
 const buildProceduresQuestionsPrompt = require("../prompts/proceduresQuestionsPrompt.js");
 const buildProceduresAnswersPrompt = require("../prompts/proceduresAnswersPrompt.js");
 const buildHybridQuestionsPrompt = require("../prompts/proceduresHybridQuestionsPrompt.js");
@@ -72,159 +72,6 @@ async function buildContext(engagementId, classifications = []) {
   };
 }
 
-// MANUAL — returns all manual packs based on selected classifications (deepest or top-level rules)
-async function getManualProcedures(req, res) {
-  try {
-    const { engagementId, framework = "IFRS", classifications = [], createdBy } = req.body || {};
-    const manualPacks = buildManualPacks(framework, classifications);
-
-    // Check if a procedure already exists for this engagement
-    let procedure = await Procedure.findOne({ engagement: engagementId });
-    
-    if (procedure) {
-      // Update existing procedure
-      procedure = await Procedure.findByIdAndUpdate(
-        procedure._id,
-        {
-          framework,
-          mode: "manual",
-          classificationsSelected: classifications,
-          manualPacks,
-          status: "draft",
-          createdBy
-        },
-        { new: true }
-      );
-    } else {
-      // Create new procedure
-      procedure = await Procedure.create({
-        engagement: engagementId,
-        framework,
-        mode: "manual",
-        classificationsSelected: classifications,
-        manualPacks,
-        status: "draft",
-        createdBy
-      });
-    }
-
-    res.json({ ok: true, procedureId: procedure._id, manualPacks });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: "Server error (manual)" });
-  }
-}
-
-// AI STEP-1 — questions only
-async function generateAIQuestions(req, res) {
-  try {
-    const { engagementId, framework = "IFRS", classifications } = req.body || {};
-    console.log("generateAIQuestions called with:", { engagementId, framework, classifications });
-
-    const context = await buildContext(engagementId,classifications)
-    console.log("Built context:", context);
-
-    let oneShotExamples = buildOneShotExamples(framework, classifications);
-    if (!Array.isArray(oneShotExamples)) oneShotExamples = [];
-    console.log("Built oneShotExamples:", oneShotExamples);
-
-    const prompt = buildProceduresQuestionsPrompt({ framework, classifications, context, oneShotExamples });
-    console.log("AI ques Built prompt:", prompt);
-
-    const out = await generateJson({ prompt, model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini" });
-    console.log("LLM output:", out);
-
-    const aiQuestions = coerceQuestionsArray(out);
-    console.log("Coerced aiQuestions:", aiQuestions);
-
-    // Check if a procedure already exists for this engagement
-    let procedure = await Procedure.findOne({ engagement: engagementId });
-    
-    if (procedure) {
-      // Update existing procedure
-      procedure = await Procedure.findByIdAndUpdate(
-        procedure._id,
-        {
-          framework,
-          mode: "ai",
-          classificationsSelected: classifications,
-          aiQuestions,
-          status: "draft",
-        },
-        { new: true }
-      );
-    } else {
-      // Create new procedure
-      procedure = await Procedure.create({
-        engagement: engagementId,
-        framework,
-        mode: "ai",
-        classificationsSelected: classifications,
-        aiQuestions,
-        status: "draft",
-      });
-    }
-    
-    console.log("Created/Updated Procedure doc:", procedure);
-
-    res.json({ ok: true, procedureId: procedure._id, aiQuestions });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: "Server error (ai questions)" });
-  }
-}
-
-// AI STEP-2 — answers + recommendations
-async function generateAIAnswers(req, res) {
-  try {
-    const { procedureId, engagementId,classifications, framework = "IFRS", questions = [] } = req.body || {};
-
-    const context = await buildContext(engagementId)
-    const prompt = buildProceduresAnswersPrompt({ framework, context, questions,classifications });
-    
-    const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });
-    
-    // Update questions with answers
-    const questionsWithAnswers = questions.map((question, index) => {
-      return {
-        ...question,
-        answer: out.answers && out.answers[index] ? out.answers[index].answer : ""
-      };
-    });
-
-    let procedure;
-    if (procedureId) {
-      procedure = await Procedure.findByIdAndUpdate(
-        procedureId, 
-        { 
-          $set: { 
-            questions: questionsWithAnswers,
-            recommendations: out.recommendations || ""
-          } 
-        }, 
-        { new: true }
-      );
-    } else {
-      procedure = await Procedure.findOneAndUpdate(
-        { engagement: engagementId },
-        {
-          engagement: engagementId,
-          framework,
-          mode: "ai",
-          questions: questionsWithAnswers,
-          recommendations: out.recommendations || "",
-          status: "draft"
-        },
-        { upsert: true, new: true }
-      );
-    }
-    
-    res.json({ ok: true, procedureId: procedure._id, questions: questionsWithAnswers, recommendations: out.recommendations });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: "Server error (ai answers)" });
-  }
-}
 // HYBRID STEP-1 — manual + extra AI questions
 async function hybridGenerateQuestions(req, res) {
   try {
@@ -273,73 +120,6 @@ async function hybridGenerateQuestions(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (hybrid questions)" });
-  }
-}
-
-// HYBRID STEP-2 — answers + recommendations using all questions (manual+AI+user-added)
-async function hybridGenerateAnswers(req, res) {
-  try {
-    const { procedureId, engagementId, framework = "IFRS", classifications, allQuestions = [] } = req.body || {};
-
-    const context = await buildContext(engagementId,classifications)
-    console.log("Built context:", context);
-    const prompt = buildProceduresAnswersPrompt({ framework, context, questions: allQuestions,classifications });
-    console.log("Hybrid answer Built prompt:", prompt);
-
-    const out = await generateJson({ prompt, model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini" });
-    const aiAnswers = out.answers || [];
-    const recommendations = out.recommendations || "";
-
-    let procedure;
-    if (procedureId) {
-      // Update the existing procedure
-      procedure = await Procedure.findByIdAndUpdate(
-        procedureId,
-        { 
-          $set: { 
-            aiAnswers, 
-            recommendations,
-            classificationsSelected: classifications || []
-          } 
-        },
-        { new: true }
-      );
-    } else {
-      // Try to find an existing procedure for this engagement
-      procedure = await Procedure.findOne({ engagement: engagementId });
-      
-      if (procedure) {
-        // Update existing procedure
-        procedure = await Procedure.findByIdAndUpdate(
-          procedure._id,
-          {
-            framework,
-            mode: "hybrid",
-            classificationsSelected: classifications || [],
-            aiAnswers,
-            recommendations,
-            status: "draft"
-          },
-          { new: true }
-        );
-      } else {
-        // Create new procedure if none exists
-        procedure = await Procedure.create({
-          engagement: engagementId,
-          framework,
-          mode: "hybrid",
-          classificationsSelected: classifications || [],
-          aiAnswers,
-          recommendations,
-          status: "draft"
-        });
-      }
-    }
-
-    res.json({ ok: true, procedureId: procedure._id, aiAnswers, recommendations });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: "Server error (hybrid answers)" });
   }
 }
 
@@ -641,56 +421,52 @@ async function generateAIClassificationAnswers(req, res) {
 }
 
   
-async function generateHybridClassificationQuestion (req, res) {
-  try {
-    const { engagementId, materiality, classification, manualQuestions } = req.body;
+// async function generateHybridClassificationQuestion (req, res) {
+//   try {
+//     const { engagementId, materiality, classification, manualQuestions } = req.body;
     
-    // Get engagement data
-    const engagement = await Engagement.findById(engagementId);
-    if (!engagement) {
-      return res.status(404).json({ message: "Engagement not found" });
-    }
+//     // Get engagement data
+//     const engagement = await Engagement.findById(engagementId);
+//     if (!engagement) {
+//       return res.status(404).json({ message: "Engagement not found" });
+//     }
     
-    // Get context for the AI prompt
-    const context = {
-      materiality,
-      industry: engagement.industry,
-      riskAssessment: engagement.riskAssessment,
-      // Add other relevant context here
-    };
+//     // Get context for the AI prompt
+//     const context = {
+//       materiality,
+//       industry: engagement.industry,
+//       riskAssessment: engagement.riskAssessment,
+//       // Add other relevant context here
+//     };
     
-    // Build the prompt for hybrid question generation
-    const prompt = buildHybridQuestionsPrompt({
-      framework: engagement.framework || "IFRS",
-      manualPacks: manualQuestions.filter(q => q.classification === classification),
-      context,
-    });
+//     // Build the prompt for hybrid question generation
+//     const prompt = buildHybridQuestionsPrompt({
+//       framework: engagement.framework || "IFRS",
+//       manualPacks: manualQuestions.filter(q => q.classification === classification),
+//       context,
+//     });
     
-    // Call your AI service
-    const aiResponse = await callAIService(prompt);
+//     // Call your AI service
+//     const aiResponse = await callAIService(prompt);
     
-    // Parse and return the response
-    const aiQuestions = aiResponse.questions || [];
+//     // Parse and return the response
+//     const aiQuestions = aiResponse.questions || [];
     
-    res.json({
-      aiQuestions,
-      recommendations: aiResponse.recommendations || ""
-    });
-  } catch (error) {
-    console.error("Error generating hybrid classification questions:", error);
-    res.status(500).json({ message: error.message });
-  }
-}
+//     res.json({
+//       aiQuestions,
+//       recommendations: aiResponse.recommendations || ""
+//     });
+//   } catch (error) {
+//     console.error("Error generating hybrid classification questions:", error);
+//     res.status(500).json({ message: error.message });
+//   }
+// }
 module.exports = {
   saveProcedure,
-  getManualProcedures,
-  generateAIQuestions,
-  generateAIAnswers,
   hybridGenerateQuestions,
   generateAIClassificationAnswers,
-  generateHybridClassificationQuestion,
+  // generateHybridClassificationQuestion,
   generateAIClassificationQuestions,
-  hybridGenerateAnswers,
   getProcedure,
   generateRecommendations,
 };

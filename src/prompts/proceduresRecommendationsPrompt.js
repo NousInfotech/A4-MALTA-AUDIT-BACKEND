@@ -32,6 +32,7 @@ GUIDELINES:
 - Cover all relevant assertions: existence, completeness, accuracy, cutoff, classification, rights/obligations
 - Address internal controls, IT systems, fraud risks, and compliance requirements
 - Ensure recommendations are tailored specifically to ${currentClassification}
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every recommendation generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 
 OUTPUT FORMAT EXAMPLE (STRICTLY FOLLOW THIS FORMAT):
 *${currentClassification}*

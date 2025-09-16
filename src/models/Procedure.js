@@ -10,6 +10,12 @@ const QuestionSchema = new mongoose.Schema({
   commentable: { type: Boolean, default: true },
   id: { type: String },
   classification: { type: String },
+  framework:{
+    type:String,
+  },
+  reference:{
+    type:String,
+  },
   answer: { type: String },
   // manual fields compatibility
   type: { type: String },   // "procedure" | "textarea" | "label"

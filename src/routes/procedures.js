@@ -1,13 +1,10 @@
 // src/routes/procedure.routes.js
 const { Router } = require("express");
 const {
-  getManualProcedures,
-  generateAIQuestions,
   generateAIAnswers,
   hybridGenerateQuestions,
-  hybridGenerateAnswers,
   saveProcedure,
-  generateHybridClassificationQuestion,
+  // generateHybridClassificationQuestion,
   getProcedure,
   generateAIClassificationAnswers,
 generateAIClassificationQuestions,
@@ -19,17 +16,13 @@ const { generateRecommendations } = require("../controllers/procedureController"
 
 // Add this route before module.exports
 router.post("/recommendations", generateRecommendations);
-router.post("/manual", getManualProcedures);
-router.post("/ai/questions", generateAIQuestions);
-router.post("/ai/answers", generateAIAnswers);
 router.post("/hybrid/questions", hybridGenerateQuestions);
-router.post("/hybrid/answers", hybridGenerateAnswers);
 router.post("/:engagementId", saveProcedure);
 router.get("/:engagementId", getProcedure);
 // Add these new routes
 router.post("/ai/classification-questions", generateAIClassificationQuestions);
 router.post("/ai/classification-answers", generateAIClassificationAnswers);
 // Add this new route for hybrid classification questions
-router.post("/hybrid/classification-questions", generateHybridClassificationQuestion);
+// router.post("/hybrid/classification-questions", generateHybridClassificationQuestion);
 
 module.exports = router;
