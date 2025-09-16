@@ -40,8 +40,8 @@ router.delete(
 // Get all PBC workflows (for dashboard)
 router.get(
   '/',
-  requireAuth,
-  requireRole('employee'), // Only auditors can view all PBCs
+  // requireAuth,
+  // requireRole('employee'), // Only auditors can view all PBCs
   pbcController.getAllPBCs
 );
 
