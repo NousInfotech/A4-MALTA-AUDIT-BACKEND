@@ -430,7 +430,20 @@ exports.getAvailableActions = async (req, res, next) => {
         START_ENGAGEMENT: 'Employee started an engagement',
         KYC_SETUP: 'Employee initiated KYC setup',
         KYC_COMPLETE: 'Employee completed KYC setup',
-        E_SIGNATURE: 'Employee performed e-signature action'
+        E_SIGNATURE: 'Employee performed e-signature action',
+        
+        // Review and Sign-off Actions
+        SUBMIT_FOR_REVIEW: 'Employee submitted item for review',
+        ASSIGN_REVIEWER: 'Employee assigned reviewer to item',
+        REVIEW_STARTED: 'Employee started reviewing item',
+        REVIEW_COMPLETED: 'Employee completed review of item',
+        REVIEW_APPROVED: 'Employee approved reviewed item',
+        REVIEW_REJECTED: 'Employee rejected reviewed item',
+        SIGN_OFF: 'Employee signed off on item',
+        REOPEN_ITEM: 'Employee reopened item for changes',
+        REVIEW_COMMENT_ADDED: 'Employee added review comment',
+        REVIEW_PRIORITY_CHANGED: 'Employee changed review priority',
+        REVIEW_DUE_DATE_CHANGED: 'Employee changed review due date'
       }
     });
   } catch (err) {
