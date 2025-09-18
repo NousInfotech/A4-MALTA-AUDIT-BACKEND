@@ -26,6 +26,7 @@ app.use(
   cors({
     origin: [
       "https://a4-malta-audit-portal.vercel.app",
+      "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app",
       "http://localhost:8080",
       "https://portal.a4.com.mt",
     ],
