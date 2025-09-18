@@ -210,57 +210,57 @@ exports.getAllUsers = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object
-    let filter = {};
-    
-    if (role) {
-      filter.role = role;
-    }
-    
-    if (status) {
-      filter.status = status;
-    }
-    
-    if (companyName) {
-      filter.company_name = { ilike: `%${companyName}%` };
-    }
-    
-    if (industry) {
-      filter.industry = { ilike: `%${industry}%` };
-    }
-    
-    if (search) {
-      // Search across multiple fields
-      filter.or = [
-        { name: { ilike: `%${search}%` } },
-        { email: { ilike: `%${search}%` } },
-        { company_name: { ilike: `%${search}%` } },
-        { industry: { ilike: `%${search}%` } }
-      ];
-    }
+    console.log('getAllUsers called with params:', req.query);
 
     // Calculate pagination
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Build sort configuration
-    const sortConfig = {};
-    sortConfig[sortBy] = sortOrder === 'desc' ? 'desc' : 'asc';
-
-    // Get users from profiles table with pagination
-    const { data: users, error: usersError, count } = await supabase
+    // Build the base query
+    let query = supabase
       .from('profiles')
-      .select('*', { count: 'exact' })
-      .match(filter)
-      .order(sortBy, { ascending: sortOrder === 'asc' })
-      .range(offset, offset + parseInt(limit) - 1);
+      .select('*', { count: 'exact' });
+
+    // Apply filters
+    if (role) {
+      query = query.eq('role', role);
+    }
+    
+    if (status) {
+      query = query.eq('status', status);
+    }
+    
+    if (companyName) {
+      query = query.ilike('company_name', `%${companyName}%`);
+    }
+    
+    if (industry) {
+      query = query.ilike('industry', `%${industry}%`);
+    }
+    
+    if (search) {
+      // For search, we'll use textSearch or multiple ilike conditions
+      query = query.or(`name.ilike.%${search}%,company_name.ilike.%${search}%,industry.ilike.%${search}%`);
+    }
+
+    // Apply sorting
+    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+
+    // Apply pagination
+    query = query.range(offset, offset + parseInt(limit) - 1);
+
+    // Execute the query
+    const { data: users, error: usersError, count } = await query;
 
     if (usersError) {
+      console.error('Supabase query error:', usersError);
       throw usersError;
     }
 
+    console.log(`Found ${users?.length || 0} users`);
+
     // Get additional user data from auth for each user
     const enrichedUsers = await Promise.all(
-      users.map(async (user) => {
+      (users || []).map(async (user) => {
         try {
           const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.user_id);
           
