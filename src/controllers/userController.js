@@ -195,3 +195,137 @@ exports.getEmail = async (req, res) => {
     })
   }
 }
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const { 
+      role, 
+      status, 
+      companyName, 
+      industry, 
+      search, 
+      limit = 100, 
+      page = 1,
+      sortBy = 'created_at',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build filter object
+    let filter = {};
+    
+    if (role) {
+      filter.role = role;
+    }
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    if (companyName) {
+      filter.company_name = { ilike: `%${companyName}%` };
+    }
+    
+    if (industry) {
+      filter.industry = { ilike: `%${industry}%` };
+    }
+    
+    if (search) {
+      // Search across multiple fields
+      filter.or = [
+        { name: { ilike: `%${search}%` } },
+        { email: { ilike: `%${search}%` } },
+        { company_name: { ilike: `%${search}%` } },
+        { industry: { ilike: `%${search}%` } }
+      ];
+    }
+
+    // Calculate pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build sort configuration
+    const sortConfig = {};
+    sortConfig[sortBy] = sortOrder === 'desc' ? 'desc' : 'asc';
+
+    // Get users from profiles table with pagination
+    const { data: users, error: usersError, count } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact' })
+      .match(filter)
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .range(offset, offset + parseInt(limit) - 1);
+
+    if (usersError) {
+      throw usersError;
+    }
+
+    // Get additional user data from auth for each user
+    const enrichedUsers = await Promise.all(
+      users.map(async (user) => {
+        try {
+          const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.user_id);
+          
+          if (authError) {
+            console.warn(`Could not fetch auth data for user ${user.user_id}:`, authError);
+            return {
+              ...user,
+              email: 'Email not available',
+              last_sign_in_at: null,
+              email_confirmed_at: null
+            };
+          }
+
+          return {
+            ...user,
+            email: authUser.user.email,
+            last_sign_in_at: authUser.user.last_sign_in_at,
+            email_confirmed_at: authUser.user.email_confirmed_at,
+            created_at: authUser.user.created_at
+          };
+        } catch (error) {
+          console.warn(`Error enriching user ${user.user_id}:`, error);
+          return {
+            ...user,
+            email: 'Email not available',
+            last_sign_in_at: null,
+            email_confirmed_at: null
+          };
+        }
+      })
+    );
+
+    // Calculate pagination metadata
+    const totalCount = count || 0;
+    const totalPages = Math.ceil(totalCount / parseInt(limit));
+    const hasNextPage = offset + enrichedUsers.length < totalCount;
+    const hasPrevPage = parseInt(page) > 1;
+
+    res.status(200).json({
+      success: true,
+      users: enrichedUsers,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        hasNextPage,
+        hasPrevPage,
+        limit: parseInt(limit)
+      },
+      filters: {
+        role,
+        status,
+        companyName,
+        industry,
+        search,
+        sortBy,
+        sortOrder
+      }
+    });
+
+  } catch (error) {
+    console.error("Error getting all users:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to get users",
+    });
+  }
+}
