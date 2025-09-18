@@ -58,4 +58,32 @@ router.get('/stats',
   reviewController.getReviewStats
 );
 
+// Get all review workflows for a specific engagement
+router.get('/workflows/engagement/:engagementId', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.getReviewsWorkflowsForEngagement
+);
+
+// Get all review workflows across all engagements
+router.get('/workflows', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.getAllReviewWorkFlows
+);
+
+// Get all review history entries
+router.get('/history', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.getAllReviews
+);
+
+// Get all review history for a specific engagement
+router.get('/engagement/:engagementId', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.getReviewsForEngagement
+);
+
 module.exports = router;

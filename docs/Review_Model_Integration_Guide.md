@@ -537,6 +537,264 @@ const ReviewHistory = ({ itemId }) => {
 };
 ```
 
+### 5. Review Workflows List Component
+
+```jsx
+const ReviewWorkflowsList = ({ engagementId, filters = {} }) => {
+  const [workflows, setWorkflows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({});
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    fetchWorkflows();
+  }, [engagementId, currentPage, filters]);
+
+  const fetchWorkflows = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (filters.status) params.append('status', filters.status);
+      params.append('page', currentPage);
+      params.append('limit', 20);
+
+      const url = engagementId 
+        ? `/api/review/workflows/engagement/${engagementId}?${params}`
+        : `/api/review/workflows?${params}`;
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      
+      setWorkflows(data.workflows);
+      setPagination(data.pagination);
+    } catch (error) {
+      console.error('Error fetching workflows:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      'in-progress': { color: 'yellow', text: 'In Progress' },
+      'ready-for-review': { color: 'blue', text: 'Ready for Review' },
+      'under-review': { color: 'orange', text: 'Under Review' },
+      'approved': { color: 'green', text: 'Approved' },
+      'rejected': { color: 'red', text: 'Rejected' },
+      'signed-off': { color: 'purple', text: 'Signed Off' },
+      're-opened': { color: 'yellow', text: 'Reopened' }
+    };
+    
+    const config = statusConfig[status] || { color: 'gray', text: status };
+    
+    return (
+      <span className={`status-badge status-${config.color}`}>
+        {config.text}
+      </span>
+    );
+  };
+
+  if (loading) return <div>Loading workflows...</div>;
+
+  return (
+    <div className="review-workflows-list">
+      <div className="workflows-header">
+        <h3>Review Workflows</h3>
+        <div className="workflows-count">
+          {pagination.totalCount} total workflows
+        </div>
+      </div>
+
+      <div className="workflows-grid">
+        {workflows.map(workflow => (
+          <div key={workflow._id} className="workflow-card">
+            <div className="workflow-header">
+              <h4>{workflow.itemType.replace('-', ' ').toUpperCase()}</h4>
+              {getStatusBadge(workflow.status)}
+            </div>
+            
+            <div className="workflow-details">
+              <p><strong>Engagement:</strong> {workflow.engagement?.title}</p>
+              <p><strong>Priority:</strong> {workflow.priority}</p>
+              {workflow.assignedReviewer && (
+                <p><strong>Reviewer:</strong> {workflow.assignedReviewer}</p>
+              )}
+              {workflow.dueDate && (
+                <p><strong>Due Date:</strong> {new Date(workflow.dueDate).toLocaleDateString()}</p>
+              )}
+            </div>
+
+            <div className="workflow-actions">
+              <button 
+                className="btn btn-sm btn-primary"
+                onClick={() => viewWorkflowDetails(workflow._id)}
+              >
+                View Details
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {pagination.totalPages > 1 && (
+        <div className="pagination">
+          <button 
+            disabled={!pagination.hasPrevPage}
+            onClick={() => handlePageChange(currentPage - 1)}
+          >
+            Previous
+          </button>
+          
+          <span className="page-info">
+            Page {pagination.currentPage} of {pagination.totalPages}
+          </span>
+          
+          <button 
+            disabled={!pagination.hasNextPage}
+            onClick={() => handlePageChange(currentPage + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+### 6. Review History List Component
+
+```jsx
+const ReviewHistoryList = ({ engagementId, filters = {} }) => {
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({});
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    fetchReviews();
+  }, [engagementId, currentPage, filters]);
+
+  const fetchReviews = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (filters.action) params.append('action', filters.action);
+      if (filters.performedBy) params.append('performedBy', filters.performedBy);
+      params.append('page', currentPage);
+      params.append('limit', 20);
+
+      const url = engagementId 
+        ? `/api/review/engagement/${engagementId}?${params}`
+        : `/api/review/history?${params}`;
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      
+      setReviews(data.reviews);
+      setPagination(data.pagination);
+    } catch (error) {
+      console.error('Error fetching reviews:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const getActionIcon = (action) => {
+    const icons = {
+      'submitted-for-review': '📤',
+      'assigned-reviewer': '👤',
+      'review-approved': '✅',
+      'review-rejected': '❌',
+      'signed-off': '🔒',
+      'reopened': '🔓'
+    };
+    return icons[action] || '📝';
+  };
+
+  if (loading) return <div>Loading review history...</div>;
+
+  return (
+    <div className="review-history-list">
+      <div className="history-header">
+        <h3>Review History</h3>
+        <div className="history-count">
+          {pagination.totalCount} total entries
+        </div>
+      </div>
+
+      <div className="history-timeline">
+        {reviews.map(review => (
+          <div key={review._id} className="history-item">
+            <div className="timeline-marker">
+              <span className="icon">{getActionIcon(review.action)}</span>
+            </div>
+            
+            <div className="timeline-content">
+              <div className="action-header">
+                <span className="action">{review.action.replace('-', ' ').toUpperCase()}</span>
+                <span className="timestamp">
+                  {new Date(review.performedAt).toLocaleString()}
+                </span>
+              </div>
+              
+              <div className="action-details">
+                <p><strong>Item:</strong> {review.itemType} - {review.itemId}</p>
+                <p><strong>Engagement:</strong> {review.engagement?.title}</p>
+                <p><strong>Performed by:</strong> {review.performedBy}</p>
+                {review.comments && (
+                  <p><strong>Comments:</strong> {review.comments}</p>
+                )}
+                {review.previousStatus && review.newStatus && (
+                  <p>
+                    <strong>Status Change:</strong> 
+                    {review.previousStatus} → {review.newStatus}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {pagination.totalPages > 1 && (
+        <div className="pagination">
+          <button 
+            disabled={!pagination.hasPrevPage}
+            onClick={() => handlePageChange(currentPage - 1)}
+          >
+            Previous
+          </button>
+          
+          <span className="page-info">
+            Page {pagination.currentPage} of {pagination.totalPages}
+          </span>
+          
+          <button 
+            disabled={!pagination.hasNextPage}
+            onClick={() => handlePageChange(currentPage + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
 ---
 
 ## UI/UX Guidelines
@@ -603,6 +861,187 @@ Style action buttons based on their purpose:
 }
 
 .stat .label {
+  font-size: 14px;
+  color: #6c757d;
+}
+```
+
+### 4. Review Workflows List Layout
+
+```css
+.review-workflows-list {
+  padding: 20px;
+}
+
+.workflows-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.workflows-count {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.workflows-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.workflow-card {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.workflow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.workflow-header h4 {
+  margin: 0;
+  color: #495057;
+}
+
+.workflow-details p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.workflow-actions {
+  margin-top: 16px;
+  text-align: right;
+}
+```
+
+### 5. Review History List Layout
+
+```css
+.review-history-list {
+  padding: 20px;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.history-count {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.history-timeline {
+  position: relative;
+  padding-left: 30px;
+}
+
+.history-timeline::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #dee2e6;
+}
+
+.history-item {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.timeline-marker {
+  position: absolute;
+  left: -22px;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  background: white;
+  border: 2px solid #007bff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.timeline-content {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.action {
+  font-weight: bold;
+  color: #495057;
+}
+
+.timestamp {
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.action-details p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #6c757d;
+}
+```
+
+### 6. Pagination Styles
+
+```css
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.pagination button {
+  padding: 8px 16px;
+  border: 1px solid #dee2e6;
+  background: white;
+  color: #495057;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: #007bff;
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
   font-size: 14px;
   color: #6c757d;
 }
@@ -835,6 +1274,20 @@ const AuditDashboard = () => {
               />
             ))}
           </div>
+        </section>
+
+        <section className="review-workflows-section">
+          <ReviewWorkflowsList 
+            engagementId={selectedEngagementId}
+            filters={{ status: 'under-review' }}
+          />
+        </section>
+
+        <section className="review-history-section">
+          <ReviewHistoryList 
+            engagementId={selectedEngagementId}
+            filters={{ action: 'review-approved' }}
+          />
         </section>
       </main>
 

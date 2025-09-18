@@ -532,3 +532,174 @@ exports.getReviewStats = async (req, res, next) => {
     next(err);
   }
 };
+
+// Get all review workflows for a specific engagement
+exports.getReviewsWorkflowsForEngagement = async (req, res, next) => {
+  try {
+    const { engagementId } = req.params;
+    const { status, limit = 100, page = 1 } = req.query;
+    const userId = req.user.id;
+
+    // Build filter
+    const filter = { engagement: engagementId };
+    if (status) filter.status = status;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get workflows with pagination
+    const workflows = await ReviewWorkflow.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('engagement', 'title yearEndDate clientId');
+
+    // Get total count for pagination
+    const totalCount = await ReviewWorkflow.countDocuments(filter);
+
+    res.json({
+      success: true,
+      workflows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNextPage: skip + workflows.length < totalCount,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (err) {
+    console.error('Error getting review workflows for engagement:', err);
+    next(err);
+  }
+};
+
+// Get all review workflows across all engagements
+exports.getAllReviewWorkFlows = async (req, res, next) => {
+  try {
+    const { status, engagementId, reviewerId, limit = 100, page = 1 } = req.query;
+    const userId = req.user.id;
+
+    // Build filter
+    const filter = {};
+    if (status) filter.status = status;
+    if (engagementId) filter.engagement = engagementId;
+    if (reviewerId) filter.assignedReviewer = reviewerId;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get workflows with pagination
+    const workflows = await ReviewWorkflow.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('engagement', 'title yearEndDate clientId');
+
+    // Get total count for pagination
+    const totalCount = await ReviewWorkflow.countDocuments(filter);
+
+    res.json({
+      success: true,
+      workflows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNextPage: skip + workflows.length < totalCount,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (err) {
+    console.error('Error getting all review workflows:', err);
+    next(err);
+  }
+};
+
+// Get all review history entries
+exports.getAllReviews = async (req, res, next) => {
+  try {
+    const { action, engagementId, performedBy, limit = 100, page = 1 } = req.query;
+    const userId = req.user.id;
+
+    // Build filter
+    const filter = {};
+    if (action) filter.action = action;
+    if (engagementId) filter.engagement = engagementId;
+    if (performedBy) filter.performedBy = performedBy;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get review history with pagination
+    const reviews = await ReviewHistory.find(filter)
+      .sort({ performedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('engagement', 'title yearEndDate clientId');
+
+    // Get total count for pagination
+    const totalCount = await ReviewHistory.countDocuments(filter);
+
+    res.json({
+      success: true,
+      reviews,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNextPage: skip + reviews.length < totalCount,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (err) {
+    console.error('Error getting all reviews:', err);
+    next(err);
+  }
+};
+
+// Get all review history for a specific engagement
+exports.getReviewsForEngagement = async (req, res, next) => {
+  try {
+    const { engagementId } = req.params;
+    const { action, performedBy, limit = 100, page = 1 } = req.query;
+    const userId = req.user.id;
+
+    // Build filter
+    const filter = { engagement: engagementId };
+    if (action) filter.action = action;
+    if (performedBy) filter.performedBy = performedBy;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get review history with pagination
+    const reviews = await ReviewHistory.find(filter)
+      .sort({ performedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('engagement', 'title yearEndDate clientId');
+
+    // Get total count for pagination
+    const totalCount = await ReviewHistory.countDocuments(filter);
+
+    res.json({
+      success: true,
+      reviews,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNextPage: skip + reviews.length < totalCount,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (err) {
+    console.error('Error getting reviews for engagement:', err);
+    next(err);
+  }
+};

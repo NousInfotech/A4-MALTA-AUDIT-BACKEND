@@ -392,6 +392,221 @@ Get review statistics and progress metrics.
 
 ---
 
+### 9. Get Review Workflows for Engagement
+
+Get all review workflows for a specific engagement with pagination and filtering.
+
+**Endpoint:** `GET /api/review/workflows/engagement/:engagementId`
+
+**Parameters:**
+- `engagementId` (path): ID of the engagement
+
+**Query Parameters:**
+- `status` (optional): Filter by workflow status
+- `limit` (optional): Number of results per page (default: 100)
+- `page` (optional): Page number for pagination (default: 1)
+
+**Response:**
+```json
+{
+  "success": true,
+  "workflows": [
+    {
+      "_id": "64a1b2c3d4e5f6789012346",
+      "itemType": "procedure",
+      "itemId": "64a1b2c3d4e5f6789012345",
+      "engagement": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "title": "ABC Company Audit 2024",
+        "yearEndDate": "2024-12-31T00:00:00.000Z",
+        "clientId": "client-123"
+      },
+      "status": "ready-for-review",
+      "priority": "high",
+      "dueDate": "2024-01-20T00:00:00.000Z",
+      "assignedReviewer": "reviewer-456",
+      "submittedForReviewAt": "2024-01-15T10:30:00.000Z",
+      "createdAt": "2024-01-15T10:30:00.000Z",
+      "updatedAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 5,
+    "totalCount": 100,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Error Responses:**
+- `403`: Insufficient permissions
+- `404`: Engagement not found
+
+---
+
+### 10. Get All Review Workflows
+
+Get all review workflows across all engagements with pagination and filtering.
+
+**Endpoint:** `GET /api/review/workflows`
+
+**Query Parameters:**
+- `status` (optional): Filter by workflow status
+- `engagementId` (optional): Filter by specific engagement
+- `reviewerId` (optional): Filter by assigned reviewer
+- `limit` (optional): Number of results per page (default: 100)
+- `page` (optional): Page number for pagination (default: 1)
+
+**Response:**
+```json
+{
+  "success": true,
+  "workflows": [
+    {
+      "_id": "64a1b2c3d4e5f6789012346",
+      "itemType": "procedure",
+      "itemId": "64a1b2c3d4e5f6789012345",
+      "engagement": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "title": "ABC Company Audit 2024",
+        "yearEndDate": "2024-12-31T00:00:00.000Z",
+        "clientId": "client-123"
+      },
+      "status": "under-review",
+      "priority": "medium",
+      "assignedReviewer": "reviewer-456",
+      "assignedAt": "2024-01-15T11:00:00.000Z",
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 10,
+    "totalCount": 500,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Error Responses:**
+- `403`: Insufficient permissions
+
+---
+
+### 11. Get All Review History
+
+Get all review history entries across all engagements with pagination and filtering.
+
+**Endpoint:** `GET /api/review/history`
+
+**Query Parameters:**
+- `action` (optional): Filter by specific action type
+- `engagementId` (optional): Filter by specific engagement
+- `performedBy` (optional): Filter by user who performed the action
+- `limit` (optional): Number of results per page (default: 100)
+- `page` (optional): Page number for pagination (default: 1)
+
+**Response:**
+```json
+{
+  "success": true,
+  "reviews": [
+    {
+      "_id": "64a1b2c3d4e5f6789012347",
+      "itemType": "procedure",
+      "itemId": "64a1b2c3d4e5f6789012345",
+      "engagement": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "title": "ABC Company Audit 2024",
+        "yearEndDate": "2024-12-31T00:00:00.000Z",
+        "clientId": "client-123"
+      },
+      "action": "review-approved",
+      "performedBy": "reviewer-456",
+      "performedAt": "2024-01-15T14:30:00.000Z",
+      "previousStatus": "under-review",
+      "newStatus": "approved",
+      "comments": "All procedures completed correctly.",
+      "metadata": {
+        "approved": true
+      }
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 20,
+    "totalCount": 1000,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Error Responses:**
+- `403`: Insufficient permissions
+
+---
+
+### 12. Get Review History for Engagement
+
+Get all review history for a specific engagement with pagination and filtering.
+
+**Endpoint:** `GET /api/review/engagement/:engagementId`
+
+**Parameters:**
+- `engagementId` (path): ID of the engagement
+
+**Query Parameters:**
+- `action` (optional): Filter by specific action type
+- `performedBy` (optional): Filter by user who performed the action
+- `limit` (optional): Number of results per page (default: 100)
+- `page` (optional): Page number for pagination (default: 1)
+
+**Response:**
+```json
+{
+  "success": true,
+  "reviews": [
+    {
+      "_id": "64a1b2c3d4e5f6789012347",
+      "itemType": "procedure",
+      "itemId": "64a1b2c3d4e5f6789012345",
+      "engagement": {
+        "_id": "64a1b2c3d4e5f6789012345",
+        "title": "ABC Company Audit 2024",
+        "yearEndDate": "2024-12-31T00:00:00.000Z",
+        "clientId": "client-123"
+      },
+      "action": "signed-off",
+      "performedBy": "partner-789",
+      "performedAt": "2024-01-15T16:00:00.000Z",
+      "previousStatus": "approved",
+      "newStatus": "signed-off",
+      "comments": "Final approval granted. All audit procedures completed satisfactorily.",
+      "metadata": {
+        "isLocked": true
+      }
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 3,
+    "totalCount": 150,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Error Responses:**
+- `403`: Insufficient permissions
+- `404`: Engagement not found
+
+---
+
 ## Error Handling
 
 All endpoints return consistent error responses:
@@ -465,6 +680,75 @@ const submitForReview = async (itemType, itemId, engagementId, comments) => {
 // Get review queue
 const getReviewQueue = async () => {
   const response = await fetch('/api/review/queue', {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  return response.json();
+};
+
+// Get all review workflows for an engagement
+const getReviewWorkflowsForEngagement = async (engagementId, filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.status) params.append('status', filters.status);
+  if (filters.limit) params.append('limit', filters.limit);
+  if (filters.page) params.append('page', filters.page);
+  
+  const response = await fetch(`/api/review/workflows/engagement/${engagementId}?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  return response.json();
+};
+
+// Get all review workflows
+const getAllReviewWorkflows = async (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.status) params.append('status', filters.status);
+  if (filters.engagementId) params.append('engagementId', filters.engagementId);
+  if (filters.reviewerId) params.append('reviewerId', filters.reviewerId);
+  if (filters.limit) params.append('limit', filters.limit);
+  if (filters.page) params.append('page', filters.page);
+  
+  const response = await fetch(`/api/review/workflows?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  return response.json();
+};
+
+// Get all review history
+const getAllReviews = async (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.action) params.append('action', filters.action);
+  if (filters.engagementId) params.append('engagementId', filters.engagementId);
+  if (filters.performedBy) params.append('performedBy', filters.performedBy);
+  if (filters.limit) params.append('limit', filters.limit);
+  if (filters.page) params.append('page', filters.page);
+  
+  const response = await fetch(`/api/review/history?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  return response.json();
+};
+
+// Get review history for an engagement
+const getReviewsForEngagement = async (engagementId, filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.action) params.append('action', filters.action);
+  if (filters.performedBy) params.append('performedBy', filters.performedBy);
+  if (filters.limit) params.append('limit', filters.limit);
+  if (filters.page) params.append('page', filters.page);
+  
+  const response = await fetch(`/api/review/engagement/${engagementId}?${params}`, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
