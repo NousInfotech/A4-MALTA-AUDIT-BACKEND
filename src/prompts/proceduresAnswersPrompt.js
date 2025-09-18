@@ -15,6 +15,8 @@ FORMAT:
   "answers": [
     { 
       "key": "<same question key>", 
+      "reference: "isa-reference",
+      "framework: "financial-reporting-framework",
       "answer": "EXTREMELY DETAILED response including: specific procedures performed, sample sizes calculated based on materiality and risk, exact testing methodologies, specific transactions tested, results obtained, exceptions found, conclusions drawn, and references to supporting documentation" 
     }
   ],
@@ -28,6 +30,7 @@ GUIDELINES:
 - NEVER add/remove/merge classifications—use EXACTLY those provided.
 - Cover all relevant assertions: existence, completeness, accuracy, cutoff, classification, rights/obligations
 - Address internal controls, IT systems, fraud risks, and compliance requirements
+- MUST ENSURE that All answers are fully aligned with the International Standards on Auditing (ISAs). For every answer generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 `;
 }
 module.exports = buildProceduresAnswersPrompt;

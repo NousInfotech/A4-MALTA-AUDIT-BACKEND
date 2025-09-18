@@ -18,6 +18,9 @@ Return a SINGLE JSON object with this shape:
     {
       "key": "string-unique-detailed",
       "classificationTag": "string",
+      "isRequired":"boolean",
+      "reference: "isa-reference",
+      "framework: "financial-reporting-framework",
       "question": "detailed, specific question addressing gaps in manual procedures",
       "assertions": ["Existence","Completeness","Accuracy","Cutoff","Classification","Rights/Obligations"],
       "commentable": true
@@ -34,6 +37,7 @@ ANALYSIS REQUIREMENTS:
 - Address industry-specific risks, regulatory requirements, and complex accounting treatments
 - Include questions about internal controls, IT systems, fraud prevention, and compliance monitoring
 - Ensure questions are ACTIONABLE and TESTABLE with specific procedures and sample methodologies
+- MUST ENSURE that All procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 `;
 }
 module.exports = buildHybridQuestionsPrompt;

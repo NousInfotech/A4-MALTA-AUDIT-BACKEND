@@ -18,6 +18,7 @@ OUTPUT RULES — READ CAREFULLY
 - \`options\` only for select/multiselect; options MUST be concise strings.
 - No answers. This is Step-1 question generation only.
 
+
 CONTEXT
 - Client Profile JSON: {clientProfile}
 - Materiality (numeric): {materiality}
@@ -37,6 +38,8 @@ GOAL
 - Include questions that require analysis of ETB patterns, ratio calculations, trend analysis, and risk assessment
 - Implement COMPLEX branching logic with \`visibleIf\` to create adaptive questioning based on risk factors
 - Use the field palette as style guidance ONLY (don't copy keys; create new, unique keys)
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
+
 
 INDUSTRY/ETB HOOKS (perform DEEP analysis to shape questions)
 - Analyze ETB for high-risk accounts: calculate ratios, identify unusual patterns, flag transactions near period-end

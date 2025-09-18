@@ -30,6 +30,9 @@ For the provided section, produce EXTREMELY DETAILED answers for ALL fields AND 
   - group: object of { childKey: boolean|string|number } for the defined child fields
 - Answers must be self-consistent with materiality and ETB data, showing clear relationships between amounts
 - Additionally, provide EXTENSIVE section-specific recommendations based on the answers with specific audit procedures, testing approaches, and risk mitigation strategies
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every answer and recommendation generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
+
+
 
 OUTPUT JSON SCHEMA:
 {
