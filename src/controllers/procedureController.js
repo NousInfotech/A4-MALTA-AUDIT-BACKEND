@@ -30,6 +30,7 @@ function coerceQuestionsArray(out) {
 
 async function buildContext(engagementId, classifications = []) {
   // 1) Core engagement
+  console.log(engagementId," engagementId")
   const engagement = await Engagement.findById(engagementId).lean();
   if (!engagement) {
     throw new Error("Engagement not found");
@@ -128,7 +129,7 @@ async function saveProcedure(req, res) {
   try {
     const { engagementId } = req.params;
     const procedureData = req.body;
-    
+    console.log(req.body," body")
     // Transform the data structure to match our updated schema
     const transformedData = {
       engagement: engagementId,
@@ -140,6 +141,37 @@ async function saveProcedure(req, res) {
       questions: procedureData.questions || [],
       recommendations: procedureData.recommendations || "",
       status: procedureData.status || "draft",
+      createdBy: procedureData.createdBy
+    };
+
+    const procedure = await Procedure.findOneAndUpdate(
+      { engagement: engagementId },
+      transformedData,
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    res.json({ ok: true, procedure });
+  } catch (error) {
+    console.error("Error saving procedure:", error);
+    res.status(500).json({ ok: false, message: "Server error", error: error.message });
+  }
+}
+
+async function saveProcedurebySection(req, res) {
+  try {
+    const { engagementId } = req.params;
+    const procedureData = req.body;
+    console.log(req.body," body")
+    // Transform the data structure to match our updated schema
+    const transformedData = {
+      engagement: engagementId,
+      framework: procedureData.framework || "IFRS",
+      mode: procedureData.mode || "ai",
+      materiality: procedureData.materiality,
+      validitySelections: procedureData.validitySelections || [],
+      selectedClassifications: procedureData.selectedClassifications || [],
+      questions: procedureData.questions || [],
+      status: procedureData.status || "completed",
       createdBy: procedureData.createdBy
     };
 
@@ -354,6 +386,7 @@ async function generateAIClassificationQuestions(req, res) {
 // AI classification-specific answers
 async function generateAIClassificationAnswers(req, res) {
   try {
+    console.log(req.body," body")
     const { procedureId, engagementId, framework = "IFRS", classification, questions = [] } = req.body;
 
     const context = await buildContext(engagementId, [classification]);
@@ -420,6 +453,47 @@ async function generateAIClassificationAnswers(req, res) {
   }
 }
 
+// AI classification-specific answers
+async function generateAIClassificationAnswersSeparate(req, res) {
+  try {
+    console.log(req.body," body")
+    const { procedureId, engagementId, framework = "IFRS", classification, questions = [] } = req.body;
+
+    const context = await buildContext(engagementId, [classification]);
+    console.log("Built context for classification answers:", classification);
+    
+    const prompt = buildProceduresAnswersPrompt({ 
+      framework, 
+      context, 
+      questions, 
+      classifications: [classification] 
+    });
+    console.log("AI classification answers Built prompt:", prompt);
+
+    const out = await generateJson({ 
+      prompt, 
+      model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini",
+      max_tokens: 4000 // Increased for more detailed responses
+    });
+    
+    // Update questions with answers
+    const questionsWithAnswers = questions.map((question, index) => {
+      return {
+        ...question,
+        answer: out.answers && out.answers[index] ? out.answers[index].answer : "",
+        classification
+      };
+    });
+    
+    res.json({ 
+      ok: true, 
+      questions: questionsWithAnswers, 
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: "Server error (ai classification answers)" });
+  }
+}
   
 // async function generateHybridClassificationQuestion (req, res) {
 //   try {
@@ -467,6 +541,8 @@ module.exports = {
   generateAIClassificationAnswers,
   // generateHybridClassificationQuestion,
   generateAIClassificationQuestions,
+  generateAIClassificationAnswersSeparate,
   getProcedure,
   generateRecommendations,
+  saveProcedurebySection,
 };
