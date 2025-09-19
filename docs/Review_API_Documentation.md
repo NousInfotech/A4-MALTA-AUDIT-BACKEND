@@ -50,7 +50,7 @@ Submit an audit item for review by a reviewer or partner.
 
 **Parameters:**
 - `itemType` (path): Type of audit item
-  - Valid values: `procedure`, `planning-procedure`, `document-request`, `checklist-item`, `pbc`, `kyc`, `isqm-document`, `working-paper`
+  - Valid values: `procedure`, `planning-procedure`, `document-request`, `checklist-item`, `pbc`, `kyc`, `isqm-document`, `working-paper`, `classification-section`
 - `itemId` (path): ID of the audit item
 
 **Request Body:**
@@ -663,6 +663,23 @@ The review system emits real-time events via Socket.IO:
 // Submit item for review
 const submitForReview = async (itemType, itemId, engagementId, comments) => {
   const response = await fetch(`/api/review/submit/${itemType}/${itemId}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      engagementId,
+      comments
+    })
+  });
+  
+  return response.json();
+};
+
+// Submit classification section for review
+const submitClassificationForReview = async (classificationId, engagementId, comments) => {
+  const response = await fetch(`/api/review/submit/classification-section/${classificationId}`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,

@@ -96,7 +96,7 @@ exports.submitForReview = async (req, res, next) => {
     const userId = req.user.id;
 
     // Validate item type
-    const validItemTypes = ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper'];
+    const validItemTypes = ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper', 'classification-section'];
     if (!validItemTypes.includes(itemType)) {
       return res.status(400).json({ 
         success: false, 

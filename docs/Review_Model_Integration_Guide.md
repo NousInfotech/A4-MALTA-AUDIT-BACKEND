@@ -29,6 +29,7 @@ This guide explains how to integrate the Review & Sign-Off system into your fron
 │ • Documents     │    │ • States        │    │ • Logs          │
 │ • Checklists    │    │ • Permissions   │    │ • Tracking      │
 │ • PBC Items     │    │ • Actions       │    │                 │
+│ • Classifications│   │                 │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
@@ -795,6 +796,109 @@ const ReviewHistoryList = ({ engagementId, filters = {} }) => {
 };
 ```
 
+### 7. Classification Section Review Component
+
+```jsx
+const ClassificationReviewCard = ({ classification, userRole, onAction }) => {
+  const getStatusColor = (status) => {
+    const colors = {
+      'in-progress': 'yellow',
+      'ready-for-review': 'blue',
+      'under-review': 'orange',
+      'approved': 'green',
+      'rejected': 'red',
+      'signed-off': 'purple',
+      're-opened': 'yellow'
+    };
+    return colors[status] || 'gray';
+  };
+
+  const getAvailableActions = (status, userRole) => {
+    const actions = [];
+    
+    if (status === 'in-progress' && canSubmitForReview(userRole)) {
+      actions.push({ label: 'Submit for Review', action: 'submit' });
+    }
+    
+    if (status === 'ready-for-review' && canReview(userRole)) {
+      actions.push({ label: 'Assign Reviewer', action: 'assign' });
+    }
+    
+    if (status === 'under-review' && canReview(userRole)) {
+      actions.push({ label: 'Review', action: 'review' });
+    }
+    
+    if (status === 'approved' && canSignOff(userRole)) {
+      actions.push({ label: 'Sign Off', action: 'signoff' });
+    }
+    
+    if (status === 'signed-off' && canReopen(userRole)) {
+      actions.push({ label: 'Reopen', action: 'reopen' });
+    }
+    
+    return actions;
+  };
+
+  return (
+    <div className={`classification-review-card status-${getStatusColor(classification.reviewStatus)}`}>
+      <div className="card-header">
+        <h3>Classification: {classification.classification}</h3>
+        <span className={`status-badge ${classification.reviewStatus}`}>
+          {classification.reviewStatus.replace('-', ' ').toUpperCase()}
+        </span>
+      </div>
+      
+      <div className="card-content">
+        <div className="classification-details">
+          <p><strong>Engagement:</strong> {classification.engagement?.title}</p>
+          {classification.spreadsheetUrl && (
+            <p><strong>Spreadsheet:</strong> 
+              <a href={classification.spreadsheetUrl} target="_blank" rel="noopener noreferrer">
+                View Spreadsheet
+              </a>
+            </p>
+          )}
+          {classification.workingPapersUrl && (
+            <p><strong>Working Papers:</strong> 
+              <a href={classification.workingPapersUrl} target="_blank" rel="noopener noreferrer">
+                View Working Papers
+              </a>
+            </p>
+          )}
+          {classification.lastSyncAt && (
+            <p><strong>Last Sync:</strong> {new Date(classification.lastSyncAt).toLocaleString()}</p>
+          )}
+        </div>
+        
+        {classification.reviewerId && (
+          <div className="reviewer-info">
+            <span>Assigned to: {classification.reviewerName}</span>
+          </div>
+        )}
+        
+        {classification.dueDate && (
+          <div className="due-date">
+            <span>Due: {new Date(classification.dueDate).toLocaleDateString()}</span>
+          </div>
+        )}
+      </div>
+      
+      <div className="card-actions">
+        {getAvailableActions(classification.reviewStatus, userRole).map(action => (
+          <button 
+            key={action.action}
+            onClick={() => onAction(action.action, classification)}
+            className={`btn btn-${action.action}`}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+```
+
 ---
 
 ## UI/UX Guidelines
@@ -1047,6 +1151,78 @@ Style action buttons based on their purpose:
 }
 ```
 
+### 7. Classification Review Card Styles
+
+```css
+.classification-review-card {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.classification-review-card.status-yellow {
+  border-left: 4px solid #ffc107;
+}
+
+.classification-review-card.status-blue {
+  border-left: 4px solid #007bff;
+}
+
+.classification-review-card.status-orange {
+  border-left: 4px solid #fd7e14;
+}
+
+.classification-review-card.status-green {
+  border-left: 4px solid #28a745;
+}
+
+.classification-review-card.status-red {
+  border-left: 4px solid #dc3545;
+}
+
+.classification-review-card.status-purple {
+  border-left: 4px solid #6f42c1;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.card-header h3 {
+  margin: 0;
+  color: #495057;
+  font-size: 18px;
+}
+
+.classification-details p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.classification-details a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.classification-details a:hover {
+  text-decoration: underline;
+}
+
+.card-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+```
+
 ---
 
 ## Real-time Updates
@@ -1288,6 +1464,20 @@ const AuditDashboard = () => {
             engagementId={selectedEngagementId}
             filters={{ action: 'review-approved' }}
           />
+        </section>
+
+        <section className="classification-review-section">
+          <h2>Classification Sections</h2>
+          <div className="classifications-grid">
+            {classifications.map(classification => (
+              <ClassificationReviewCard
+                key={classification._id}
+                classification={classification}
+                userRole={user?.role}
+                onAction={handleReviewAction}
+              />
+            ))}
+          </div>
         </section>
       </main>
 

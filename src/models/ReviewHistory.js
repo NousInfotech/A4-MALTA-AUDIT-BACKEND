@@ -6,7 +6,7 @@ const ReviewHistorySchema = new Schema({
   itemType: {
     type: String,
     required: true,
-    enum: ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper'],
+    enum: ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper', 'classification-section'],
     index: true
   },
   itemId: {

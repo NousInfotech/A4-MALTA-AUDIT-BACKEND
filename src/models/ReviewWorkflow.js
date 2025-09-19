@@ -6,7 +6,7 @@ const ReviewWorkflowSchema = new Schema({
   itemType: {
     type: String,
     required: true,
-    enum: ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper'],
+    enum: ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper', 'classification-section'],
     index: true
   },
   itemId: {
@@ -140,7 +140,8 @@ ReviewWorkflowSchema.virtual('item', {
       'pbc': 'PBC',
       'kyc': 'KYC',
       'isqm-document': 'ISQMSupportingDocument',
-      'working-paper': 'WorkingPaper'
+      'working-paper': 'WorkingPaper',
+      'classification-section': 'ClassificationSection'
     };
     return refMap[this.itemType];
   },
