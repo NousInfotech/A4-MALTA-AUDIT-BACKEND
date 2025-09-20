@@ -1138,34 +1138,48 @@ exports.getETB = async (req, res, next) => {
 
 exports.getETBByClassification = async (req, res, next) => {
   try {
-    const { id: engagementId, classification } = req.params
-    const decodedClassification = decodeURIComponent(classification)
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
 
     const etb = await ExtendedTrialBalance.findOne({
       engagement: engagementId,
-    })
-    if (!etb) {
-      return res.status(404).json({ message: "Extended Trial Balance not found" })
-    }
-
-    const filteredRows = etb.rows.filter((row) => row.classification === decodedClassification)
+    });
 
     const section = await ClassificationSection.findOne({
       engagement: engagementId,
       classification: decodedClassification,
-    })
+    });
 
-   res.json({
+    if (!etb) {
+      // If ETB is not found at all for the engagement,
+      // we still return the classification section if it exists.
+      return res.status(200).json({
+        rows: [], // No ETB rows to return
+        spreadsheetUrl: section?.spreadsheetUrl || null,
+        spreadsheetId: section?.spreadsheetId || null,
+        section: section, // Include the section details
+        message: "Extended Trial Balance not found for this engagement.",
+      });
+    }
 
+    const filteredRows = etb.rows.filter(
+      (row) => row.classification === decodedClassification
+    );
+
+    // If ETB is found, but no rows match the classification,
+    // this will return an empty 'rows' array, which is correct.
+    res.json({
       rows: filteredRows,
       spreadsheetUrl: section?.spreadsheetUrl || null,
-      spreadsheetId: section?.spreadsheetId || null,
-      section
-    })
+      spreadsheetId: section?.spreadsheetId || null,
+      section: section,
+      // You might optionally add a message here too, e.g.,
+      // message: filteredRows.length > 0 ? "ETB rows found." : "No ETB rows found for this classification."
+    });
   } catch (err) {
-    next(err)
+    next(err);
   }
-}
+};
 
 exports.reloadClassificationFromETB = async (req, res, next) => {
   try {
