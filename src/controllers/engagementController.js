@@ -200,7 +200,7 @@ exports.initEtbExcel = async (req, res, next) => {
       values: headersOnly,
     })
 
-    return res.status(200).json({ spreadsheetId: driveItemId, url: webUrl })
+    return res.status(200).json({ spreadsheetId: driveItemId, url: webUrl, section })
   } catch (err) {
     next(err)
   }
