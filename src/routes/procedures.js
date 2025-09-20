@@ -3,9 +3,11 @@ const { Router } = require("express");
 const {
   generateAIAnswers,
   hybridGenerateQuestions,
-  saveProcedure,
+  saveProcedure, 
+  generateAIClassificationAnswersSeparate,
   // generateHybridClassificationQuestion,
   getProcedure,
+  saveProcedurebySection,
   generateAIClassificationAnswers,
 generateAIClassificationQuestions,
 } = require("../controllers/procedureController");
@@ -18,10 +20,13 @@ const { generateRecommendations } = require("../controllers/procedureController"
 router.post("/recommendations", generateRecommendations);
 router.post("/hybrid/questions", hybridGenerateQuestions);
 router.post("/:engagementId", saveProcedure);
+router.post("/:engagementId/section", saveProcedurebySection);
 router.get("/:engagementId", getProcedure);
+router.get("/:engagementId/section", getProcedure);
 // Add these new routes
 router.post("/ai/classification-questions", generateAIClassificationQuestions);
 router.post("/ai/classification-answers", generateAIClassificationAnswers);
+router.post("/ai/classification-answers/separate", generateAIClassificationAnswersSeparate);
 // Add this new route for hybrid classification questions
 // router.post("/hybrid/classification-questions", generateHybridClassificationQuestion);
 
