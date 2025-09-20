@@ -11,6 +11,12 @@ const classificationSectionSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // In Progress → Ready for Review → Reviewed/Approved.
+    status:{
+      type: String,
+      enum: ["in-progress", "ready-for-review", "reviewed-approved"],
+      default: "in-progress",
+    },
     spreadsheetId: String,
     spreadsheetUrl: String,
     workingPapersId: String,

@@ -329,3 +329,45 @@ exports.getAllUsers = async (req, res) => {
     });
   }
 }
+
+exports.updateClassificationStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    const validStatuses = ["in-progress", "ready-for-review", "reviewed-approved"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Invalid status. Must be one of: in-progress, ready-for-review, reviewed-approved"
+      });
+    }
+
+    // Update the classification section
+    const updatedClassification = await ClassificationSection.findByIdAndUpdate(
+      id,
+      { 
+        status: status,
+        lastSyncAt: new Date()
+      },
+      { new: true }
+    ).populate('engagement', 'clientId name');
+
+    if (!updatedClassification) {
+      return res.status(404).json({
+        error: "Classification section not found"
+      });
+    }
+
+    res.status(200).json({
+      message: "Classification status updated successfully",
+      classification: updatedClassification
+    });
+
+  } catch (error) {
+    console.error("Error updating classification status:", error);
+    res.status(500).json({
+      error: error.message || "Failed to update classification status"
+    });
+  }
+};
