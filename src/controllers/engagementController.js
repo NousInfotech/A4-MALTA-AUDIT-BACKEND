@@ -1155,11 +1155,13 @@ exports.getETBByClassification = async (req, res, next) => {
       classification: decodedClassification,
     })
 
-    res.json({
+   res.json({
+
       rows: filteredRows,
       spreadsheetUrl: section?.spreadsheetUrl || null,
-      spreadsheetId: section?.spreadsheetId || null,
-    })
+      spreadsheetId: section?.spreadsheetId || null,
+      section
+    })
   } catch (err) {
     next(err)
   }
