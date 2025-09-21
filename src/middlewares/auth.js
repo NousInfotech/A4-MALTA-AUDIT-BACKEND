@@ -24,7 +24,7 @@ async function requireAuth(req, res, next) {
       return res.status(403).json({ message: 'No profile found for user' });
     }
 
-    req.user = { id: user.id, role: profile.role };
+    req.user = { id: user.id, email: user.email, role: profile.role };
     next();
 
   } catch (err) {

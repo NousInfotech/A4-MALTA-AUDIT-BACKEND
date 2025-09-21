@@ -36,7 +36,7 @@ exports.createReview = async (req, res) => {
       reviewedBy: {
         userId: userId,
         name: userProfile.name,
-        email: req.user.email || '', // You might need to get email from auth
+        email: req.user.email || 'unknown@example.com',
         role: userProfile.role,
       },
       comment,
