@@ -20,19 +20,19 @@ exports.createPBC = async (req, res, next) => {
       engagementId,
       clientId,
       auditorId,
-      documentRequests,
+      documentRequests: pbcDocumentRequestsFromBody, // Renamed for clarity
       entityName,
       notes,
       customFields,
     } = req.body;
 
-    // 1️⃣ Verify engagement exists
+    // --- 1️⃣ Verify engagement exists ---
     const engagement = await Engagement.findById(engagementId);
     if (!engagement) {
       return res.status(404).json({ message: "Engagement not found" });
     }
 
-    // 2️⃣ Check if PBC already exists for this engagement
+    // --- 2️⃣ Check if PBC already exists for this engagement ---
     const existingPBC = await PBC.findOne({ engagement: engagementId });
     if (existingPBC) {
       return res
@@ -40,41 +40,60 @@ exports.createPBC = async (req, res, next) => {
         .json({ message: "PBC workflow already exists for this engagement" });
     }
 
-    // 3️⃣ Create document requests if provided
+    // --- 3️⃣ Create/Update document requests if provided ---
     let validDocumentRequestIds = [];
-    if (documentRequests && documentRequests.length > 0) {
-      const existingDocumentRequestIds = documentRequests.map((dr) => dr._id);
+    if (pbcDocumentRequestsFromBody && pbcDocumentRequestsFromBody.length > 0) {
+      const documentRequestIdsFromBody = pbcDocumentRequestsFromBody.map((dr) => dr._id);
 
-      const foundRequests = await DocumentRequest.find({
-        _id: { $in: existingDocumentRequestIds },
-        engagement: engagementId, // Ensure they belong to this engagement
-        category: "pbc", // Ensure they are PBC category requests
+      // Find all document requests that match the IDs, engagement, and category
+      const foundDocumentRequests = await DocumentRequest.find({
+        _id: { $in: documentRequestIdsFromBody },
+        engagement: engagementId,
+        category: "pbc",
       });
 
-      if (foundRequests.length !== existingDocumentRequestIds.length) {
+      // Check if all provided IDs are valid and belong to the correct engagement/category
+      if (foundDocumentRequests.length !== documentRequestIdsFromBody.length) {
         return res.status(400).json({
           message:
             "One or more provided document request IDs are invalid or do not belong to this engagement/category.",
         });
       }
-      validDocumentRequestIds = foundRequests.map((req) => req._id);
+
+      
+      // Adjust logic if you intend to add, not replace.
+      const updatePromises = foundDocumentRequests.map(async (foundReq) => {
+        const correspondingBodyReq = pbcDocumentRequestsFromBody.find(
+          (bodyReq) => String(bodyReq._id) === String(foundReq._id)
+        );
+
+        if (correspondingBodyReq && correspondingBodyReq.documents) {
+          // Assuming you want to replace the documents array on the DocumentRequest with the one from req.body
+          foundReq.documents = correspondingBodyReq.documents;
+          return foundReq.save();
+        }
+        return Promise.resolve(); // No update needed for this specific request
+      });
+      await Promise.all(updatePromises); // Wait for all document requests to be saved
+
+      validDocumentRequestIds = foundDocumentRequests.map((req) => req._id);
     }
 
-    // 4️⃣ Create the PBC workflow
+    // --- 4️⃣ Create the PBC workflow ---
     const pbc = await PBC.create({
       engagement: engagementId,
       clientId: clientId || engagement.clientId,
       auditorId: auditorId || req.user.id,
       documentRequests: validDocumentRequestIds,
 
-      // ✅ pull directly from Engagement
+      // Pull directly from Engagement
       engagementTitle: engagement.title,
       yearEndDate: engagement.yearEndDate,
       trialBalanceUrl: engagement.trialBalanceUrl,
       trialBalance: engagement.trialBalance,
       excelURL: engagement.excelURL,
 
-      // ✅ extra fields from req.body
+      // Extra fields from req.body
       entityName,
       notes,
       customFields,
@@ -84,15 +103,15 @@ exports.createPBC = async (req, res, next) => {
       createdBy: req.user.id,
     });
 
-    // 5️⃣ Update engagement status
+    // --- 5️⃣ Update engagement status ---
     await Engagement.findByIdAndUpdate(engagementId, {
       status: "pbc-data-collection",
     });
 
-    // 6️⃣ Populate document requests to return as objects
+    // --- 6️⃣ Populate document requests to return as objects ---
     const populatedPBC = await PBC.findById(pbc._id)
       .populate("engagement", "title yearEndDate clientId")
-      .populate("documentRequests");
+      .populate("documentRequests"); // Ensure your DocumentRequest schema is properly defined
 
     res.status(201).json({
       success: true,
@@ -100,7 +119,7 @@ exports.createPBC = async (req, res, next) => {
       pbc: populatedPBC,
     });
   } catch (err) {
-    next(err);
+    next(err); // Pass error to your error handling middleware
   }
 };
 
