@@ -14,6 +14,9 @@ router.get("/classification/:classificationId", requireAuth, requireRole(["emplo
 // Update review status
 router.patch("/:reviewId/status", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), crc.updateReviewStatus);
 
+// Update review done status
+router.patch("/:reviewId/done", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), crc.updateReviewDone);
+
 // Delete a review
 router.delete("/:reviewId", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), crc.deleteReview);
 

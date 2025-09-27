@@ -39,6 +39,10 @@ const classificationReviewSchema = new mongoose.Schema(
       enum: ["pending", "in-review", "signed-off"],
       default: "pending",
     },
+    isDone: {
+      type: Boolean,
+      default: false,
+    },
     reviewedOn: {
       type: Date,
       default: Date.now,
