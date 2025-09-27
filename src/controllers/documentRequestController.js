@@ -85,7 +85,8 @@ exports.uploadDocuments = async (req, res, next) => {
         name: file.originalname,
         url: urlData.publicUrl,
         uploadedAt: new Date(),
-        status: 'uploaded' // Set initial status to uploaded
+        status: 'uploaded', // Set initial status to uploaded
+        comment: req.body.comment || "" // Add comment from client upload
       });
 
       // Add to library
@@ -157,13 +158,14 @@ exports.uploadDocuments = async (req, res, next) => {
 
 exports.createRequest = async (req, res, next) => {
   try {
-    const { engagementId, category, name, description, documents } = req.body;
+    const { engagementId, category, name, description, comment, documents } = req.body;
     const dr = await DocumentRequest.create({
       engagement: engagementId,
       clientId: req.body.clientId || req.user.id,
       name: name || `${category} Request - ${new Date().toLocaleDateString()}`, // Add name field with default
       category,
       description,
+      comment: comment || "",
       documents,
     });
     return res.status(201).json({

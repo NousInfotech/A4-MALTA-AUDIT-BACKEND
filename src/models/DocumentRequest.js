@@ -7,6 +7,7 @@ const DocumentRequestSchema = new Schema({
   name: { type: String, },
   category: { type: String, required: true, index: true },
   description: { type: String, required: true },
+  comment: { type: String, default: "" },
   status: {
     type: String,
     enum: ['pending', 'completed'],
@@ -23,6 +24,7 @@ const DocumentRequestSchema = new Schema({
       enum: ['pending', 'uploaded', 'in-review', 'approved', 'rejected'],
       default: 'pending'
     },
+    comment: { type: String, default: "" }, // Comment from client when uploading
   }],
 
   // Review and Sign-off fields
