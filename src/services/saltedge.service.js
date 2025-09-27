@@ -30,13 +30,13 @@ class SaltEdgeServices {
     return response.data.data;
   }
 
-  // application/services/saltEdge.service.ts
+  // v6: Updated endpoint from /connect_sessions/create to /connections/connect
   async createSession(customerId, returnTo) {
-    const response = await saltEdgeClient.post(`/connect_sessions/create`, {
+    const response = await saltEdgeClient.post(`/connections/connect`, {
       data: {
         customer_id: customerId,
         consent: {
-          scopes: ["account_details", "transactions_details"],
+          scopes: ["accounts", "transactions"], // v6: Updated scope names
           from_date: "2023-01-01",
         },
         attempt: {
@@ -54,7 +54,7 @@ class SaltEdgeServices {
         customer_id: customerId,
         provider_code: providerCode,
         consent: {
-          scopes: ["account_details", "transactions_details"], // adjust scopes as needed
+          scopes: ["accounts", "transactions"], // v6: Updated scope names
           from_date: "2023-01-01", // earliest transactions to fetch
         },
         attempt: {
@@ -65,7 +65,7 @@ class SaltEdgeServices {
     return response.data.data; // contains { id, connect_url, ... }
   }
 
-  // 1.1. Refresh connection (like Plaid re-auth)
+  // 1.1. Refresh connection (like Plaid re-auth) - v6: Updated fetch_scopes
   async refreshConnection(connectionId) {
     const response = await saltEdgeClient.put(
       `/connections/${connectionId}/refresh`,
@@ -76,9 +76,13 @@ class SaltEdgeServices {
     return response.data.data;
   }
 
-  async checkConnectionStatus(connectionId) {
+  async checkConnectionStatus(connectionId, includeHolderInfo = false) {
     try {
-      const response = await saltEdgeClient.get(`/connections/${connectionId}`);
+      const params = {};
+      // v6: Add include_holder_info parameter if needed
+      if (includeHolderInfo) params.include_holder_info = true;
+      
+      const response = await saltEdgeClient.get(`/connections/${connectionId}`, { params });
       return response.data.data;
     } catch (error) {
       console.error("Error checking connection status:", error);
@@ -96,15 +100,19 @@ class SaltEdgeServices {
     // { id, name, nature, currency_code, balance, extra, ... }
   }
 
-  // 3. Get transactions for an account
-  async getTransactions(connectionId, accountId, fromDate = "2023-01-01") {
-    const response = await saltEdgeClient.get(`/transactions`, {
-      params: {
-        account_id: accountId,
-        from_date: fromDate,
-        connection_id: connectionId,
-      },
-    });
+  // 3. Get transactions for an account - v6: Added support for pending and duplicated parameters
+  async getTransactions(connectionId, accountId, fromDate = "2023-01-01", options = {}) {
+    const params = {
+      account_id: accountId,
+      from_date: fromDate,
+      connection_id: connectionId,
+    };
+    
+    // v6: Add pending and duplicated parameters if specified
+    if (options.pending) params.pending = true;
+    if (options.duplicated) params.duplicated = true;
+    
+    const response = await saltEdgeClient.get(`/transactions`, { params });
     return response.data.data;
     // Each txn: { id, amount, currency_code, status, made_on, description, extra, ... }
   }

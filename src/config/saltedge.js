@@ -1,7 +1,7 @@
 
 const axios = require("axios");
 
-const BASE_URL = "https://www.saltedge.com/api/v5";
+const BASE_URL = "https://www.saltedge.com/api/v6";
 
 const saltEdgeClient = axios.create({
   baseURL: BASE_URL,
