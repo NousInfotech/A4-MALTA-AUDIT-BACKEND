@@ -1,6 +1,58 @@
 const DocumentRequest = require("../models/DocumentRequest");
 const EngagementLibrary = require("../models/EngagementLibrary");
+const ClassificationEvidence = require("../models/ClassificationEvidence");
+const ClassificationSection = require("../models/ClassificationSection");
 const { supabase } = require("../config/supabase");
+
+// Get user profile from Supabase
+async function getUserProfile(userId) {
+  try {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('name, role')
+      .eq('user_id', userId)
+      .single();
+    
+    if (error || !profile) {
+      throw new Error('Profile not found');
+    }
+    
+    return profile;
+  } catch (error) {
+    throw new Error('Failed to fetch user profile');
+  }
+}
+
+// Map document categories to classification names
+function mapCategoryToClassification(category) {
+  const categoryMapping = {
+    'cash': 'Cash & Cash Equivalents',
+    'receivables': 'Trade Receivables',
+    'inventory': 'Inventory',
+    'prepayments': 'Prepayments',
+    'ppe': 'Property, Plant & Equipment',
+    'payables': 'Trade Payables',
+    'accruals': 'Accruals',
+    'equity': 'Equity',
+    'revenue': 'Revenue',
+    'expenses': 'Expenses'
+  };
+  
+  // Try exact match first
+  if (categoryMapping[category.toLowerCase()]) {
+    return categoryMapping[category.toLowerCase()];
+  }
+  
+  // Try partial match
+  const lowerCategory = category.toLowerCase();
+  for (const [key, value] of Object.entries(categoryMapping)) {
+    if (lowerCategory.includes(key) || key.includes(lowerCategory)) {
+      return value;
+    }
+  }
+  
+  return null;
+}
 
 exports.uploadDocuments = async (req, res, next) => {
   try {
@@ -36,11 +88,55 @@ exports.uploadDocuments = async (req, res, next) => {
         status: 'uploaded' // Set initial status to uploaded
       });
 
+      // Add to library
       await EngagementLibrary.create({
         engagement: dr.engagement,
         category: dr.category,
         url: urlData.publicUrl,
       });
+
+      // Also add to evidence if we can find a matching classification
+      try {
+        // Get user profile for evidence creation
+        const userProfile = await getUserProfile(req.user.id);
+        
+        // Map document category to classification name
+        const classificationName = mapCategoryToClassification(dr.category);
+        
+        if (classificationName) {
+          // Try to find the classification
+          const classification = await ClassificationSection.findOne({
+            engagementId: dr.engagement,
+            classification: classificationName
+          });
+
+          if (classification) {
+            // Create evidence entry
+            const evidence = new ClassificationEvidence({
+              engagementId: dr.engagement,
+              classificationId: classification._id,
+              uploadedBy: {
+                userId: req.user.id,
+                name: userProfile.name,
+                email: req.user.email || '',
+                role: userProfile.role,
+              },
+              evidenceUrl: urlData.publicUrl,
+              evidenceComments: [],
+            });
+
+            await evidence.save();
+            console.log(`Document uploaded to both library and evidence for classification: ${classification.classification}`);
+          } else {
+            console.log(`Classification '${classificationName}' not found for engagement: ${dr.engagement}`);
+          }
+        } else {
+          console.log(`No mapping found for document category: ${dr.category}`);
+        }
+      } catch (evidenceError) {
+        console.error('Error creating evidence entry:', evidenceError);
+        // Don't fail the upload if evidence creation fails
+      }
     }
 
     if (req.body.markCompleted === "true") {
@@ -51,7 +147,7 @@ exports.uploadDocuments = async (req, res, next) => {
     await dr.save();
     return res.json({
       success: true,
-      message: `${req.files.length} document(s) uploaded successfully`,
+      message: `${req.files.length} document(s) uploaded successfully and added to both library and evidence`,
       documentRequest: dr
     });
   } catch (err) {
