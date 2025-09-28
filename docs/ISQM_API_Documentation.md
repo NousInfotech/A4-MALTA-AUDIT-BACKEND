@@ -1449,7 +1449,151 @@ GET /api/isqm/questionnaires/by-tags?tags=ISQM,quality,management&page=1&limit=1
 }
 ```
 
+## 🤖 AI Policy Analysis API
+
+### 1. Generate Category Answers from Policy
+**POST** `/api/isqm/questionnaires/:questionnaireId/sections/:sectionId/generate-category-answers`
+
+Analyzes policy documents using AI to automatically answer ISQM questions based on policy content. This implements the TC-requested flow for AI-powered policy analysis and answer generation.
+
+**Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Body:**
+```json
+{
+  "policyText": "The Firm assigns ultimate responsibility for the SOQM to the Managing Partner and operational responsibility to the Quality Partner. The firm has established comprehensive policies for risk assessment procedures, quality control monitoring, and documentation retention for 7 years.",
+  "policyFile": "data:application/pdf;base64,JVBERi0xLjQKJcfsj6IKNSAwIG9iago8PAovVHlwZSAvUGFnZQovUGFyZW50IDMgMCBSCi9SZXNvdXJjZXMgPDwKL0ZvbnQgPDwKL0YxIDYgMCBSCj4+Cj4+Ci9NZWRpYUJveCBbMCAwIDU5NSA4NDJdCi9Db250ZW50cyA3IDAgUgo+PgplbmRvYmoK..."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "questionnaireId": "64a1b2c3d4e5f6789012349",
+  "sectionId": "64a1b2c3d4e5f6789012350",
+  "sectionHeading": "Leadership Responsibilities",
+  "totalQuestions": 3,
+  "generatedAnswers": [
+    {
+      "questionIndex": 0,
+      "question": "Has the firm designated individual(s) with ultimate responsibility?",
+      "answer": "Yes. The Firm has designated the Managing Partner as the individual with ultimate responsibility and accountability for the SOQM.",
+      "status": "Implemented",
+      "confidence": "High",
+      "policyReferences": ["The Firm assigns ultimate responsibility for the SOQM to the Managing Partner"],
+      "gaps": []
+    },
+    {
+      "questionIndex": 1,
+      "question": "Has the firm designated individual(s) with operational responsibility?",
+      "answer": "Yes. The Firm has designated the Quality Partner with operational responsibility for the SOQM.",
+      "status": "Implemented",
+      "confidence": "High",
+      "policyReferences": ["operational responsibility to the Quality Partner"],
+      "gaps": []
+    },
+    {
+      "questionIndex": 2,
+      "question": "What is the firm's policy on documentation retention?",
+      "answer": "The firm has established a policy for documentation retention for 7 years as part of its comprehensive quality management framework.",
+      "status": "Implemented",
+      "confidence": "Medium",
+      "policyReferences": ["documentation retention for 7 years"],
+      "gaps": []
+    }
+  ],
+  "summary": {
+    "implemented": 3,
+    "partiallyImplemented": 0,
+    "notImplemented": 0,
+    "errors": 0
+  },
+  "metadata": {
+    "generatedAt": "2024-01-15T10:30:00.000Z",
+    "generatedBy": "user-123",
+    "model": "gpt-4o-mini",
+    "policyTextLength": 245
+  }
+}
+```
+
+### 2. Policy Analysis Features
+
+#### Input Methods
+- **Policy Text** - Direct text input for policy content
+- **PDF Upload** - Base64-encoded PDF files for document analysis
+- **Automatic Text Extraction** - Uses `pdf-parse` library to extract text from PDFs
+
+#### AI Analysis Process
+1. **Policy Scanning** - AI reads and analyzes the entire policy document
+2. **Question Matching** - Matches policy content to specific ISQM questions
+3. **Answer Generation** - Creates detailed answers based on policy text
+4. **Status Assessment** - Determines implementation status (Implemented/Partially Implemented/Not Implemented)
+5. **Gap Identification** - Identifies missing elements or policy gaps
+
+#### Answer Quality
+- **Evidence-Based** - All answers are based on actual policy text
+- **Policy References** - Includes specific quotes and references from the policy
+- **Confidence Levels** - Provides confidence assessment (High/Medium/Low)
+- **Gap Analysis** - Highlights areas where policy is incomplete or missing
+
+#### Auto-Fill Functionality
+- **Automatic Answer Population** - Fills `sectionSchema.qna` answers automatically
+- **Metadata Tracking** - Sets `answeredBy` to "AI generated via policy"
+- **Timestamp Recording** - Updates `answeredAt` with generation time
+- **State Management** - Sets `state` based on implementation status
+- **Comment Addition** - Adds AI analysis details as comments
+
+### 3. Gap Handling
+
+When policy doesn't contain relevant information:
+
+**Example Response:**
+```json
+{
+  "questionIndex": 2,
+  "question": "What is the firm's policy on staff training requirements?",
+  "answer": "No reference found in firm policies regarding staff training requirements. Policy update required.",
+  "status": "Not Implemented",
+  "confidence": "High",
+  "policyReferences": [],
+  "gaps": ["Staff training requirements not addressed in current policy"]
+}
+```
+
+### 4. Error Handling
+
+**PDF Parsing Errors:**
+```json
+{
+  "message": "Failed to parse PDF file"
+}
+```
+
+**Missing Policy Input:**
+```json
+{
+  "message": "Either policyText or policyFile is required"
+}
+```
+
+**Question Processing Errors:**
+- Individual question failures don't stop the entire process
+- Failed questions are marked with "Error occurred during AI analysis. Manual review required."
+- Error details are logged for debugging
+
 ## 🔧 Enhanced Features
+
+### AI Policy Analysis
+- **Intelligent Policy Reading** - Advanced AI analysis of policy documents
+- **Question-Answer Matching** - Automatic matching of policy content to ISQM questions
+- **Implementation Status Assessment** - Determines if requirements are met
+- **Gap Identification** - Highlights missing policy elements
+- **Evidence-Based Answers** - All responses backed by policy text
+- **Confidence Scoring** - AI confidence levels for each analysis
 
 ### Dynamic Tagging System
 - **Automatic Tag Generation** - Creates tags based on component key, heading, framework, and status
@@ -1472,9 +1616,9 @@ GET /api/isqm/questionnaires/by-tags?tags=ISQM,quality,management&page=1&limit=1
 - **Flexible Tag Input** - Support both comma-separated and array formats
 
 ### Security & Access Control
-- **Employee-only URL management** - Only authenticated employees can manage URLs
-- **Role-based access** - `requireRole('employee')` for URL operations
-- **Audit logging** - All URL management activities are logged
-- **Data validation** - Input data is validated before processing
+- **Employee-only operations** - Only authenticated employees can use AI features
+- **Role-based access** - `requireRole('employee')` for all AI operations
+- **Audit logging** - All AI activities are logged with user and timestamp
+- **Data validation** - Input data is validated before AI processing
 
-The ISQM API provides comprehensive quality management questionnaire capabilities, supporting document management, AI-powered document generation, URL management, and dynamic tagging essential for audit compliance and quality assurance! 🎉
+The ISQM API provides comprehensive quality management questionnaire capabilities, supporting AI-powered policy analysis, document management, AI-powered document generation, URL management, and dynamic tagging essential for audit compliance and quality assurance! 🎉
