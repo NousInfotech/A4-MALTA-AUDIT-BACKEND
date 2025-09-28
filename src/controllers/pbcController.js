@@ -13,14 +13,13 @@ const { supabase } = require("../config/supabase");
  */
 
 // Create a new PBC workflow
-// Create a new PBC workflow
 exports.createPBC = async (req, res, next) => {
   try {
     const {
       engagementId,
       clientId,
       auditorId,
-      documentRequests: pbcDocumentRequestsFromBody, // Renamed for clarity
+      documentRequests: pbcDocumentRequestsFromBody,
       entityName,
       notes,
       customFields,
@@ -32,18 +31,48 @@ exports.createPBC = async (req, res, next) => {
       return res.status(404).json({ message: "Engagement not found" });
     }
 
+    let pbc;
+
     // --- 2️⃣ Check if PBC already exists for this engagement ---
     const existingPBC = await PBC.findOne({ engagement: engagementId });
+
+    // --- 3️⃣ Handle existing PBC or create a new one ---
     if (existingPBC) {
-      return res
-        .status(400)
-        .json({ message: "PBC workflow already exists for this engagement" });
+      existingPBC.notes = notes;
+
+      pbc = await existingPBC.save();
+      console.log("Existing PBC updated.");
+    } else {
+      pbc = await PBC.create({
+        engagement: engagementId,
+        clientId: clientId || engagement.clientId,
+        auditorId: auditorId || req.user.id,
+        // documentRequests will be handled below
+
+        // Pull directly from Engagement
+        entityName: engagement.title, // Use engagement.title for entityName
+        periodEnd: engagement.yearEndDate, // Use engagement.yearEndDate for periodEnd
+        trialBalanceUrl: engagement.trialBalanceUrl,
+        trialBalance: engagement.trialBalance,
+
+        // Extra fields from req.body
+        entityName, // This will override engagement.title if provided in body
+        notes,
+        customFields,
+
+        status: "document-collection",
+        createdAt: new Date(),
+        createdBy: req.user.id,
+      });
+      console.log("New PBC created.");
     }
 
-    // --- 3️⃣ Create/Update document requests if provided ---
+    // --- 4️⃣ Create/Update document requests if provided ---
     let validDocumentRequestIds = [];
     if (pbcDocumentRequestsFromBody && pbcDocumentRequestsFromBody.length > 0) {
-      const documentRequestIdsFromBody = pbcDocumentRequestsFromBody.map((dr) => dr._id);
+      const documentRequestIdsFromBody = pbcDocumentRequestsFromBody.map(
+        (dr) => dr._id
+      );
 
       // Find all document requests that match the IDs, engagement, and category
       const foundDocumentRequests = await DocumentRequest.find({
@@ -61,49 +90,39 @@ exports.createPBC = async (req, res, next) => {
       }
 
       
-      // Adjust logic if you intend to add, not replace.
+      // Append documents array for each found DocumentRequest
       const updatePromises = foundDocumentRequests.map(async (foundReq) => {
         const correspondingBodyReq = pbcDocumentRequestsFromBody.find(
           (bodyReq) => String(bodyReq._id) === String(foundReq._id)
         );
 
         if (correspondingBodyReq && correspondingBodyReq.documents) {
-          // Assuming you want to replace the documents array on the DocumentRequest with the one from req.body
-          foundReq.documents = correspondingBodyReq.documents;
+          // Filter out documents that already exist to prevent duplicates
+          const newDocumentsToAdd = correspondingBodyReq.documents.filter(
+            (newDoc) =>
+              !foundReq.documents.some(
+                (existingDoc) => existingDoc.name === newDoc.name
+              )
+          );
+          foundReq.documents.push(...newDocumentsToAdd); // Append new documents
           return foundReq.save();
         }
-        return Promise.resolve(); // No update needed for this specific request
+        return Promise.resolve();
       });
-      await Promise.all(updatePromises); // Wait for all document requests to be saved
+      await Promise.all(updatePromises);
+      
+
 
       validDocumentRequestIds = foundDocumentRequests.map((req) => req._id);
+
+      // Also update the documentRequests array on the PBC itself if it's a new PBC
+      if (!existingPBC || validDocumentRequestIds.length > 0) {
+        pbc.documentRequests = validDocumentRequestIds;
+        await pbc.save(); // Save the PBC with updated documentRequests linkage
+      }
     }
 
-    // --- 4️⃣ Create the PBC workflow ---
-    const pbc = await PBC.create({
-      engagement: engagementId,
-      clientId: clientId || engagement.clientId,
-      auditorId: auditorId || req.user.id,
-      documentRequests: validDocumentRequestIds,
-
-      // Pull directly from Engagement
-      engagementTitle: engagement.title,
-      yearEndDate: engagement.yearEndDate,
-      trialBalanceUrl: engagement.trialBalanceUrl,
-      trialBalance: engagement.trialBalance,
-      excelURL: engagement.excelURL,
-
-      // Extra fields from req.body
-      entityName,
-      notes,
-      customFields,
-
-      status: "document-collection",
-      createdAt: new Date(),
-      createdBy: req.user.id,
-    });
-
-    // --- 5️⃣ Update engagement status ---
+    // --- 5️⃣ Update engagement status if PBC was newly created ---
     await Engagement.findByIdAndUpdate(engagementId, {
       status: "pbc-data-collection",
     });
@@ -111,17 +130,20 @@ exports.createPBC = async (req, res, next) => {
     // --- 6️⃣ Populate document requests to return as objects ---
     const populatedPBC = await PBC.findById(pbc._id)
       .populate("engagement", "title yearEndDate clientId")
-      .populate("documentRequests"); // Ensure your DocumentRequest schema is properly defined
+      .populate("documentRequests");
 
     res.status(201).json({
       success: true,
-      message: "PBC workflow created successfully",
+      message: existingPBC
+        ? "PBC workflow updated successfully"
+        : "PBC workflow created successfully",
       pbc: populatedPBC,
     });
   } catch (err) {
-    next(err); // Pass error to your error handling middleware
+    next(err);
   }
 };
+
 
 // Get PBC by engagement ID
 exports.getPBCByEngagement = async (req, res, next) => {
