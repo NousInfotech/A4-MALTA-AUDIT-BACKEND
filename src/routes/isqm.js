@@ -348,4 +348,12 @@ router.get(
   isqmController.getQuestionnaireTags
 );
 
+// Generate category answers from policy document
+router.post(
+  '/questionnaires/:questionnaireId/sections/:sectionId/generate-category-answers',
+  requireAuth,
+  requireRole(['employee', 'admin']), // Both employees and admins can generate answers
+  isqmController.generateCategoryAnswers
+);
+
 module.exports = router;

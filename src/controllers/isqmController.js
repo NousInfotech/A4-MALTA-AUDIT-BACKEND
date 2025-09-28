@@ -5,6 +5,7 @@ const { formatISQMPrompt, validateISQMData, getAvailablePrompts } = require('../
 const { openai_pbc } = require('../config/openai');
 const { supabase } = require('../config/supabase');
 const PDFDocument = require('pdfkit');
+const pdfParse = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 
@@ -1960,6 +1961,191 @@ exports.getQuestionnaireTags = async (req, res, next) => {
       tagCount: tags.length
     });
   } catch (err) {
+    next(err);
+  }
+};
+
+// Generate category answers from policy document
+exports.generateCategoryAnswers = async (req, res, next) => {
+  try {
+    const { questionnaireId, sectionId } = req.params;
+    const { policyText, policyFile } = req.body;
+
+    // Get the questionnaire
+    const questionnaire = await ISQMQuestionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ message: 'Questionnaire not found' });
+    }
+
+    // Find the specific section
+    const section = questionnaire.sections.find(s => s._id.toString() === sectionId);
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    let extractedPolicyText = '';
+
+    // Handle PDF file upload
+    if (policyFile) {
+      try {
+        // If policyFile is a base64 string, decode it
+        if (typeof policyFile === 'string' && policyFile.startsWith('data:')) {
+          const base64Data = policyFile.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          const pdfData = await pdfParse(buffer);
+          extractedPolicyText = pdfData.text;
+        } else if (Buffer.isBuffer(policyFile)) {
+          const pdfData = await pdfParse(policyFile);
+          extractedPolicyText = pdfData.text;
+        } else {
+          return res.status(400).json({ message: 'Invalid policy file format' });
+        }
+      } catch (pdfError) {
+        console.error('PDF parsing error:', pdfError);
+        return res.status(400).json({ message: 'Failed to parse PDF file' });
+      }
+    } else if (policyText) {
+      extractedPolicyText = policyText;
+    } else {
+      return res.status(400).json({ message: 'Either policyText or policyFile is required' });
+    }
+
+    // Generate answers for each question in the section
+    const generatedAnswers = [];
+    
+    for (let i = 0; i < section.qna.length; i++) {
+      const question = section.qna[i];
+      
+      try {
+        // Create AI prompt for policy analysis
+        const analysisPrompt = `
+You are an expert in ISQM 1 quality management systems and audit firm policies. 
+
+Analyze the following policy document and answer the specific ISQM question.
+
+POLICY DOCUMENT:
+${extractedPolicyText}
+
+ISQM QUESTION:
+${question.question}
+
+INSTRUCTIONS:
+1. Carefully analyze the policy document to find information relevant to this specific question.
+2. If the policy contains clear information that answers the question, provide a detailed answer based on the policy text.
+3. If the policy mentions relevant information but it's incomplete, provide a partial answer and note what's missing.
+4. If the policy doesn't contain any relevant information, respond with "No reference found in firm policies regarding this requirement. Policy update required."
+5. Always base your answer on the actual policy text - quote specific sections when possible.
+6. Mark the implementation status as "Implemented" if the policy fully addresses the requirement, "Partially Implemented" if it partially addresses it, or "Not Implemented" if it doesn't address it.
+
+Please provide your response in the following JSON format:
+{
+  "answer": "Your detailed answer based on the policy analysis",
+  "status": "Implemented|Partially Implemented|Not Implemented",
+  "policyReferences": ["Specific quotes or references from the policy"],
+  "gaps": ["Any gaps or missing elements identified"],
+  "confidence": "High|Medium|Low"
+}
+`;
+
+        // Call OpenAI to analyze the policy
+        const completion = await openai_pbc.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert in ISQM 1 quality management systems. Analyze policy documents and provide accurate, evidence-based answers to ISQM questions. Always respond with valid JSON format.'
+            },
+            {
+              role: 'user',
+              content: analysisPrompt
+            }
+          ],
+          max_tokens: 1000,
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        });
+
+        const analysisResult = JSON.parse(completion.choices[0].message.content);
+        
+        // Update the question with the generated answer
+        question.answer = analysisResult.answer;
+        question.answeredAt = new Date();
+        question.answeredBy = 'AI generated via policy';
+        question.state = analysisResult.status === 'Implemented';
+        
+        // Add AI analysis as a comment
+        question.comments.push({
+          text: `AI Analysis - Status: ${analysisResult.status}, Confidence: ${analysisResult.confidence}. Policy References: ${analysisResult.policyReferences?.join('; ') || 'None'}. Gaps: ${analysisResult.gaps?.join('; ') || 'None'}`,
+          addedBy: 'AI generated via policy',
+          addedAt: new Date()
+        });
+
+        generatedAnswers.push({
+          questionIndex: i,
+          question: question.question,
+          answer: analysisResult.answer,
+          status: analysisResult.status,
+          confidence: analysisResult.confidence,
+          policyReferences: analysisResult.policyReferences,
+          gaps: analysisResult.gaps
+        });
+
+      } catch (questionError) {
+        console.error(`Error processing question ${i}:`, questionError);
+        
+        // Set a default answer for failed questions
+        question.answer = 'Error occurred during AI analysis. Manual review required.';
+        question.answeredAt = new Date();
+        question.answeredBy = 'AI generated via policy';
+        question.state = false;
+        
+        question.comments.push({
+          text: 'AI analysis failed - manual review required',
+          addedBy: 'AI generated via policy',
+          addedAt: new Date()
+        });
+
+        generatedAnswers.push({
+          questionIndex: i,
+          question: question.question,
+          answer: 'Error occurred during AI analysis. Manual review required.',
+          status: 'Error',
+          confidence: 'Low',
+          policyReferences: [],
+          gaps: ['AI analysis failed']
+        });
+      }
+    }
+
+    // Save the updated questionnaire
+    await questionnaire.save();
+
+    // Log the generation activity
+    console.log(`Generated answers for section ${sectionId} in questionnaire ${questionnaireId} by user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      questionnaireId,
+      sectionId,
+      sectionHeading: section.heading,
+      totalQuestions: section.qna.length,
+      generatedAnswers,
+      summary: {
+        implemented: generatedAnswers.filter(a => a.status === 'Implemented').length,
+        partiallyImplemented: generatedAnswers.filter(a => a.status === 'Partially Implemented').length,
+        notImplemented: generatedAnswers.filter(a => a.status === 'Not Implemented').length,
+        errors: generatedAnswers.filter(a => a.status === 'Error').length
+      },
+      metadata: {
+        generatedAt: new Date(),
+        generatedBy: req.user.id,
+        model: 'gpt-4o-mini',
+        policyTextLength: extractedPolicyText.length
+      }
+    });
+
+  } catch (err) {
+    console.error('Generate category answers error:', err);
     next(err);
   }
 };
