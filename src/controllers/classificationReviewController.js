@@ -24,7 +24,7 @@ async function getUserProfile(userId) {
 // Create a new classification review
 exports.createReview = async (req, res) => {
   try {
-    const { engagementId, classificationId, comment, location, ipAddress, sessionId, systemVersion } = req.body;
+    const { engagementId, classificationId, comment, location, ipAddress, sessionId, systemVersion, isDone } = req.body;
     const userId = req.user.id;
 
     // Get user profile details
@@ -45,6 +45,7 @@ exports.createReview = async (req, res) => {
       sessionId,
       systemVersion,
       status: "pending",
+      isDone: isDone || false,
     });
 
     await review.save();
@@ -116,6 +117,49 @@ exports.updateReviewStatus = async (req, res) => {
     console.error("Error updating review status:", error);
     res.status(500).json({
       error: error.message || "Failed to update review status",
+    });
+  }
+};
+
+// Update review done status
+exports.updateReviewDone = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    const { isDone } = req.body;
+    const userId = req.user.id;
+
+    // Validate isDone parameter
+    if (typeof isDone !== 'boolean') {
+      return res.status(400).json({
+        error: "Invalid isDone parameter. Must be a boolean value",
+      });
+    }
+
+    const review = await ClassificationReview.findById(reviewId);
+    if (!review) {
+      return res.status(404).json({
+        error: "Review not found",
+      });
+    }
+
+    // Verify the user is the owner of the review
+    if (review.reviewedBy.userId !== userId) {
+      return res.status(403).json({
+        error: "You can only update your own reviews",
+      });
+    }
+
+    review.isDone = isDone;
+    await review.save();
+
+    res.status(200).json({
+      message: "Review done status updated successfully",
+      review: review,
+    });
+  } catch (error) {
+    console.error("Error updating review done status:", error);
+    res.status(500).json({
+      error: error.message || "Failed to update review done status",
     });
   }
 };
