@@ -22,7 +22,7 @@ class SaltEdgeServices {
     const response = await saltEdgeClient.get(`/customers`);
     return response.data.data.find(c => c.identifier === identifier);
   }
-  
+
 
   // 0.2. Delete customer (optional cleanup if user deletes account)
   async deleteCustomer(customerId) {
@@ -31,21 +31,24 @@ class SaltEdgeServices {
   }
 
   // v6: Updated endpoint from /connect_sessions/create to /connections/connect
+  // v6: Using /connections/connect
   async createSession(customerId, returnTo) {
     const response = await saltEdgeClient.post(`/connections/connect`, {
       data: {
         customer_id: customerId,
         consent: {
-          scopes: ["accounts", "transactions"], // v6: Updated scope names
-          from_date: "2023-01-01",
+          scopes: ["accounts", "transactions"], // check v6 scope names
+          from_date: new Date().toISOString().slice(0, 10), // today’s date
         },
         attempt: {
-          return_to: returnTo,
+          return_to: returnTo, // must match Salt Edge Allowed Redirect URLs
         },
       },
     });
+
     return response.data.data; // contains { connect_url, expires_at, ... }
   }
+
 
   // 1. Create a new connection request (this gives you a connect_url for widget)
   async createConnection(customerId, providerCode) {
@@ -55,7 +58,7 @@ class SaltEdgeServices {
         provider_code: providerCode,
         consent: {
           scopes: ["accounts", "transactions"], // v6: Updated scope names
-          from_date: "2023-01-01", // earliest transactions to fetch
+          from_date: new Date().toISOString().slice(0, 10), // today’s date
         },
         attempt: {
           return_to: "https://your-app.com/callback", // where widget redirects after success
@@ -81,7 +84,7 @@ class SaltEdgeServices {
       const params = {};
       // v6: Add include_holder_info parameter if needed
       if (includeHolderInfo) params.include_holder_info = true;
-      
+
       const response = await saltEdgeClient.get(`/connections/${connectionId}`, { params });
       return response.data.data;
     } catch (error) {
@@ -107,11 +110,11 @@ class SaltEdgeServices {
       from_date: fromDate,
       connection_id: connectionId,
     };
-    
+
     // v6: Add pending and duplicated parameters if specified
     if (options.pending) params.pending = true;
     if (options.duplicated) params.duplicated = true;
-    
+
     const response = await saltEdgeClient.get(`/transactions`, { params });
     return response.data.data;
     // Each txn: { id, amount, currency_code, status, made_on, description, extra, ... }

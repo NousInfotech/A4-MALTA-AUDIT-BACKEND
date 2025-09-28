@@ -41,7 +41,7 @@ const SaltedgeController = {
             const session = await saltEdgeService.createSession(consumerId, returnTo);
             res.status(200).json(session);
         } catch (error) {
-            console.error('Error creating session:', error);
+            console.error('Error creating session:', error.response.data);
             res.status(500).json({ error: 'Failed to create session' });
         }
     },
