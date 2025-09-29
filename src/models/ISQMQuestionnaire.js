@@ -5,6 +5,11 @@ const QnASchema = new Schema({
   question: { type: String, required: true },
   answer: { type: String, default: "" },
   state: { type: Boolean, default: false },
+  status: { 
+    type: String, 
+    enum: ['Implemented', 'Partially Implemented', 'Not Implemented', 'Error', null],
+    default: null
+  },
   
   // Additional fields for enhanced functionality
   questionId: { type: String }, // Unique identifier for the question

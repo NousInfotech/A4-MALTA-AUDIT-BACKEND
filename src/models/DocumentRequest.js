@@ -8,6 +8,13 @@ const DocumentRequestSchema = new Schema({
   category: { type: String, required: true, index: true },
   description: { type: String, required: true },
   comment: { type: String, default: "" },
+  attachment: {
+    name: { type: String },
+    url: { type: String }, // Supabase file URL
+    size: { type: Number },
+    type: { type: String },
+    uploadedAt: { type: Date, default: Date.now }
+  },
   status: {
     type: String,
     enum: ['pending', 'completed'],

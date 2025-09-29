@@ -2071,7 +2071,8 @@ Please provide your response in the following JSON format:
         question.answer = analysisResult.answer;
         question.answeredAt = new Date();
         question.answeredBy = 'AI generated via policy';
-        question.state = analysisResult.status === 'Implemented';
+        question.state = analysisResult.status === 'Implemented' || analysisResult.status === 'Partially Implemented';
+        question.status = analysisResult.status;
         
         // Add AI analysis as a comment
         question.comments.push({
@@ -2098,6 +2099,7 @@ Please provide your response in the following JSON format:
         question.answeredAt = new Date();
         question.answeredBy = 'AI generated via policy';
         question.state = false;
+        question.status = 'Error';
         
         question.comments.push({
           text: 'AI analysis failed - manual review required',
