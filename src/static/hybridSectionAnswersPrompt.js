@@ -16,6 +16,7 @@ Generate DETAILED, CONTEXT-SPECIFIC answers for ALL fields in the specified plan
 - Respect the original field types and formats
 - MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 IMPORTANT: For file upload fields, return null or empty values as these must be manually uploaded.
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
 
 INPUT CONTEXT:
 - Client Profile: {clientProfile}

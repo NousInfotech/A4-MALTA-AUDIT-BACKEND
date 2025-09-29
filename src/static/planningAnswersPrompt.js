@@ -27,6 +27,7 @@ For EACH section in the provided subset, produce answers ONLY.
   - group: object of { childKey: boolean|string|number } for the defined child fields
 - You MAY provide answers for fields that would be hidden by visibleIf.
 - Answers must be self-consistent with materiality and ETB; avoid specificity you cannot support.
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
 
 OUTPUT JSON SCHEMA (answers only):
 {

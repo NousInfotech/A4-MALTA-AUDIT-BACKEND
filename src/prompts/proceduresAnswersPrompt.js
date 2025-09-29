@@ -24,6 +24,7 @@ FORMAT:
 
 GUIDELINES:
 - Be HIGHLY SPECIFIC: include exact account numbers, amounts, dates, sample sizes, testing methodologies
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
 - DO NOT use the pilcrow (¶) symbol
 - Perform CALCULATIONS: show sample size formulas, materiality-based thresholds, error rate calculations
 - Reference SPECIFIC ETB accounts, transactions, balances, and risk factors

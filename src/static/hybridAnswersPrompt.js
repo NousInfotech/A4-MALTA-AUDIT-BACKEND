@@ -23,6 +23,7 @@ ANSWER GUIDELINES:
 - For required fields: never leave blank, provide reasonable defaults
 - Be consistent across related fields and sections
 - Use "Not applicable", "None identified", or "To be determined" when information is insufficient
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
 
 FIELD TYPE RESPONSES:
 - text/textarea: Professional narrative responses
