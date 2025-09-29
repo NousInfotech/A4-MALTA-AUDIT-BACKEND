@@ -139,7 +139,7 @@ async function saveProcedure(req, res) {
       validitySelections: procedureData.validitySelections || [],
       selectedClassifications: procedureData.selectedClassifications || [],
       questions: procedureData.questions || [],
-      recommendations: procedureData.recommendations || "",
+      recommendations: procedureData.recommendations,
       status: procedureData.status || "draft",
       createdBy: procedureData.createdBy
     };
@@ -172,7 +172,8 @@ async function saveProcedurebySection(req, res) {
       selectedClassifications: procedureData.selectedClassifications || [],
       questions: procedureData.questions || [],
       status: procedureData.status || "completed",
-      createdBy: procedureData.createdBy
+      createdBy: procedureData.createdBy,
+      recommendations: procedureData.recommendations,
     };
 
     const procedure = await Procedure.findOneAndUpdate(
@@ -204,6 +205,7 @@ async function getProcedure(req, res) {
     res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
 }
+// In the procedureController.js file, replace the generateRecommendations function with this:
 
 async function generateRecommendations(req, res) {
   try {
@@ -212,6 +214,7 @@ async function generateRecommendations(req, res) {
     
     const context = await buildContext(engagementId, classifications);
     let allRecommendations = [];
+    let recommendationsByClassification = {};
     
     // Process each classification individually
     for (let i = 0; i < classifications.length; i++) {
@@ -235,60 +238,49 @@ async function generateRecommendations(req, res) {
         max_tokens: 2000 // Limit tokens per classification
       });
       
-      // Handle different response formats from LLM
-      let recommendations = "";
-      if (typeof out === "string") {
-        recommendations = out;
-        console.log("LLM output for", classification, ":", out.substring(0, 200) + "...");
-      } else if (out && typeof out.recommendations === "string") {
-        recommendations = out.recommendations;
-        console.log("LLM output for", classification, ":", out.recommendations.substring(0, 200) + "...");
-      } else if (out && Array.isArray(out.recommendations)) {
-        // Handle array of recommendations
-        recommendations = `*${classification}*\n` + out.recommendations.map(rec => `- ${rec}`).join('\n');
-        console.log("LLM output for", classification, ":", recommendations.substring(0, 200) + "...");
-      } else if (out && typeof out === "object") {
-        // Try to find a string field that might contain recommendations
-        for (const key in out) {
-          if (typeof out[key] === "string" && out[key].length > 100) {
-            recommendations = out[key];
-            console.log("LLM output for", classification, ":", out[key].substring(0, 200) + "...");
-            break;
-          }
-        }
-        // If no string field found, stringify the object
-        if (!recommendations) {
-          recommendations = `*${classification}*\n- Error: Invalid response format from AI`;
-          console.log("LLM output for", classification, ":", JSON.stringify(out).substring(0, 200) + "...");
-        }
+      // Handle the new JSON response format with checklist items
+      let recommendations = [];
+      if (out && out.recommendations && Array.isArray(out.recommendations)) {
+        recommendations = out.recommendations.map(item => ({
+          ...item,
+          classification: classification
+        }));
+
+        console.log(`Generated ${recommendations.length} checklist items for ${classification}`);
+      } else if (typeof out === "string") {
+        // Fallback: parse string format (for backward compatibility)
+        const lines = out.split('\n').filter(line => line.trim().startsWith('-'));
+        recommendations = lines.map((line, index) => ({
+          id: `${classification}-${index + 1}`,
+          text: line.replace(/^- /, '').trim(),
+          checked: false,
+          classification: classification
+        }));
+        console.log("Fallback: Parsed string format for", classification);
       } else {
-        console.log("LLM output for", classification, ":", "No output or unexpected format");
-        recommendations = `*${classification}*\n- No specific recommendations generated for this classification.`;
+        console.log("LLM output for", classification, ":", "No recommendations generated");
+        recommendations = [{
+          id: `${classification}-1`,
+          text: `No specific recommendations generated for ${classification}. Please review manually.`,
+          checked: false,
+          classification: classification
+        }];
       }
       
-      // Ensure the format is correct for the frontend
-      if (!recommendations.startsWith(`*${classification}*`)) {
-        recommendations = `*${classification}*\n${recommendations}`;
-      }
-      
-      // Clean up any JSON artifacts
-      recommendations = recommendations
-        .replace(/\{"classification":".*?",/g, '')
-        .replace(/"recommendations":\[/g, '')
-        .replace(/\]\}/g, '')
-        .replace(/",/g, '')
-        .replace(/"/g, '');
-      
-      allRecommendations.push(recommendations);
-      
+      recommendationsByClassification[classification] = recommendations;
+      allRecommendations.push(...recommendations);
+    
       // Add a small delay between requests to avoid rate limiting
       if (i < classifications.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
     
-    // Combine all recommendations into a single formatted string
-    const combinedRecommendations = allRecommendations.join('\n\n');
+    // Reassign IDs from 1 to length for all recommendations
+    allRecommendations = allRecommendations.map((recommendation, index) => ({
+      ...recommendation,
+      id: (index + 1).toString()
+    }));
     
     // Update procedure with recommendations
     let procedure;
@@ -297,7 +289,8 @@ async function generateRecommendations(req, res) {
         procedureId, 
         { 
           $set: { 
-            recommendations: combinedRecommendations || ""
+            recommendations: allRecommendations,
+            recommendationsByClassification: recommendationsByClassification
           } 
         }, 
         { new: true }
@@ -306,7 +299,8 @@ async function generateRecommendations(req, res) {
       procedure = await Procedure.findOneAndUpdate(
         { engagement: engagementId },
         {
-          recommendations: combinedRecommendations || "",
+          recommendations: allRecommendations,
+          recommendationsByClassification: recommendationsByClassification,
           status: "draft"
         },
         { upsert: true, new: true }
@@ -316,14 +310,14 @@ async function generateRecommendations(req, res) {
     res.json({ 
       ok: true, 
       procedureId: procedure._id, 
-      recommendations: combinedRecommendations || "" 
+      recommendations: allRecommendations,
+      recommendationsByClassification: recommendationsByClassification
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: "Server error (recommendations)" });
   }
 }
-
 // AI classification-specific questions
 async function generateAIClassificationQuestions(req, res) {
   try {
