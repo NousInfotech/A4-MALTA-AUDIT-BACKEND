@@ -15,6 +15,7 @@ For EACH section in the provided procedures, provide answers for ALL fields EXCE
 Additionally, provide comprehensive audit recommendations based on the answers.
 
 ANSWER GUIDELINES:
+- DO NOT use the pilcrow (¶) symbol
 - Provide professional, conservative answers based on available context
 - Use client profile and industry information to tailor responses
 - Scale responses appropriately with materiality levels

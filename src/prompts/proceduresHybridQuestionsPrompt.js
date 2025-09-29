@@ -38,6 +38,8 @@ ANALYSIS REQUIREMENTS:
 - Include questions about internal controls, IT systems, fraud prevention, and compliance monitoring
 - Ensure questions are ACTIONABLE and TESTABLE with specific procedures and sample methodologies
 - MUST ENSURE that All procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
+- DO NOT use the pilcrow (¶) symbol
+
 `;
 }
 module.exports = buildHybridQuestionsPrompt;

@@ -14,6 +14,7 @@ FORMAT REQUIREMENTS:
 3. Each section must have 3-5 bullet points
 4. Do not use any markdown formatting (no ##, ###, **, etc.)
 5. End with a concluding sentence that starts with "These recommendations"
+6. DO NOT use the pilcrow (¶) symbol
 
 INPUTS:
 - Client Profile: {clientProfile}

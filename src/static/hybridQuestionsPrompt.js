@@ -22,6 +22,7 @@ GUIDELINES FOR ADDITIONAL QUESTIONS:
 5. Add questions for emerging risks or complex transactions
 6. Consider regulatory requirements specific to this client
 7. I want atleast 2-3 additional fields per section from you
+8. DO NOT use the pilcrow (¶) symbol
 
 FIELD TYPES TO USE:
 - text/textarea: For narrative responses

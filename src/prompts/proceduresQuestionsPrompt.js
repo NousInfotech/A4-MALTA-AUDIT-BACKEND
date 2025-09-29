@@ -14,6 +14,7 @@ ${Array.isArray(classifications) ? classifications.map(s => `- ${s}`).join("\n")
 STYLE & SCOPE:
 - Follow ISA/IFRS/GAPSME tone with EXTREMELY DETAILED fieldwork-level specificity
 - Address ALL relevant assertions for each classification: existence, completeness, accuracy, cutoff, classification, rights/obligations
+- DO NOT use the pilcrow (¶) symbol
 - Include questions about internal controls, IT systems, fraud risks, estimates, related parties, going concern
 - Incorporate QUANTITATIVE elements: materiality-based sample sizes, risk-based testing approaches, error thresholds
 - Cover complex accounting areas: revenue recognition, financial instruments, leases, impairments, provisions

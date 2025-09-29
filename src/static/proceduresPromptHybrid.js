@@ -21,6 +21,8 @@ STYLE & SCOPE:
 - Use assertion codes: EX (Existence), CO (Completeness), VA (Valuation & Allocation), RO (Rights & Obligations), PD (Presentation & Disclosure).
 - Use risk IDs as R-<AREA>-<KEYWORD> (e.g., R-PPE-CAPITALISATION). Include a rating: High | Medium | Low.
 - If account balance < trivial threshold AND no specific risks → produce one "Immaterial – no testing" procedure with clear rationale and empty tests[].
+- DO NOT use the pilcrow (¶) symbol
+
 
 NARRATIVE OUTPUT FORMAT (repeat for each procedure):
 Procedure [Number]: [Title]

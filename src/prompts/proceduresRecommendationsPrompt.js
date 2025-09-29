@@ -27,6 +27,7 @@ Return a SINGLE string following these EXACT formatting rules:
 
 GUIDELINES:
 - Be HIGHLY SPECIFIC: include exact account numbers, amounts, dates, sample sizes, testing methodologies
+- DO NOT use the pilcrow (¶) symbol
 - Perform CALCULATIONS: show sample size formulas, materiality-based thresholds, error rate calculations
 - Reference SPECIFIC ETB accounts, transactions, balances, and risk factors
 - Cover all relevant assertions: existence, completeness, accuracy, cutoff, classification, rights/obligations

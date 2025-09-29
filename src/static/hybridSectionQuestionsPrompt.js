@@ -8,6 +8,7 @@ Return ONLY valid JSON. No prose, no code fences.
 TASK:
 Generate COMPREHENSIVE ADDITIONAL questions for the specific planning section in hybrid mode. These should:
 - Complement existing manual procedures without duplication
+- DO NOT use the pilcrow (¶) symbol
 - Address high-risk areas identified in the client context
 - Include materiality-based thresholds and calculations
 - Cover all relevant assertions and risk factors

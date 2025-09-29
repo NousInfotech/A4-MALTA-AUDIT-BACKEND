@@ -14,6 +14,7 @@ INPUT CONTEXT:
 TASK:
 For EACH section in the provided subset, produce answers ONLY.
 - Do NOT restate labels/help/options/content/etc.
+- DO NOT use the pilcrow (¶) symbol
 - Do NOT add or remove fields.
 - Preserve original field "key" identity; provide only "answer" for each.
 - If information is insufficient, use conservative, professional defaults and explicitly say "None" / "Not applicable" / false / [] / 0 as appropriate.

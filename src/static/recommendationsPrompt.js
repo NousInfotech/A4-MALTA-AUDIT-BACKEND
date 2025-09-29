@@ -17,6 +17,8 @@ Structure your recommendations as follows:
 - Business impact assessment
 - Implementation timeline and responsible party
 - Follow-up requirements
+- DO NOT use the pilcrow (¶) symbol
+
 
 Procedures and Findings: {proceduresAndFindings}
 Client Profile: {clientProfile}

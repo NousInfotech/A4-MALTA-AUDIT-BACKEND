@@ -17,6 +17,7 @@ OUTPUT RULES — READ CAREFULLY
 - Help must be concrete and practical (1–2 sentences).
 - \`options\` only for select/multiselect; options MUST be concise strings.
 - No answers. This is Step-1 question generation only.
+- DO NOT use the pilcrow (¶) symbol
 
 CONTEXT
 - Client Profile JSON: {clientProfile}

@@ -8,6 +8,7 @@ Return ONLY valid JSON. No prose, no code fences.
 TASK:
 Generate DETAILED, CONTEXT-SPECIFIC answers for ALL fields in the specified planning section. Answers must:
 - Be based on client context, materiality, and ETB data
+- DO NOT use the pilcrow (¶) symbol
 - Include precise calculations where applicable
 - Follow audit best practices and professional standards
 - Provide comprehensive explanations for complex areas

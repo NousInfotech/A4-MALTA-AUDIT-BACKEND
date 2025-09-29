@@ -24,6 +24,7 @@ FORMAT:
 
 GUIDELINES:
 - Be HIGHLY SPECIFIC: include exact account numbers, amounts, dates, sample sizes, testing methodologies
+- DO NOT use the pilcrow (¶) symbol
 - Perform CALCULATIONS: show sample size formulas, materiality-based thresholds, error rate calculations
 - Reference SPECIFIC ETB accounts, transactions, balances, and risk factors
 - Include testing strategies for high-risk areas, fraud indicators, complex accounting treatments
