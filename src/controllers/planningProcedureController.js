@@ -21,15 +21,29 @@ const sectionsById = new Map(
     : Object.values(planningSections || {}).map(s => [s.sectionId, s]) // safety if it ever changes shape
 );
 const normalize = (raw) => {
-      const out = { ...raw };
+  const out = { ...raw };
 
-      out.mode = ["manual", "ai", "hybrid"].includes(out.mode) ? out.mode : "manual";
-      out.status = ["draft", "in-progress", "completed"].includes(out.status) ? out.status : "in-progress";
+  out.mode = ["manual", "ai", "hybrid"].includes(out.mode) ? out.mode : "manual";
+  out.status = ["draft", "in-progress", "completed"].includes(out.status) ? out.status : "in-progress";
 
-      out.selectedSections = Array.isArray(out.selectedSections) ? out.selectedSections : [];
-      out.procedures = Array.isArray(out.procedures) ? out.procedures : [];
+  out.selectedSections = Array.isArray(out.selectedSections) ? out.selectedSections : [];
+  out.procedures = Array.isArray(out.procedures) ? out.procedures : [];
 
-      out.procedures = out.procedures.map((sec) => ({
+  // Normalize recommendations to ensure it's always an array
+  if (typeof out.recommendations === 'string') {
+    out.recommendations = out.recommendations.trim() 
+      ? [{
+          id: 'legacy-1',
+          text: out.recommendations,
+          checked: false,
+          section: 'general'
+        }]
+      : [];
+  } else if (!Array.isArray(out.recommendations)) {
+    out.recommendations = [];
+  }
+
+ out.procedures = out.procedures.map((sec) => ({
         id: sec?.id,
         sectionId: sec?.sectionId,
         title: sec?.title,
@@ -54,9 +68,10 @@ const normalize = (raw) => {
           : [],
       }));
 
-      if (!Array.isArray(out.files)) out.files = [];
-      return out;
-    };
+  if (!Array.isArray(out.files)) out.files = [];
+  return out;
+};
+
 const OpenAI = require("openai");
 const { jsonrepair } = require("jsonrepair");
 const JSON5 = require("json5");
@@ -162,7 +177,6 @@ exports.get = async (req, res) => {
   if (!doc) return res.status(404).json({ message: "Planning procedure not found" });
   res.json(doc);
 };
-
 exports.save = async (req, res) => {
   try {
     const { engagementId } = req.params;
@@ -173,7 +187,7 @@ exports.save = async (req, res) => {
 
     const payload = normalize(raw);
 
-    // Fetch the document to update (don't overwrite the file field)
+    // Fetch the document to update
     let doc = await PlanningProcedure.findOne({ engagement: engagementId });
 
     // If document doesn't exist, create a new one
@@ -186,11 +200,17 @@ exports.save = async (req, res) => {
 
     // Save the rest of the fields (procedures, recommendations, etc.)
     doc.procedures = payload.procedures;
-    doc.recommendations = payload.recommendations || "";
+    
+    if (Array.isArray(payload.recommendations)) {
+      doc.recommendations = payload.recommendations;
+    } else {
+      doc.recommendations = [];
+    }
+    
     doc.status = payload.status;
     doc.mode = payload.mode;
 
-    // Handle file uploads
+// Handle file uploads
     const uploaded = [];
     const files = req.files || [];
     for (const f of files) {
@@ -246,16 +266,16 @@ exports.save = async (req, res) => {
 
       doc.files = [...(doc.files || []), ...uploaded]; // Preserve existing files and add new ones
     }
-
     // Save the document
     await doc.save();
 
-    res.json(doc); // Return the saved document
+    res.json(doc);
   } catch (e) {
     console.error("Error saving planning procedure:", e);
     res.status(400).json({ error: e.message });
   }
 };
+
 
 // ---------- New endpoint: Generate questions for a specific section ----------
 exports.generateSectionQuestions = async (req, res) => {
@@ -413,23 +433,45 @@ if (parsed && parsed.sectionId === sectionId && Array.isArray(parsed.fields)) {
       return answeredField ? { ...field, answer: answeredField.answer } : field;
     });
 
-    // NEW: Add section recommendations
+    // NEW: Handle section recommendations as checklist items
+    const sectionRecommendations = Array.isArray(parsed.sectionRecommendations) 
+      ? parsed.sectionRecommendations 
+      : [];
+
     doc.procedures[sectionIndex].fields = answeredFields;
-    doc.procedures[sectionIndex].sectionRecommendations = parsed.sectionRecommendations || "";
+    doc.procedures[sectionIndex].sectionRecommendations = sectionRecommendations;
+    
+    // Add section recommendations to the main recommendations array with section attribute
+    if (sectionRecommendations.length > 0) {
+      // Initialize recommendations array if it doesn't exist
+      if (!Array.isArray(doc.recommendations)) {
+        doc.recommendations = [];
+      }
+
+      // Add section name to each recommendation and push to main recommendations array
+      const recommendationsWithSection = sectionRecommendations.map((rec, index) => ({
+        ...rec,
+        section: section.title || sectionId, // Use section title or sectionId as fallback
+        id: `${sectionId}-${index + 1}` // Generate unique ID for each recommendation
+      }));
+
+      // Add to main recommendations array
+      doc.recommendations.push(...recommendationsWithSection);
+    }
     
     await doc.save();
 
     res.json({ 
       sectionId, 
       fields: answeredFields,
-      sectionRecommendations: parsed.sectionRecommendations || "" // NEW
+      sectionRecommendations: sectionRecommendations
     });
 } else {
     res.status(500).json({ message: "Failed to generate answers for section" });
 }
 };
 
-// ---------- Generate recommendations for all sections ----------
+// In the generateRecommendations function, replace the current implementation:
 exports.generateRecommendations = async (req, res) => {
   const { engagementId } = req.params;
 
@@ -462,18 +504,51 @@ exports.generateRecommendations = async (req, res) => {
     .replace("{materiality}", String(doc.materiality || 0))
     .replace("{etbSummary}", JSON.stringify(etbRows.slice(0, 20)))
     .replace("{keyAnswers}", JSON.stringify(keyAnswers));
+  
   console.log(recPrompt," rec");
-  const recommendations = await callOpenAI(recPrompt);
+  const recommendationsRaw = await callOpenAI(recPrompt);
+  const recommendations = await robustParseJSON(recommendationsRaw, openai, { debugLabel: "planning_recommendations" });
 
-  doc.recommendations = recommendations;
+  // Process the sectioned recommendations into flat array and by-section map
+  let allRecommendations = [];
+  let recommendationsBySection = {};
+
+  if (recommendations && typeof recommendations === 'object') {
+    Object.entries(recommendations).forEach(([sectionKey, sectionRecs]) => {
+      if (Array.isArray(sectionRecs)) {
+        // Add section identifier to each recommendation
+        const sectionWithId = sectionRecs.map(rec => ({
+          ...rec,
+          section: sectionKey
+        }));
+        
+        recommendationsBySection[sectionKey] = sectionWithId;
+        allRecommendations.push(...sectionWithId);
+      }
+    });
+  }
+
+  // Reassign IDs from 1 to length for all recommendations
+  allRecommendations = allRecommendations.map((recommendation, index) => ({
+    ...recommendation,
+    id: (index + 1).toString()
+  }));
+
+  doc.recommendations = allRecommendations;
+  doc.recommendationsBySection = recommendationsBySection;
   doc.answersGeneratedAt = new Date();
   doc.status = "completed";
   await doc.save();
+  
   console.log(recommendations," recommendations");
 
-  res.json({ recommendations, procedures: doc.procedures });
+  // In the generateRecommendations function, replace the response part:
+res.json({ 
+  recommendations: allRecommendations, 
+  recommendationsBySection: recommendationsBySection,
+  procedures: doc.procedures 
+});
 };
-
 // exports.generateQuestions = async (req, res) => {
 //   const { engagementId } = req.params;
 //   const { mode = "ai", materiality = 0, selectedSections = [] } = req.body;

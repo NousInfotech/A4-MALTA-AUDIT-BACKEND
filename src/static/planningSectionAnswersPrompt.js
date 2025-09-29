@@ -34,9 +34,6 @@ For the provided section, produce EXTREMELY DETAILED answers for ALL fields AND 
 - DO NOT use the pilcrow (¶) symbol
 - ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
 
-
-
-
 OUTPUT JSON SCHEMA:
 {
   "sectionId": "same-section-id",
@@ -44,6 +41,9 @@ OUTPUT JSON SCHEMA:
     { "key": "field_key_1", "answer": <typed_value> },
     { "key": "field_key_2", "answer": <typed_value> }
   ],
-  "sectionRecommendations": "Comprehensive, detailed recommendations specific to this section including: risk assessment findings, control evaluation results, specific audit procedures to perform, sample sizing calculations based on materiality, testing methodologies, documentation requirements, and compliance considerations. Reference specific ETB accounts, amounts, and risk factors identified."
+  "sectionRecommendations": [
+    {"id": "1", "text": "Specific actionable recommendation with ISA references", "checked": false},
+    {"id": "2", "text": "Another specific recommendation", "checked": false}
+  ]
 }
 `;

@@ -32,6 +32,10 @@ OUTPUT JSON SCHEMA:
       "key": "field_key_1", 
       "answer": <typed_value> // Respect original field type
     }
+  ],
+  "sectionRecommendations": [
+    {"id": "1", "text": "Specific actionable recommendation with ISA references", "checked": false},
+    {"id": "2", "text": "Another specific recommendation", "checked": false}
   ]
 }
 `;

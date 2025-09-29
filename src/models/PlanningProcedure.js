@@ -2,6 +2,17 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
+// Add this schema near the top with other schemas
+const RecommendationItemSchema = new Schema(
+  {
+    id: { type: String },
+    text: { type: String },
+    checked: { type: Boolean, default: false },
+    section: { type: String } // For section-specific recommendations
+  },
+  { _id: false }
+);
+
 /** One field/question inside a section */
 const FieldSchema = new Schema(
   {
@@ -30,7 +41,10 @@ const SectionSchema = new Schema(
     currency: { type: String, default: undefined },
     fields: { type: [FieldSchema], default: [] },
     footer: { type: Schema.Types.Mixed, default: null },
-    sectionRecommendations: { type: String, default: "" }, // NEW: Section-specific recommendations
+    sectionRecommendations: { 
+      type: [RecommendationItemSchema], // CHANGED: Now array of checklist items
+      default: [] 
+    },
   },
   { _id: false, strict: false }
 );
@@ -48,7 +62,15 @@ const PlanningProcedureSchema = new Schema(
     materiality: { type: Number, default: undefined },
     selectedSections: { type: [String], default: [] },
     procedures: { type: [SectionSchema], default: [] },
-    recommendations: { type: String, default: "" },
+    recommendations: { 
+      type: [RecommendationItemSchema], // CHANGED: Now array of checklist items
+      default: [] 
+    },
+    recommendationsBySection: {
+      type: Map,
+      of: [RecommendationItemSchema], // CHANGED: Now arrays of checklist items
+      default: {}
+    },
     status: {
       type: String,
       enum: ["draft", "in-progress", "completed"],
