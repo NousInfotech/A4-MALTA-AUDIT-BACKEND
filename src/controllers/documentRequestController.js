@@ -158,16 +158,61 @@ exports.uploadDocuments = async (req, res, next) => {
 
 exports.createRequest = async (req, res, next) => {
   try {
-    const { engagementId, category, name, description, comment, documents } = req.body;
+    const { engagementId, category, name, description, comment, documents, attachment } = req.body;
+    
+    // Handle file upload if attachment is provided
+    let attachmentData = null;
+    if (attachment && attachment.file) {
+      try {
+        // Upload file to Supabase
+        const fileBuffer = Buffer.from(attachment.file, 'base64');
+        const fileName = `${Date.now()}-${attachment.name}`;
+        const filePath = `document-requests/attachments/${fileName}`;
+        
+        const { data, error } = await supabase.storage
+          .from('audit-documents')
+          .upload(filePath, fileBuffer, {
+            contentType: attachment.type,
+            upsert: false
+          });
+        
+        if (error) {
+          throw new Error(`File upload failed: ${error.message}`);
+        }
+        
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('audit-documents')
+          .getPublicUrl(filePath);
+        
+        attachmentData = {
+          name: attachment.name,
+          url: urlData.publicUrl,
+          size: attachment.size,
+          type: attachment.type,
+          uploadedAt: new Date()
+        };
+      } catch (uploadError) {
+        console.error('File upload error:', uploadError);
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to upload attachment',
+          error: uploadError.message
+        });
+      }
+    }
+    
     const dr = await DocumentRequest.create({
       engagement: engagementId,
       clientId: req.body.clientId || req.user.id,
-      name: name || `${category} Request - ${new Date().toLocaleDateString()}`, // Add name field with default
+      name: name || `${category} Request - ${new Date().toLocaleDateString()}`,
       category,
       description,
       comment: comment || "",
       documents,
+      attachment: attachmentData
     });
+    
     return res.status(201).json({
       success: true,
       message: 'Document request created successfully',
