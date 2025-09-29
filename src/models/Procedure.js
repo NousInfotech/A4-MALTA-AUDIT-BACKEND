@@ -33,6 +33,14 @@ const ValiditySelectionSchema = new mongoose.Schema({
   isValid: { type: Boolean }
 }, { _id: false });
 
+// NEW: Recommendation checklist item schema
+const RecommendationItemSchema = new mongoose.Schema({
+  id: { type: String },
+  text: { type: String },
+  checked: { type: Boolean, default: false },
+  classification: { type: String } // For fieldwork procedures
+}, { _id: false });
+
 const ProcedureSchema = new mongoose.Schema({
   engagement: {
     type: Schema.Types.ObjectId,
@@ -56,12 +64,12 @@ const ProcedureSchema = new mongoose.Schema({
   selectedClassifications: [{ type: String }],
   questions: [QuestionSchema],
   recommendations: { 
-    type: String, 
-    default: "" 
+    type: [RecommendationItemSchema], // CHANGED: Now array of checklist items
+    default: [] 
   },
   recommendationsByClassification: {
     type: Map,
-    of: String,
+    of: [RecommendationItemSchema], // CHANGED: Now arrays of checklist items
     default: {}
   },
   status: { 

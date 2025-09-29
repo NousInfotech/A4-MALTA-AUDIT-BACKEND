@@ -17,13 +17,20 @@ INPUT:
 - QUESTIONS (for reference): ${JSON.stringify(questions.filter(q => q.classification === currentClassification) ?? [], null, 2)}
 
 FORMAT:
-Return a SINGLE string following these EXACT formatting rules:
-1. Start with the classification formatted exactly as: *${currentClassification}*
-2. NEVER use Markdown (#, *, _) or bullets in the classification line
-3. Provide recommendations using '-' bullets
-4. Include QUANTITATIVE details: sample sizes based on materiality, error thresholds, testing coverage percentages
-5. Recommendations should be ACTIONABLE and DETAILED: specific audit procedures, documentation requirements, follow-up actions
-6. Do NOT add any additional formatting, headers, or section titles beyond what's specified
+Return a SINGLE JSON object following these EXACT formatting rules:
+{
+  "recommendations": [
+    {"id": "1", "text": "Specific actionable recommendation with quantitative details", "checked": false},
+    {"id": "2", "text": "Another specific recommendation with ISA references", "checked": false}
+  ]
+}
+
+RULES:
+1. Provide 3-5 checklist items as recommendations
+2. Each item must include QUANTITATIVE details: sample sizes based on materiality, error thresholds, testing coverage percentages
+3. Recommendations should be ACTIONABLE and DETAILED: specific audit procedures, documentation requirements, follow-up actions
+4. Include relevant ISA references for each recommendation
+5. Do NOT add any additional formatting, headers, or section titles beyond what's specified
 
 GUIDELINES:
 - Be HIGHLY SPECIFIC: include exact account numbers, amounts, dates, sample sizes, testing methodologies
@@ -36,10 +43,13 @@ GUIDELINES:
 - MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every recommendation generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 
 OUTPUT FORMAT EXAMPLE (STRICTLY FOLLOW THIS FORMAT):
-*${currentClassification}*
-- Perform bank confirmation for all accounts with balances exceeding €10,000 (sample size: 15 accounts based on 5% materiality threshold)
-- Test cutoff procedures around year-end for large transfers exceeding €25,000
-- Verify reconciliation procedures for all major accounts with emphasis on intercompany transfers
+{
+  "recommendations": [
+    {"id": "1", "text": "Perform bank confirmation for all accounts with balances exceeding €10,000 (sample size: 15 accounts based on 5% materiality threshold) - ISA 505", "checked": false},
+    {"id": "2", "text": "Test cutoff procedures around year-end for large transfers exceeding €25,000 - ISA 330", "checked": false},
+    {"id": "3", "text": "Verify reconciliation procedures for all major accounts with emphasis on intercompany transfers - ISA 250", "checked": false}
+  ]
+}
 `;
 }
 

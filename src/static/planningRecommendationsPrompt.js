@@ -11,10 +11,23 @@ FORMAT REQUIREMENTS:
    - Section 4: Risk Register & Audit Response Planning
    - Section 5: Fraud Risk & Going Concern Planning
    - Section 6: Compliance with Laws & Regulations (ISA 250)
-3. Each section must have 3-5 bullet points
-4. Do not use any markdown formatting (no ##, ###, **, etc.)
-5. End with a concluding sentence that starts with "These recommendations"
-6. DO NOT use the pilcrow (¶) symbol
+3. Each section must have 3-5 checklist items as recommendations
+4. Return ONLY valid JSON format with the following structure:
+   {
+     "section1": [
+       {"id": "1-1", "text": "Specific recommendation text for section 1", "checked": false},
+       {"id": "1-2", "text": "Another recommendation for section 1", "checked": false}
+     ],
+     "section2": [
+       {"id": "2-1", "text": "Specific recommendation text for section 2", "checked": false}
+     ],
+     ... continue for all 6 sections
+   }
+5. Each recommendation MUST be specific and actionable
+6. Each recommendation MUST include relevant ISA references
+7. Recommendations must be tailored specifically to the client context and materiality
+8. Do not use any markdown formatting (no ##, ###, **, etc.)
+9. DO NOT use the pilcrow (¶) symbol
 
 INPUTS:
 - Client Profile: {clientProfile}
@@ -22,17 +35,16 @@ INPUTS:
 - ETB summary: {etbSummary}
 - Sections and key answers: {keyAnswers}
 
-OUTPUT FORMAT:
-Section 1: Engagement Setup, Acceptance & Independence
-[Bullet point 1]
-[Bullet point 2]
-[Bullet point 3]
-Section 2: Understanding the Entity & Its Environment
-[Bullet point 1]
-[Bullet point 2]
-[Bullet point 3]
-[Continue with all 6 sections]
-These recommendations are designed to ensure a thorough and effective audit planning process, addressing all critical areas of risk and compliance.
+OUTPUT FORMAT EXAMPLE:
+{
+  "section1": [
+    {"id": "1-1", "text": "Update engagement letter to reflect new regulatory requirements (ISA 210)", "checked": false},
+    {"id": "1-2", "text": "Perform independence confirmation for all team members (ISA 220)", "checked": false}
+  ],
+  "section2": [
+    {"id": "2-1", "text": "Document understanding of new IT system implementation (ISA 315)", "checked": false}
+  ]
+}
 
-IMPORTANT: Do not deviate from this format. Do not add extra sections or remove any of the specified sections.
+IMPORTANT: Do not deviate from this JSON format. Do not add extra sections or remove any of the specified sections.
 `;
