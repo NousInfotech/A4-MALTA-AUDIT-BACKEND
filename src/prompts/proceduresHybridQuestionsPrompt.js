@@ -1,4 +1,4 @@
-// proceduresHybridQuestionsPrompt.js
+// fieldworkHybridQuestionsPrompt.js
 function buildHybridQuestionsPrompt({ framework, manualPacks, context }) {
   return `
 SYSTEM:

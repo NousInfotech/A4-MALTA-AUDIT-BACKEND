@@ -1,5 +1,5 @@
-// proceduresAnswersPrompt.js
-function buildProceduresAnswersPrompt({ framework, context, questions, classifications }) {
+// fieldworkAnswersPrompt.js
+function buildfieldworkAnswersPrompt({ framework, context, questions, classifications }) {
   return `
 SYSTEM:
 You are an expert audit senior with extensive fieldwork experience. Provide EXTREMELY DETAILED fieldwork ANSWERS
@@ -35,4 +35,4 @@ GUIDELINES:
 - MUST ENSURE that All answers are fully aligned with the International Standards on Auditing (ISAs). For every answer generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework ${framework}—(e.g., ISA 315 – Identifying and Assessing Risks of Material Misstatement ${framework}). This guarantees that all outputs remain compliant with professional auditing standards and tailored to the framework under which the audit is being performed.
 `;
 }
-module.exports = buildProceduresAnswersPrompt;
+module.exports = buildfieldworkAnswersPrompt;

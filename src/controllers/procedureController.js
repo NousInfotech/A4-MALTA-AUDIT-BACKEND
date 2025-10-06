@@ -1,9 +1,6 @@
 // src/controllers/procedure.controller.js
 const Procedure = require("../models/Procedure.js");
 const { buildOneShotExamples } = require("../services/classification.service.js");
-const buildProceduresQuestionsPrompt = require("../prompts/proceduresQuestionsPrompt.js");
-const buildProceduresAnswersPrompt = require("../prompts/proceduresAnswersPrompt.js");
-const buildHybridQuestionsPrompt = require("../prompts/proceduresHybridQuestionsPrompt.js");
 const { generateJson } = require("../services/llm.service.js");
 const Engagement = require("../models/Engagement.js");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance.js")
@@ -13,7 +10,6 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
-const buildProceduresRecommendationsPrompt = require("../prompts/proceduresRecommendationsPrompt.js");
 
 // Add this small util near the top of the file:
 function coerceQuestionsArray(out) {
@@ -26,6 +22,21 @@ function coerceQuestionsArray(out) {
   // Sometimes models return { result: { questions: [...] } }
   if (out.result && Array.isArray(out.result.questions)) return out.result.questions;
   return [];
+}
+
+// ---------- Helper function to get prompts from database ----------
+async function getPrompt(name) {
+  try {
+    const Prompt = require("../models/Prompt");
+    const prompt = await Prompt.findOne({ name, isActive: true });
+    if (!prompt) {
+      throw new Error(`Prompt not found: ${name}`);
+    }
+    return prompt.content;
+  } catch (error) {
+    console.error(`Error loading prompt ${name}:`, error);
+    throw error;
+  }
 }
 
 async function buildContext(engagementId, classifications = []) {
@@ -81,7 +92,11 @@ async function hybridGenerateQuestions(req, res) {
     const context = await buildContext(engagementId,classifications)
     console.log("Built context:", context);
     const manualPacks = manualQuestions;
-    const prompt = buildHybridQuestionsPrompt({ framework, manualPacks, context });
+    
+    const promptContent = await getPrompt("fieldworkHybridQuestionsPrompt");
+    const promptFunction = eval(`(${promptContent})`);
+    const prompt = promptFunction({ framework, manualPacks, context });
+    
     console.log("Hybrid ques Built prompt:", prompt);
 
     const out = await generateJson({ prompt, model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini" });
@@ -188,6 +203,7 @@ async function saveProcedurebySection(req, res) {
     res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
 }
+
 // Get procedure for an engagement
 async function getProcedure(req, res) {
   try {
@@ -205,8 +221,8 @@ async function getProcedure(req, res) {
     res.status(500).json({ ok: false, message: "Server error", error: error.message });
   }
 }
-// In the procedureController.js file, replace the generateRecommendations function with this:
 
+// In the procedureController.js file, replace the generateRecommendations function with this:
 async function generateRecommendations(req, res) {
   try {
     const { procedureId, engagementId, framework = "IFRS", classifications, questions = [] } = req.body;
@@ -221,7 +237,9 @@ async function generateRecommendations(req, res) {
       const classification = classifications[i];
       console.log(`Processing classification ${i+1}/${classifications.length}:`, classification);
       
-      const prompt = buildProceduresRecommendationsPrompt({ 
+      const promptContent = await getPrompt("fieldworkRecommendationsPrompt");
+      const promptFunction = eval(`(${promptContent})`);
+      const prompt = promptFunction({ 
         framework, 
         context, 
         classifications: [classification],
@@ -318,6 +336,7 @@ async function generateRecommendations(req, res) {
     res.status(500).json({ ok: false, error: "Server error (recommendations)" });
   }
 }
+
 // AI classification-specific questions
 async function generateAIClassificationQuestions(req, res) {
   try {
@@ -330,12 +349,15 @@ async function generateAIClassificationQuestions(req, res) {
     let oneShotExamples = buildOneShotExamples(framework, [classification]);
     if (!Array.isArray(oneShotExamples)) oneShotExamples = [];
 
-    const prompt = buildProceduresQuestionsPrompt({ 
+    const promptContent = await getPrompt("fieldworkAiQuestionsPrompt");
+    const promptFunction = eval(`(${promptContent})`);
+    const prompt = promptFunction({ 
       framework, 
       classifications: [classification], 
       context, 
       oneShotExamples 
     });
+    
     console.log("AI classification ques Built prompt:", prompt);
 
     const out = await generateJson({ 
@@ -386,12 +408,15 @@ async function generateAIClassificationAnswers(req, res) {
     const context = await buildContext(engagementId, [classification]);
     console.log("Built context for classification answers:", classification);
     
-    const prompt = buildProceduresAnswersPrompt({ 
+    const promptContent = await getPrompt("fieldworkAnswersPrompt");
+    const promptFunction = eval(`(${promptContent})`);
+    const prompt = promptFunction({ 
       framework, 
       context, 
       questions, 
       classifications: [classification] 
     });
+    
     console.log("AI classification answers Built prompt:", prompt);
 
     const out = await generateJson({ 
@@ -456,12 +481,15 @@ async function generateAIClassificationAnswersSeparate(req, res) {
     const context = await buildContext(engagementId, [classification]);
     console.log("Built context for classification answers:", classification);
     
-    const prompt = buildProceduresAnswersPrompt({ 
+    const promptContent = await getPrompt("fieldworkAnswersPrompt");
+    const promptFunction = eval(`(${promptContent})`);
+    const prompt = promptFunction({ 
       framework, 
       context, 
       questions, 
       classifications: [classification] 
     });
+    
     console.log("AI classification answers Built prompt:", prompt);
 
     const out = await generateJson({ 
@@ -489,51 +517,10 @@ async function generateAIClassificationAnswersSeparate(req, res) {
   }
 }
   
-// async function generateHybridClassificationQuestion (req, res) {
-//   try {
-//     const { engagementId, materiality, classification, manualQuestions } = req.body;
-    
-//     // Get engagement data
-//     const engagement = await Engagement.findById(engagementId);
-//     if (!engagement) {
-//       return res.status(404).json({ message: "Engagement not found" });
-//     }
-    
-//     // Get context for the AI prompt
-//     const context = {
-//       materiality,
-//       industry: engagement.industry,
-//       riskAssessment: engagement.riskAssessment,
-//       // Add other relevant context here
-//     };
-    
-//     // Build the prompt for hybrid question generation
-//     const prompt = buildHybridQuestionsPrompt({
-//       framework: engagement.framework || "IFRS",
-//       manualPacks: manualQuestions.filter(q => q.classification === classification),
-//       context,
-//     });
-    
-//     // Call your AI service
-//     const aiResponse = await callAIService(prompt);
-    
-//     // Parse and return the response
-//     const aiQuestions = aiResponse.questions || [];
-    
-//     res.json({
-//       aiQuestions,
-//       recommendations: aiResponse.recommendations || ""
-//     });
-//   } catch (error) {
-//     console.error("Error generating hybrid classification questions:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// }
 module.exports = {
   saveProcedure,
   hybridGenerateQuestions,
   generateAIClassificationAnswers,
-  // generateHybridClassificationQuestion,
   generateAIClassificationQuestions,
   generateAIClassificationAnswersSeparate,
   getProcedure,
