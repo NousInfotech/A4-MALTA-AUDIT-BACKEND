@@ -9,6 +9,7 @@ const ExtendedTrialBalance = require("../models/ExtendedTrialBalance")
 const ClassificationSection = require("../models/ClassificationSection")
 const mongoose = require("mongoose")
 const XLSX = require("xlsx")
+const { uploadWorkbookFile, listWorkbooks, listWorksheets, readSheet, writeSheet} = require("../services/microsoftExcelService")
 
 const EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 // utils/referenceHelpers.js
@@ -1879,5 +1880,111 @@ exports.getWorkingPaperFromDB = async (req, res, next) => {
     return res.json({ rows: doc.rows });
   } catch (err) {
     next(err);
+  }
+};
+
+exports.uploadWorkbook = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded.' });
+    }
+
+    const { engagementId, classification } = req.body;
+    const fileName = req.file.originalname;
+    const fileBuffer = req.file.buffer; // The file content as a Buffer
+
+    if (!engagementId) {
+      return res.status(400).json({ success: false, error: 'engagementId is required.' });
+    }
+
+    const result = await uploadWorkbookFile({
+      engagementId,
+      classification,
+      fileName,
+      fileBuffer,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error uploading workbook:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+exports.listWorkbooksInFolder = async (req, res, next) => {
+  try {
+    const { engagementId, classification } = req.query; // Use req.query for GET parameters
+
+    if (!engagementId) {
+      return res.status(400).json({ success: false, error: 'engagementId is required.' });
+    }
+
+    const workbooks = await listWorkbooks({ engagementId, classification });
+    res.json({ success: true, data: workbooks });
+  } catch (error) {
+    console.error('Error listing workbooks:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+exports.listWorksheetsInWorkbook = async (req, res, next) => {
+  try {
+    const { workbookId } = req.params;
+    const worksheets = await listWorksheets(workbookId);
+    res.json({ success: true, data: worksheets });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.readSpecificSheetFromWorkbook = async (req, res, next) => {
+  try {
+    const { workbookId, sheetName } = req.params;
+    // Note: readSheet returns raw values, which is good.
+    const sheetData = await readSheet({ driveItemId: workbookId, worksheetName: sheetName });
+    res.json({ success: true, data: sheetData });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.SaveOrWriteEntireWorkbook = async (req, res, next) => {
+  try {
+    const { workbookId } = req.params;
+    // Assuming req.body.sheetData is an object like { "Sheet1": [[...]], "Sheet2": [[...]] }
+    const { sheetData } = req.body; 
+
+    // Now call the new dedicated function
+    const result = await writeWorkbook({ driveItemId: workbookId, workbookData: sheetData });
+    
+    res.json({ success: true, data: result });
+
+  } catch (error) {
+    console.error('Error saving workbook:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.SaveOrwriteSpecificSheet = async (req, res, next) => {
+  try {
+    const { workbookId, sheetName } = req.params;
+    const { sheetData } = req.body; // sheetData is the 2D array for THIS sheet
+
+    if (!Array.isArray(sheetData)) {
+        return res.status(400).json({ success: false, error: 'Sheet data must be a 2D array.' });
+    }
+
+    // Your backend's `writeSheet` expects raw values without the prepended
+    // column letters or row numbers. You might need to strip these off here
+    // before passing to `writeSheet`.
+    const dataToWrite = sheetData.slice(1).map(row => row.slice(1)); // Remove Excel-like headers
+
+    const result = await writeSheet({ driveItemId: workbookId, worksheetName: sheetName, values: dataToWrite });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error saving sheet:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };

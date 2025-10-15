@@ -2,6 +2,8 @@ const router = require("express").Router();
 const ec = require("../controllers/engagementController");
 const { requireAuth, requireRole } = require("../middlewares/auth");
 const upload = require("../middlewares/upload");
+const multer = require("multer")
+const multer_upload = multer({ storage: multer.memoryStorage() })
 router.post("/", requireAuth, requireRole("employee"), ec.createEngagement);
 router.get("/", requireAuth, ec.getAllEngagements);
 router.get("/getClientEngagements", requireAuth, ec.getClientEngagements);
@@ -69,6 +71,50 @@ router.post(
   ec.createViewOnlySpreadsheet
 );
 
+//workbooks
+
+router.post(
+  "/engagement/classification/excel/upload-workbook",
+  requireAuth,
+  multer_upload.single("file"),
+  ec.uploadWorkbook
+);
+
+router.get(
+  "/engagement/classification/excel/workbooks",
+  requireAuth,
+  ec.listWorkbooksInFolder
+);
+
+router.get(
+  "/engagement/classification/excel/workbooks/:workbookId/worksheets",
+  requireAuth,
+  ec.listWorksheetsInWorkbook
+);
+
+router.get(
+  "/engagement/classification/excel/workbooks/:workbookId/sheets/:sheetName/read",
+  requireAuth,
+  ec.readSpecificSheetFromWorkbook
+);
+
+router.put(
+  "/engagement/classification/excel/workbooks/:workbookId",
+  requireAuth,
+  ec.SaveOrWriteEntireWorkbook
+);
+
+router.put(
+  "/engagement/classification/excel/workbooks/:workbookId/sheets/:sheetName",
+  requireAuth,
+  ec.SaveOrwriteSpecificSheet
+);
+
+
+
+// end workbooks
+
+  
 router.post("/:id/fetch-trial-balance", requireAuth, ec.fetchTrialBalance);
 
 router.get("/:id/trial-balance", requireAuth, ec.getTrialBalance);

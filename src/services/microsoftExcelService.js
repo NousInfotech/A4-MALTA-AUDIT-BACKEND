@@ -159,6 +159,11 @@ async function ensureWorkbook({ engagementId, classification }) {
 }
 
 async function ensureWorksheet(token, driveItemId, worksheetName) {
+   // --- ADD THIS LOGGING IMMEDIATELY BEFORE THE FIRST FETCH ---
+  const requestUrl = `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets`;
+  console.log(`[ensureWorksheet] Attempting to list worksheets for driveItemId: ${driveItemId}`);
+  console.log(`[ensureWorksheet] Request URL: ${requestUrl}`);
+  // -----------------------------------------------------------
   let res = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets`, {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -367,9 +372,203 @@ async function readSheet({ driveItemId, worksheetName }) {
   return json.values || []
 }
 
+
+async function uploadWorkbookFile({ engagementId, classification, fileName, fileBuffer }) {
+  const token = await getAccessToken();
+
+  const cleanClassification = classification?.replace(/[^\w\s]/g, "").substring(0, 50) || "Unclassified";
+  const segments = ["Apps", String(engagementId), cleanClassification, "workbooks"];
+
+  const folder = await ensureFolderPath(token, segments);
+
+  const uploadRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${folder.id}:/${fileName}:/content`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: fileBuffer,
+  });
+
+  if (!uploadRes.ok) {
+    const t = await uploadRes.text();
+    throw new Error(`Graph file upload failed: ${uploadRes.status} ${t}`);
+  }
+
+  const uploadedFile = await uploadRes.json();
+
+  let sharepointDocId = null;
+  let anonymousWebUrl = uploadedFile.webUrl; // Default to direct webUrl
+
+  // Extract GUID from webUrl if it's a SharePoint URL
+  if (uploadedFile.webUrl && uploadedFile.webUrl.includes("sourcedoc=%7B")) {
+    const match = uploadedFile.webUrl.match(/sourcedoc=%7B([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})%7D/);
+    if (match && match[1]) {
+      sharepointDocId = match[1];
+    }
+  }
+
+  // --- NEW: Create an anonymous sharing link ---
+  try {
+    const linkRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${uploadedFile.id}/createLink`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      // You can choose "view" or "edit" here based on your requirements
+      body: JSON.stringify({ type: MS_SHARE_TYPE, scope: MS_SHARE_SCOPE }),
+    });
+
+    if (linkRes.ok) {
+      const linkJson = await linkRes.json();
+      if (linkJson.link?.webUrl) {
+        anonymousWebUrl = linkJson.link.webUrl;
+        console.log(`[Backend Debug - uploadWorkbookFile Service] Anonymous share link created: ${anonymousWebUrl}`);
+      } else {
+        console.warn("[Backend Debug - uploadWorkbookFile Service] createLink successful but no webUrl found in response.");
+      }
+    } else {
+      const errorText = await linkRes.text();
+      console.warn(`[Backend Debug - uploadWorkbookFile Service] Failed to create anonymous link: ${linkRes.status} - ${errorText}`);
+      // Fallback to original webUrl if link creation fails
+    }
+  } catch (error) {
+    console.error("[Backend Debug - uploadWorkbookFile Service] Error creating anonymous link:", error);
+    // Fallback to original webUrl if an error occurs
+  }
+  // --- END NEW SECTION ---
+
+  const finalReturnObject = {
+    id: uploadedFile.id,
+    sharepointDocId: sharepointDocId,
+    webUrl: anonymousWebUrl, // Use the anonymousWebUrl
+    name: uploadedFile.name,
+  };
+
+  console.log("[Backend Debug - uploadWorkbookFile Service] Final object being returned:", finalReturnObject);
+
+  return finalReturnObject;
+}
+
+
+
+async function listWorkbooks({ engagementId, classification }) {
+  const token = await getAccessToken()
+
+  const cleanClassification = classification?.replace(/[^\w\s]/g, "").substring(0, 50) || "Unclassified"
+  const segments = ["Apps", String(engagementId), cleanClassification, "workbooks"]
+
+  // Resolve the folder path
+  const folder = await ensureFolderPath(token, segments)
+
+  // List children in the folder
+  const listUrl = `${GRAPH_BASE}${driveRoot()}/items/${folder.id}/children`
+  const res = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`Graph list folder contents failed: ${res.status} ${t}`)
+  }
+
+  const json = await res.json()
+
+  // Filter to only .xlsx files
+  const workbooks = (json.value || []).filter(item => {
+    return item.file && item.name.toLowerCase().endsWith(".xlsx")
+  })
+
+  // --- MODIFIED SECTION: Generate anonymous links for each workbook ---
+  const workbooksWithShareableUrls = await Promise.all(workbooks.map(async (wb) => {
+    let anonymousWebUrl = wb.webUrl; // Default to the original webUrl
+
+    try {
+      const linkRes = await fetch(`${GRAPH_BASE}${driveRoot()}/items/${wb.id}/createLink`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: MS_SHARE_TYPE, scope: MS_SHARE_SCOPE }),
+      });
+
+      if (linkRes.ok) {
+        const linkJson = await linkRes.json();
+        if (linkJson.link?.webUrl) {
+          anonymousWebUrl = linkJson.link.webUrl;
+          console.log(`[Backend Debug - listWorkbooks Service] Anonymous share link created for ${wb.name}: ${anonymousWebUrl}`);
+        } else {
+          console.warn(`[Backend Debug - listWorkbooks Service] createLink successful for ${wb.name} but no webUrl found in response.`);
+        }
+      } else {
+        const errorText = await linkRes.text();
+        console.warn(`[Backend Debug - listWorkbooks Service] Failed to create anonymous link for ${wb.name}: ${linkRes.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.error(`[Backend Debug - listWorkbooks Service] Error creating anonymous link for ${wb.name}:`, error);
+    }
+
+    return {
+      id: wb.id,
+      name: wb.name,
+      webUrl: anonymousWebUrl, // Use the potentially new anonymousWebUrl
+      size: wb.size,
+      lastModifiedDateTime: wb.lastModifiedDateTime,
+    };
+  }));
+  // --- END MODIFIED SECTION ---
+
+  return workbooksWithShareableUrls; // Return the new array with shareable URLs
+}
+
+
+
+
+async function listWorksheets(driveItemId) {
+  const token = await getAccessToken();
+  const requestUrl = `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets`;
+  
+  const res = await fetch(requestUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Graph list worksheets failed: ${res.status} ${t} (URL: ${requestUrl})`);
+  }
+  const json = await res.json();
+  return json.value;
+}
+
+
+
+async function writeWorkbook({ driveItemId, workbookData }) {
+  // workbookData is expected to be an object where keys are sheet names
+  // and values are the 2D array sheet data (e.g., { "Sheet1": [[...]], "Sheet2": [[...]] })
+
+  if (!workbookData || typeof workbookData !== 'object') {
+    throw new Error('Invalid workbookData provided. Expected an object mapping sheet names to 2D arrays.');
+  }
+
+  const sheetNames = Object.keys(workbookData);
+
+  // Iterate over each sheet and call writeSheet
+  for (const sheetName of sheetNames) {
+    const values = workbookData[sheetName];
+    if (!Array.isArray(values)) {
+      console.warn(`Skipping sheet '${sheetName}' due to invalid data format.`);
+      continue; // Skip if sheet data is not a 2D array
+    }
+    
+    // Call the existing writeSheet function for each individual sheet
+    await writeSheet({ driveItemId, worksheetName: sheetName, values });
+  }
+
+  return { success: true, message: `Workbook ${driveItemId} saved successfully.` };
+}
+
+
 module.exports = {
   ensureWorkbook,
   writeSheet,
   readSheet,
   getAccessToken,
+  uploadWorkbookFile,
+  listWorkbooks,
+  listWorksheets,
+  writeWorkbook
 }
