@@ -6,13 +6,13 @@ require("dotenv").config();
 async function initializePrompts() {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
-    
-      try {
-        const initialPrompts = [
+
+    try {
+          const initialPrompts = [
       {
         name: "planningAiSectionAnswersPrompt",
         description: "Generate answers for AI planning sections",
-        category: "Planning",
+        category: "planning",
         content: `You are an expert audit planner with deep knowledge of ISA, IFRS, and industry-specific auditing standards.
 
 RETURN FORMAT:
@@ -64,7 +64,7 @@ OUTPUT JSON SCHEMA:
       {
         name: "planningHybridSectionAnswersPrompt",
         description: "Generate answers for Planning hybrid sections",
-        category: "Planning",
+        category: "planning",
         content: `You are an expert audit planner with deep knowledge of ISA, IFRS, and industry-specific auditing standards.
 
 RETURN FORMAT:
@@ -108,7 +108,7 @@ OUTPUT JSON SCHEMA:
       {
         name: "planningRecommendationsPrompt",
         description: "Generate planning recommendations",
-        category: "Planning",
+        category: "planning",
         content: `You are an expert audit planner. Generate planning recommendations with the following EXACT format requirements, I want you to generate the recommendations, not the Procedures:
 
 FORMAT REQUIREMENTS:
@@ -161,7 +161,7 @@ IMPORTANT: Do not deviate from this JSON format. Do not add extra sections or re
       {
         name: "fieldworkAiQuestionsPrompt",
         description: "Generate Fieldwork AI questions",
-        category: "Field Work",
+        category: "procedures",
         content: `function buildfieldworkAiQuestionsPrompt({ framework = '', classifications = [], context = {}, oneShotExamples = [] }) {
   return \`
 SYSTEM:
@@ -218,7 +218,7 @@ ONE-SHOT EXAMPLES (style cues; do not copy text):
       {
         name: "fieldworkAnswersPrompt",
         description: "Generate procedures answers",
-        category: "Field Work",
+        category: "procedures",
         content: `function buildfieldworkAnswersPrompt({ framework, context, questions, classifications }) {
   return \`
 SYSTEM:
@@ -260,7 +260,7 @@ GUIDELINES:
       {
         name: "fieldworkHybridQuestionsPrompt",
         description: "Generate Fieldwork hybrid procedures questions",
-        category: "Field Work",
+        category: "procedures",
         content: `function buildHybridQuestionsPrompt({ framework, manualPacks, context }) {
   return \`
 SYSTEM:
@@ -309,7 +309,7 @@ ANALYSIS REQUIREMENTS:
       {
         name: "fieldworkRecommendationsPrompt",
         description: "Generate Fieldwork procedure recommendations",
-        category: "Field Work",
+        category: "procedures",
         content: `function buildfieldworkRecommendationsPrompt({ framework, context, classifications, questions = [], batchIndex = 0, totalBatches = 1 }) {
   const currentClassification = classifications[batchIndex];
   
@@ -368,7 +368,7 @@ OUTPUT FORMAT EXAMPLE (STRICTLY FOLLOW THIS FORMAT):
       {
         name: "planningHybridSectionQuestionsPrompt",
         description: "Generate hybrid section questions",
-        category: "Planning",
+        category: "planning",
         content: `You are an expert audit planner with deep knowledge of ISA, IFRS, and industry-specific auditing standards.
 
 RETURN FORMAT:
@@ -410,7 +410,7 @@ OUTPUT JSON SCHEMA:
       {
         name: "planningAiSectionQuestionsPrompt",
         description: "Generate planning section questions",
-        category: "Planning",
+        category: "planning",
         content: `You are an expert audit planner with extensive experience in risk assessment and audit program design.
 
 OUTPUT RULES — READ CAREFULLY
@@ -476,21 +476,297 @@ OUTPUT JSON SCHEMA
   ]
 }`,
         lastModifiedBy: "System"
+      },
+      // Add these to the initialPrompts array in prompts.js
+      {
+        name: "completionAiSectionQuestionsPrompt",
+        description: "Generate questions for AI completion sections",
+        category: "completion",
+        content: `You are an expert audit completion specialist with deep knowledge of ISA, IFRS, and final audit procedures.
+
+OUTPUT RULES — READ CAREFULLY
+- Return ONLY valid JSON. No prose. No code fences.
+- Use ONLY these field types: text, textarea, checkbox, multiselect, number, currency, select, user, date.
+- DO NOT use: group, table, file, markdown, or any custom types.
+- Every field MUST include exactly these keys (when relevant):
+  { "key", "type", "label", "required", "help", "options?", "visibleIf?", "min?", "max?", "placeholder?" }
+- \`visibleIf\` supports:
+  - equality on select/checkbox: { "some_key": ["Option A","Option B"] } or { "some_flag": [true] }
+  - numeric operators: { "some_number_key": [{ "operator": ">=" | ">" | "<=" | "<" | "=", "value": <number> }] }
+  - existence: { "some_key": [{ "operator": "not_empty" }] }
+- Keys must be snake_case and unique per section.
+- Labels must be short, human-readable questions.
+- Help must be concrete and practical (1–2 sentences) with specific completion considerations
+- \`options\` only for select/multiselect; options MUST be concise strings.
+- No answers. This is Step-1 question generation only.
+- DO NOT use the pilcrow (¶) symbol
+
+CONTEXT
+- Client Profile JSON: {clientProfile}
+- Materiality (numeric): {materiality}
+- ETB rows (array, summarized): {etbRows}
+- Section: {section}
+- Planning Procedure: {planningProcedure}
+- Fieldwork Procedure: {fieldworkProcedure}
+- Allowed Field Palette (examples only, not actual fields): {fieldPalette}
+
+GOAL
+- Generate a COMPREHENSIVE set of DEEP, ANALYTICAL questions (fields) for the specific completion section that:
+  - address final audit completion requirements per ISA standards
+  - incorporate insights from planning and fieldwork procedures
+  - include specific completion checklist items and final review considerations
+  - address going concern, subsequent events, management representations, and final reporting
+  - cover all relevant completion assertions and final risk assessments
+  - include questions about final analytical review, unadjusted errors, and client communications
+- Create 15-25 DEEP questions per section to ensure exhaustive coverage of all completion requirements
+- Include questions that require analysis of final audit evidence and conclusions
+- Implement COMPLEX branching logic with \`visibleIf\` to create adaptive questioning based on completion factors
+- Use the field palette as style guidance ONLY (don't copy keys; create new, unique keys)
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 700 – Forming an Opinion and Reporting on Financial Statements). This guarantees that all outputs remain compliant with professional auditing standards.
+
+COMPLETION-SPECIFIC HOOKS (perform DEEP analysis to shape questions)
+- Analyze planning procedure for risk assessment conclusions and materiality finalization
+- Review fieldwork procedure for significant findings, adjustments, and control deficiencies
+- Identify final reporting considerations, including key audit matters and going concern
+- Address management representation letter requirements and subsequent events review
+- Incorporate final analytical review procedures and unadjusted misstatements evaluation
+- Consider client communication requirements and points forward for next year
+
+OUTPUT JSON SCHEMA
+{
+  "sectionId": "same-section-id",
+  "fields": [
+    {
+      "key": "final_risk_assessment_key",
+      "type": "textarea",
+      "label": "Final risk assessment conclusions from planning and fieldwork",
+      "required": true,
+      "help": "Summarize final risk assessment incorporating findings from planning (ISA 315) and fieldwork procedures. Reference specific risks addressed.",
+      "visibleIf": { "completion_required": [true]},
+      "placeholder": "e.g., Revenue recognition risk mitigated through detailed testing, control deficiencies in IT systems require management letter points"
+    }
+    // ... 15-25 detailed, completion-specific fields with complex branching logic ...
+  ]
+}`,
+        lastModifiedBy: "System"
+      },
+      {
+        name: "completionAiSectionAnswersPrompt",
+        description: "Generate answers for AI completion sections",
+        category: "completion",
+        content: `You are an expert audit completion specialist with deep knowledge of ISA, IFRS, and final audit procedures.
+
+RETURN FORMAT:
+Return ONLY valid JSON. No prose, no code fences.
+
+INPUT CONTEXT:
+- Client Profile JSON: {clientProfile}
+- Materiality (numeric): {materiality}
+- Extended Trial Balance rows (array): {etbRows}
+- Section with fields (object with sectionId and fields array): {section}
+- Planning Procedure: {planningProcedure}
+- Fieldwork Procedure: {fieldworkProcedure}
+
+TASK:
+For the provided completion section, produce EXTREMELY DETAILED answers for ALL fields AND generate comprehensive section-specific recommendations.
+- Perform DEEP ANALYSIS of client profile, materiality, ETB data, planning and fieldwork procedures
+- Calculate precise values using ETB data when numeric fields are requested
+- Incorporate findings and conclusions from planning and fieldwork procedures
+- Identify completion-specific risk patterns, control weaknesses, and reporting considerations
+- Do NOT restate labels/help/options/content/etc.
+- Do NOT add or remove fields.
+- Preserve original field "key" identity; provide only "answer" for each.
+- If information is insufficient, use conservative, professional defaults based on audit completion best practices
+- NEVER leave any answer empty or unanswered - provide detailed, context-appropriate responses with specific completion references
+- Respect types:
+  - text/textarea: string (provide detailed explanations with specific examples from planning/fieldwork)
+  - checkbox: boolean (with justification in adjacent text fields if needed)
+  - multiselect: string[] (select ALL applicable options with rationale)
+  - number/currency: number (provide precise calculations showing methodology)
+  - table: array of row objects with keys exactly matching the provided "columns" (include ALL relevant completion data)
+- Answers must be self-consistent with materiality, ETB data, and findings from planning/fieldwork
+- Additionally, provide EXTENSIVE section-specific recommendations based on the answers with specific completion procedures, final review approaches, and reporting considerations
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every answer and recommendation generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 700 – Forming an Opinion and Reporting on Financial Statements). This guarantees that all outputs remain compliant with professional auditing standards.
+- DO NOT use the pilcrow (¶) symbol
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
+
+OUTPUT JSON SCHEMA:
+{
+  "sectionId": "same-section-id",
+  "fields": [
+    { "key": "field_key_1", "answer": <typed_value> },
+    { "key": "field_key_2", "answer": <typed_value> }
+  ],
+  "sectionRecommendations": [
+    {"id": "1", "text": "Specific actionable completion recommendation with ISA references", "checked": false},
+    {"id": "2", "text": "Another specific completion recommendation", "checked": false}
+  ]
+}`,
+        lastModifiedBy: "System"
+      },
+      {
+        name: "completionHybridSectionQuestionsPrompt",
+        description: "Generate questions for completion hybrid sections",
+        category: "completion",
+        content: `You are an expert audit completion specialist with deep knowledge of ISA, IFRS, and final audit procedures.
+
+RETURN FORMAT:
+Return ONLY valid JSON. No prose, no code fences.
+
+TASK:
+Generate COMPREHENSIVE ADDITIONAL questions for the specific completion section in hybrid mode. These should:
+- Complement existing manual procedures without duplication
+- DO NOT use the pilcrow (¶) symbol
+- Address completion-specific risk areas identified in the client context
+- Incorporate insights from planning and fieldwork procedures
+- Include materiality-based thresholds and completion calculations
+- Cover all relevant completion assertions and final review factors
+- Follow ISA standards and completion best practices
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 700 – Forming an Opinion and Reporting on Financial Statements). This guarantees that all outputs remain compliant with professional auditing standards.
+
+INPUT CONTEXT:
+- Client Profile: {clientProfile}
+- Materiality: {materiality}
+- ETB Data: {etbRows}
+- Section: {section}
+- Existing Procedures: {existingProcedures}
+- Planning Procedure: {planningProcedure}
+- Fieldwork Procedure: {fieldworkProcedure}
+
+OUTPUT JSON SCHEMA:
+{
+  "sectionId": "same-section-id",
+  "additionalFields": [
+    {
+      "key": "unique_field_key",
+      "type": "textarea|text|checkbox|select|multiselect|number|currency|table",
+      "label": "Specific, detailed completion question",
+      "required": true|false,
+      "help": "Context-specific completion guidance with materiality thresholds",
+      "options": ["Option1", "Option2"] // for select/multiselect
+      "columns": ["Col1", "Col2"] // for table type
+    }
+  ]
+}`,
+        lastModifiedBy: "System"
+      },
+      {
+        name: "completionHybridSectionAnswersPrompt",
+        description: "Generate answers for completion hybrid sections",
+        category: "completion",
+        content: `You are an expert audit completion specialist with deep knowledge of ISA, IFRS, and final audit procedures.
+
+RETURN FORMAT:
+Return ONLY valid JSON. No prose, no code fences.
+
+TASK:
+Generate DETAILED, CONTEXT-SPECIFIC answers for ALL fields in the specified completion section. Answers must:
+- Be based on client context, materiality, ETB data, planning and fieldwork procedures
+- DO NOT use the pilcrow (¶) symbol
+- Include precise calculations where applicable
+- Follow audit completion best practices and professional standards
+- Provide comprehensive explanations for complex completion areas
+- Exclude file upload fields (user must upload manually)
+- Respect the original field types and formats
+- MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every procedure generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 700 – Forming an Opinion and Reporting on Financial Statements). This guarantees that all outputs remain compliant with professional auditing standards.
+
+IMPORTANT: For file upload fields, return null or empty values as these must be manually uploaded.
+- ONLY ANSWER ACCORDING TO THE INPUT AND CONTEXT THAT YOU HAVE DO NOT ADD ANYTHING ELSE FROM YOUR OWN OR ASSUME ANYTHING
+
+INPUT CONTEXT:
+- Client Profile: {clientProfile}
+- Materiality: {materiality}
+- ETB Data: {etbRows}
+- Section: {section}
+- Planning Procedure: {planningProcedure}
+- Fieldwork Procedure: {fieldworkProcedure}
+
+OUTPUT JSON SCHEMA:
+{
+  "sectionId": "same-section-id",
+  "fields": [
+    { 
+      "key": "field_key_1", 
+      "answer": <typed_value> // Respect original field type
+    }
+  ],
+  "sectionRecommendations": [
+    {"id": "1", "text": "Specific actionable completion recommendation with ISA references", "checked": false},
+    {"id": "2", "text": "Another specific completion recommendation", "checked": false}
+  ]
+}`,
+        lastModifiedBy: "System"
+      },
+      {
+        name: "completionRecommendationsPrompt",
+        description: "Generate completion recommendations",
+        category: "completion",
+        content: `You are an expert audit completion specialist. Generate completion recommendations with the following EXACT format requirements:
+
+FORMAT REQUIREMENTS:
+1. MUST ENSURE that All AI-generated procedures are fully aligned with the International Standards on Auditing (ISAs). For every recommendation generated, the corresponding ISA reference will be explicitly cited, along with the applicable financial reporting framework —(e.g., ISA 700 – Forming an Opinion and Reporting on Financial Statements). This guarantees that all outputs remain compliant with professional auditing standards.
+2. Use exactly these 7 section headers in this order:
+   - Section 1: Initial Completion Checklist
+   - Section 2: Audit Highlights Report Finalization
+   - Section 3: Final Analytical Review
+   - Section 4: Points Forward for Next Year
+   - Section 5: Final Client Meeting Documentation
+   - Section 6: Unadjusted Errors Summary
+   - Section 7: Reappointment Considerations
+3. Each section must have 3-5 checklist items as recommendations
+4. Return ONLY valid JSON format with the following structure:
+   {
+     "section1": [
+       {"id": "1-1", "text": "Specific completion recommendation text for section 1", "checked": false},
+       {"id": "1-2", "text": "Another completion recommendation for section 1", "checked": false}
+     ],
+     "section2": [
+       {"id": "2-1", "text": "Specific completion recommendation text for section 2", "checked": false}
+     ],
+     ... continue for all 7 sections
+   }
+5. Each recommendation MUST be specific and actionable for completion phase
+6. Each recommendation MUST include relevant ISA references
+7. Recommendations must be tailored specifically to the client context, materiality, and findings from planning/fieldwork
+8. Do not use any markdown formatting (no ##, ###, **, etc.)
+9. DO NOT use the pilcrow (¶) symbol
+
+INPUTS:
+- Client Profile: {clientProfile}
+- Materiality: {materiality}
+- ETB summary: {etbSummary}
+- Sections and key answers: {keyAnswers}
+- Planning Procedure: {planningProcedure}
+- Fieldwork Procedure: {fieldworkProcedure}
+
+OUTPUT FORMAT EXAMPLE:
+{
+  "section1": [
+    {"id": "1-1", "text": "Finalize engagement letter confirmation and file in completion documents (ISA 210)", "checked": false},
+    {"id": "1-2", "text": "Complete cross-referencing of all working papers before final sign-off (ISA 230)", "checked": false}
+  ],
+  "section2": [
+    {"id": "2-1", "text": "Review and finalize key audit matters section for audit committee report (ISA 701)", "checked": false}
+  ]
+}
+
+IMPORTANT: Do not deviate from this JSON format. Do not add extra sections or remove any of the specified sections.`,
+        lastModifiedBy: "System"
       }
     ];
-    
-        // Insert initial prompts
-        for (const promptData of initialPrompts) {
-          await Prompt.findOneAndUpdate(
-            { name: promptData.name },
-            promptData,
-            { upsert: true, new: true }
-          );
-        }
-    
-      } catch (error) {
-        console.error("Error initializing prompts:", error);
+
+      // Insert initial prompts
+      for (const promptData of initialPrompts) {
+        await Prompt.findOneAndUpdate(
+          { name: promptData.name },
+          promptData,
+          { upsert: true, new: true }
+        );
       }
+
+    } catch (error) {
+      console.error("Error initializing prompts:", error);
+    }
     console.log("Prompts initialized successfully");
     process.exit(0);
   } catch (error) {
