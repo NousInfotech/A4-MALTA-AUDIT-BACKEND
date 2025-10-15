@@ -1,5 +1,5 @@
-// proceduresQuestionsPrompt.js
-function buildProceduresQuestionsPrompt({ framework = '', classifications = [], context = {}, oneShotExamples = [] }) {
+// fieldworkAiQuestionsPrompt.js
+function buildfieldworkAiQuestionsPrompt({ framework = '', classifications = [], context = {}, oneShotExamples = [] }) {
   return `
 SYSTEM:
 You are an expert audit partner with comprehensive knowledge of auditing standards and fieldwork practices. 
@@ -50,4 +50,4 @@ ONE-SHOT EXAMPLES (style cues; do not copy text):
 ${Array.isArray(oneShotExamples) ? oneShotExamples.map(o => `- ${o.classificationTitle}: e.g., "${o.sample?.label || o.sample?.question || 'Representative step including specific testing methodology and sample size calculation'}"`).join("\n") : ''}
 `;
 }
-module.exports = buildProceduresQuestionsPrompt;
+module.exports = buildfieldworkAiQuestionsPrompt;

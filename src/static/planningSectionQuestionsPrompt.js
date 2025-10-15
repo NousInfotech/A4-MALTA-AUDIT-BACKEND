@@ -1,4 +1,4 @@
-// planningSectionQuestionsPrompt.js
+// planningAiSectionQuestionsPrompt.js
 module.exports = `
 You are an expert audit planner with extensive experience in risk assessment and audit program design.
 

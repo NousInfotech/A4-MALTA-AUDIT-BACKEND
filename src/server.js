@@ -48,7 +48,8 @@ connectDB();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/planning-procedures", require("./routes/planningProcedures"));
-
+// Add this to your existing routes
+app.use("/api/admin/prompts", require("./routes/prompts"));
 app.use("/api/checklist", checklistRoutes);
 app.use("/api/global-library", globalRoutes);
 app.use("/api/engagements", engagementRoutes);

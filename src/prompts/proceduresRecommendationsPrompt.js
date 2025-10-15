@@ -1,5 +1,5 @@
-// proceduresRecommendationsPrompt.js
-function buildProceduresRecommendationsPrompt({ framework, context, classifications, questions = [], batchIndex = 0, totalBatches = 1 }) {
+// fieldworkRecommendationsPrompt.js
+function buildfieldworkRecommendationsPrompt({ framework, context, classifications, questions = [], batchIndex = 0, totalBatches = 1 }) {
   const currentClassification = classifications[batchIndex];
   
   return `
@@ -53,4 +53,4 @@ OUTPUT FORMAT EXAMPLE (STRICTLY FOLLOW THIS FORMAT):
 `;
 }
 
-module.exports = buildProceduresRecommendationsPrompt;
+module.exports = buildfieldworkRecommendationsPrompt;

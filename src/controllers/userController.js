@@ -143,7 +143,7 @@ exports.createUser = async (req, res) => {
         user_id: authUser.user.id,
         name: name,
         role: "client",
-        status: "pending", 
+        status: "approved", 
         company_name: companyName,
         company_number: companyNumber,
         industry: industry,

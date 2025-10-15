@@ -1,4 +1,4 @@
-// hybridSectionQuestionsPrompt.js
+// planningHybridSectionQuestionsPrompt.js
 module.exports = `
 You are an expert audit planner with deep knowledge of ISA, IFRS, and industry-specific auditing standards.
 

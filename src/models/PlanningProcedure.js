@@ -64,7 +64,14 @@ const PlanningProcedureSchema = new Schema(
     procedures: { type: [SectionSchema], default: [] },
     recommendations: { 
       type: [RecommendationItemSchema], // CHANGED: Now array of checklist items
-      default: [] 
+      default: [],
+      validate: {
+        validator: function(v) {
+          // Ensure it's always an array
+          return Array.isArray(v);
+        },
+        message: 'Recommendations must be an array'
+      }
     },
     recommendationsBySection: {
       type: Map,
@@ -151,8 +158,71 @@ const PlanningProcedureSchema = new Schema(
       default: 1
     }
   },
-  { timestamps: true, strict: false }
+  { 
+    timestamps: true, 
+    strict: false,
+    // Add pre-save middleware to ensure data integrity
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
+
+// Add pre-save middleware to clean up data
+PlanningProcedureSchema.pre('save', function(next) {
+  // Ensure recommendations is always an array
+  if (typeof this.recommendations === 'string') {
+    this.recommendations = [];
+  } else if (!Array.isArray(this.recommendations)) {
+    this.recommendations = [];
+  }
+  
+  // Ensure recommendationsBySection is always an object
+  if (typeof this.recommendationsBySection === 'string') {
+    this.recommendationsBySection = {};
+  } else if (!this.recommendationsBySection || typeof this.recommendationsBySection !== 'object') {
+    this.recommendationsBySection = {};
+  }
+  
+  next();
+});
+function isPlainObject(v) { return v && typeof v === 'object' && !Array.isArray(v); }
+
+PlanningProcedureSchema.pre('validate', function(next) {
+  // procedures
+  if (!Array.isArray(this.procedures)) this.procedures = [];
+  this.procedures = this.procedures.filter(isPlainObject);
+
+  for (const sec of this.procedures) {
+    if (!Array.isArray(sec.fields)) sec.fields = [];
+    else sec.fields = sec.fields.filter(isPlainObject);
+
+    if (!Array.isArray(sec.sectionRecommendations)) sec.sectionRecommendations = [];
+    else sec.sectionRecommendations = sec.sectionRecommendations.filter(isPlainObject);
+  }
+
+  // top-level recommendations
+  if (!Array.isArray(this.recommendations)) this.recommendations = [];
+  else this.recommendations = this.recommendations.filter(isPlainObject);
+
+  // recommendationsBySection as plain object of arrays of objects
+  let rbs = this.recommendationsBySection;
+  if (!rbs || typeof rbs !== 'object') rbs = {};
+  rbs = rbs instanceof Map ? Object.fromEntries(rbs.entries()) : rbs;
+  for (const k of Object.keys(rbs)) {
+    rbs[k] = Array.isArray(rbs[k]) ? rbs[k].filter(isPlainObject) : [];
+  }
+  this.recommendationsBySection = rbs;
+
+  // files
+  if (!Array.isArray(this.files)) this.files = [];
+  else this.files = this.files.filter(isPlainObject);
+
+  // selectedSections
+  if (!Array.isArray(this.selectedSections)) this.selectedSections = [];
+  else this.selectedSections = this.selectedSections.filter(s => typeof s === 'string');
+
+  next();
+});
 
 module.exports =
   mongoose.models.PlanningProcedure ||
