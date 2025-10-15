@@ -23,6 +23,7 @@ const reviewRoutes = require("./routes/review");
 const classificationReviewRoutes = require("./routes/classificationReview");
 const classificationEvidenceRoutes = require("./routes/classificationEvidence");
 const classificationSectionsRoutes = require("./routes/classificationSections");
+const completionProceduresRoutes = require("./routes/completionProcedures");
 const app = express();
 
 app.use(
@@ -66,6 +67,7 @@ app.use("/api/review", reviewRoutes);
 app.use("/api/classification-reviews", classificationReviewRoutes);
 app.use("/api/classification-evidence", classificationEvidenceRoutes);
 app.use("/api/classification-sections", classificationSectionsRoutes);
+app.use("/api/completion-procedures", completionProceduresRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
