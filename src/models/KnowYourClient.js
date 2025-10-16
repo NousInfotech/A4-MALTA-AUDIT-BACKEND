@@ -40,7 +40,14 @@ const KYCSchema = new Schema(
     discussions: [KYCDiscussionSchema],
     status: {
       type: String,
-      enum: ["active", "pending", "in-review", "completed", "reopened"],
+      enum: [
+        "active",
+        "pending",
+        "submitted",
+        "in-review",
+        "completed",
+        "reopened",
+      ],
       default: "pending",
     },
   },
