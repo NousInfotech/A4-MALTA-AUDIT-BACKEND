@@ -8,13 +8,6 @@ const DocumentRequestSchema = new Schema({
   category: { type: String, required: true, index: true },
   description: { type: String, required: true },
   comment: { type: String, default: "" },
-  attachment: {
-    name: { type: String },
-    url: { type: String }, // Supabase file URL
-    size: { type: Number },
-    type: { type: String },
-    uploadedAt: { type: Date, default: Date.now }
-  },
   status: {
     type: String,
     enum: ['pending', 'completed'],
@@ -24,6 +17,14 @@ const DocumentRequestSchema = new Schema({
   completedAt: { type: Date },
   documents: [{
     name: { type: String, required: true },
+    
+    // Optional: Template for client to download and fill (template-based workflow)
+    template: {
+      url: { type: String }, // Auditor's uploaded template URL
+      instruction: { type: String } // Instructions for filling the template
+    },
+    
+    // Client's uploaded document (works for both direct-upload and template-based)
     url: { type: String }, // Supabase file URL 
     uploadedAt: { type: Date, default: Date.now },
     status: {

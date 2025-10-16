@@ -42,7 +42,7 @@ exports.createKYC = async (req, res, next) => {
       engagement: engagementId,
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
-      documentRequests: createdDocumentRequest ? createdDocumentRequest._id : null,
+      documentRequests: createdDocumentRequest ? [createdDocumentRequest._id] : [],
       status: 'pending'
     });
 
@@ -365,14 +365,14 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
     }
 
     // Check if document request is already attached
-    if (kyc.documentRequests && kyc.documentRequests.toString() === documentRequestId) {
+    if (kyc.documentRequests && kyc.documentRequests.some(id => id.toString() === documentRequestId)) {
       return res.status(400).json({ 
         message: 'Document request is already attached to this KYC workflow' 
       });
     }
 
-    // Add document request to KYC
-    kyc.documentRequests = documentRequestId;
+    // Add document request to KYC array
+    kyc.documentRequests.push(documentRequestId);
     await kyc.save();
 
     // Populate the response
