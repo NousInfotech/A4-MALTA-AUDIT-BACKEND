@@ -278,12 +278,76 @@ exports.save = async (req, res) => {
     }
 
     // Save the rest of the fields (procedures, recommendations, etc.)
-    doc.procedures = payload.procedures;
+    doc.procedures = payload.procedures || [];
 
+    // Persist per-section recommendations if provided. Frontend may supply either:
+    // - payload.sectionRecommendations: { <sectionId>: [items] }
+    // - payload.recommendationsBySection: same shape
+    // Also preserve any sectionRecommendations included inside each procedure entry.
+    const bySectionFromPayload =
+      (payload.sectionRecommendations && typeof payload.sectionRecommendations === 'object')
+        ? payload.sectionRecommendations
+        : (payload.recommendationsBySection && typeof payload.recommendationsBySection === 'object')
+          ? payload.recommendationsBySection
+          : {};
+
+    // Attach sectionRecommendations to each procedure in doc.procedures when available
+    if (doc.procedures && Array.isArray(doc.procedures)) {
+      doc.procedures = doc.procedures.map((sec) => {
+        const sectionId = sec.sectionId || sec.id;
+        const fromPayload = Array.isArray(sec.sectionRecommendations) && sec.sectionRecommendations.length
+          ? sec.sectionRecommendations
+          : Array.isArray(bySectionFromPayload?.[sectionId])
+            ? bySectionFromPayload[sectionId]
+            : [];
+
+        return {
+          ...sec,
+          sectionRecommendations: fromPayload,
+        };
+      });
+    }
+
+    // Normalize recommendationsBySection and store on document
+    let recommendationsBySection = {};
+    if (payload.recommendationsBySection && typeof payload.recommendationsBySection === 'object') {
+      recommendationsBySection = payload.recommendationsBySection;
+    } else if (Object.keys(bySectionFromPayload || {}).length) {
+      recommendationsBySection = bySectionFromPayload;
+    } else {
+      // If no by-section map provided, but procedures have sectionRecommendations, build map from them
+      recommendationsBySection = {};
+      (doc.procedures || []).forEach((sec) => {
+        const sid = sec.sectionId || sec.id;
+        if (Array.isArray(sec.sectionRecommendations) && sec.sectionRecommendations.length) {
+          recommendationsBySection[sid] = sec.sectionRecommendations;
+        }
+      });
+    }
+
+    // Ensure it's an object (not a Map) for mongoose pre-validate
+    doc.recommendationsBySection = recommendationsBySection;
+
+    // Build flat recommendations array either from payload.recommendations or from recommendationsBySection
     if (Array.isArray(payload.recommendations)) {
       doc.recommendations = payload.recommendations;
     } else {
-      doc.recommendations = [];
+      // Flatten the by-section map into an array preserving item shape
+      const flat = [];
+      Object.keys(recommendationsBySection || {}).forEach((k) => {
+        const arr = Array.isArray(recommendationsBySection[k]) ? recommendationsBySection[k] : [];
+        arr.forEach((it) => {
+          // ensure item has id/text/checked/section
+          const item = {
+            id: it.id || `${k}-${flat.length + 1}`,
+            text: it.text || it || String(it),
+            checked: typeof it.checked === 'boolean' ? it.checked : false,
+            section: it.section || k,
+          };
+          flat.push(item);
+        });
+      });
+      doc.recommendations = flat;
     }
 
     doc.status = payload.status;
@@ -348,10 +412,13 @@ exports.save = async (req, res) => {
       doc.files = [...(doc.files || []), ...uploaded];
     }
 
-    // Save the document
-    await doc.save();
+  // Save the document
+  await doc.save();
 
-    res.json(doc);
+  // Re-query to ensure we return the fully persisted, casted object
+  const saved = await CompletionProcedure.findOne({ engagement: engagementId }).lean();
+  console.log(`CompletionProcedure saved for engagement=${engagementId} id=${saved?._id}`);
+  res.json(saved);
   } catch (e) {
     console.error("Error saving completion procedure:", e);
     res.status(400).json({ error: e.message });
@@ -545,16 +612,61 @@ exports.generateSectionAnswers = async (req, res) => {
   const raw = await callOpenAI(prompt);
   const parsed = await robustParseJSON(raw, openai, { debugLabel: "completion_section_answers" });
 
-  if (parsed && parsed.sectionId === sectionId && Array.isArray(parsed.fields)) {
+  // Normalize AI output: accept arrays, objects, or missing wrapper
+  let parsedFieldsRaw = [];
+  try {
+    if (Array.isArray(parsed)) {
+      parsedFieldsRaw = parsed;
+    } else if (parsed && Array.isArray(parsed.fields)) {
+      parsedFieldsRaw = parsed.fields;
+    } else if (parsed && parsed.fields && typeof parsed.fields === 'object') {
+      // fields might be an object mapping keys to answers
+      parsedFieldsRaw = Object.entries(parsed.fields).map(([k, v]) => ({ key: k, answer: v }));
+    } else if (parsed && typeof parsed === 'object' && Object.keys(parsed).length && !parsed.fields) {
+      // Sometimes AI returns a flat map of key->answer
+      const possible = Object.entries(parsed).filter(([k, v]) => typeof k === 'string' && (typeof v === 'string' || typeof v === 'number' || Array.isArray(v) || (v && typeof v === 'object')));
+      // Heuristic: if many keys look like field keys and no wrapper, use it
+      if (possible.length > 0 && !parsed.sectionId) {
+        parsedFieldsRaw = possible.map(([k, v]) => ({ key: k, answer: v }));
+      }
+    }
+  } catch (err) {
+    console.warn('Could not normalize parsed.fields', err);
+  }
+
+  // Normalize each field item to { key, answer }
+  const parsedFields = (parsedFieldsRaw || [])
+    .filter(f => f && typeof f === 'object')
+    .map((f) => {
+      const docf = f._doc || f;
+      const key = String(docf.key || docf.name || docf.id || "").trim();
+      // Try several places for the answer
+      const answer = docf.answer !== undefined
+        ? docf.answer
+        : (docf.value !== undefined ? docf.value : (docf.content !== undefined ? docf.content : undefined));
+      return { key, answer };
+    })
+    .filter(f => f.key);
+
+  // If AI provided sectionId but it doesn't match, log a warning and continue using requested sectionId
+  if (parsed && parsed.sectionId && parsed.sectionId !== sectionId) {
+    console.warn(`AI returned sectionId=${parsed.sectionId} but request was for ${sectionId}; proceeding with requested id.`);
+  }
+
+  if (parsedFields.length > 0) {
     const answeredFields = section.fields.map(field => {
-      const answeredField = parsed.fields.find(f => f.key === field.key);
+      const answeredField = parsedFields.find(f => f.key === field.key);
       return answeredField ? { ...field, answer: answeredField.answer } : field;
     });
 
-    // Handle section recommendations as checklist items
+    // Handle section recommendations (accept multiple keys)
     const sectionRecommendations = Array.isArray(parsed.sectionRecommendations)
       ? parsed.sectionRecommendations
-      : [];
+      : Array.isArray(parsed.section_recommendations)
+        ? parsed.section_recommendations
+        : Array.isArray(parsed.recommendations)
+          ? parsed.recommendations
+          : [];
 
     doc.procedures[sectionIndex].fields = answeredFields;
     doc.procedures[sectionIndex].sectionRecommendations = sectionRecommendations;
@@ -582,6 +694,8 @@ exports.generateSectionAnswers = async (req, res) => {
       sectionRecommendations: sectionRecommendations
     });
   } else {
+    // No parsable fields found in AI output
+    console.error('AI output did not contain parsable fields for section', { engagementId, sectionId, parsed });
     res.status(500).json({ message: "Failed to generate answers for section" });
   }
 };
@@ -624,24 +738,75 @@ exports.generateRecommendations = async (req, res) => {
   let allRecommendations = [];
   let recommendationsBySection = {};
 
-  if (recommendations && typeof recommendations === 'object') {
-    Object.entries(recommendations).forEach(([sectionKey, sectionRecs]) => {
-      if (Array.isArray(sectionRecs)) {
-        const sectionWithId = sectionRecs.map(rec => ({
-          ...rec,
-          section: sectionKey
-        }));
+  // Canonical section ids in the expected order
+  const canonicalSections = [
+    'initial_completion',
+    'audit_highlights_report',
+    'final_analytical_review',
+    'points_forward_next_year',
+    'final_client_meeting_notes',
+    'summary_unadjusted_errors',
+    'reappointment_schedule'
+  ];
 
-        recommendationsBySection[sectionKey] = sectionWithId;
-        allRecommendations.push(...sectionWithId);
+  function mapSectionKeyToCanonical(key, idx) {
+    if (!key || typeof key !== 'string') return canonicalSections[idx] || key;
+    const k = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // match section1..section7
+    const m = k.match(/section(\d)/i);
+    if (m && m[1]) {
+      const n = Number(m[1]);
+      if (n >= 1 && n <= canonicalSections.length) return canonicalSections[n - 1];
+    }
+    // heuristics by keywords
+    if (k.includes('initial')) return 'initial_completion';
+    if (k.includes('highlight') || k.includes('audit')) return 'audit_highlights_report';
+    if (k.includes('analytical') || k.includes('ratio')) return 'final_analytical_review';
+    if (k.includes('points') || k.includes('forward')) return 'points_forward_next_year';
+    if (k.includes('client') || k.includes('meeting')) return 'final_client_meeting_notes';
+    if (k.includes('unadjust') || k.includes('error')) return 'summary_unadjusted_errors';
+    if (k.includes('reappoint') || k.includes('reappointment')) return 'reappointment_schedule';
+    // fallback to positional mapping if possible
+    if (idx >= 0 && idx < canonicalSections.length) return canonicalSections[idx];
+    return key;
+  }
+
+  if (recommendations && typeof recommendations === 'object') {
+    const entries = Object.entries(recommendations);
+    entries.forEach(([sectionKey, sectionRecs], idx) => {
+      const canonicalKey = mapSectionKeyToCanonical(String(sectionKey), idx);
+
+      // Normalize sectionRecs to an array of objects with text/checked
+      const normalized = Array.isArray(sectionRecs)
+        ? sectionRecs.map((rec) => {
+            if (!rec) return null;
+            if (typeof rec === 'string') return { text: rec.trim(), checked: false };
+            if (typeof rec === 'object') {
+              // prefer text property, else try other properties
+              const text = rec.text || rec.title || rec.description || rec.name || (typeof rec === 'string' ? rec : undefined);
+              const checked = typeof rec.checked === 'boolean' ? rec.checked : false;
+              return { ...rec, text: text ? String(text) : '', checked };
+            }
+            return null;
+          }).filter(Boolean)
+        : [];
+
+      // attach canonical section id on each rec
+      const withSection = normalized.map((rec) => ({ ...rec, section: canonicalKey }));
+
+      if (withSection.length > 0) {
+        recommendationsBySection[canonicalKey] = withSection;
+        allRecommendations.push(...withSection);
       }
     });
   }
 
-  // Reassign IDs from 1 to length for all recommendations
+  // Reassign stable IDs for all recommendations
   allRecommendations = allRecommendations.map((recommendation, index) => ({
-    ...recommendation,
-    id: (index + 1).toString()
+    id: recommendation.id ? String(recommendation.id) : `${index + 1}`,
+    text: recommendation.text || '',
+    checked: !!recommendation.checked,
+    section: recommendation.section || 'general',
   }));
 
   doc.recommendations = allRecommendations;
