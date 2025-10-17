@@ -355,21 +355,29 @@ async function writeSheet({ driveItemId, worksheetName, values }) {
 }
 
 async function readSheet({ driveItemId, worksheetName }) {
-  const token = await getAccessToken()
-  await ensureWorksheet(token, driveItemId, worksheetName)
+  const token = await getAccessToken();
+  await ensureWorksheet(token, driveItemId, worksheetName);
 
+  // Fetch the usedRange including its address
   const res = await fetch(
     `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/workbook/worksheets('${encodeURIComponent(
       worksheetName,
-    )}')/usedRange(valuesOnly=true)?$select=values`,
+    )}')/usedRange?$select=address,values`, // Request both address and values
     { headers: { Authorization: `Bearer ${token}` } },
-  )
+  );
+
   if (!res.ok) {
-    const t = await res.text()
-    throw new Error(`Graph read range failed: ${res.status} ${t}`)
+    const t = await res.text();
+    throw new Error(`Graph read range failed: ${res.status} ${t}`);
   }
-  const json = await res.json()
-  return json.values || []
+
+  const json = await res.json();
+  
+  // Return both the values and the address
+  return {
+    values: json.values || [],
+    address: json.address // e.g., "Sheet1!A1:D10"
+  };
 }
 
 

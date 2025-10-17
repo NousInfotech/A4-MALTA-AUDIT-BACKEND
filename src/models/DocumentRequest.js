@@ -17,6 +17,11 @@ const DocumentRequestSchema = new Schema({
   completedAt: { type: Date },
   documents: [{
     name: { type: String, required: true },
+    type: { 
+      type: String, 
+      enum: ['direct', 'template'], 
+      default: 'direct' 
+    },
     
     // Optional: Template for client to download and fill (template-based workflow)
     template: {
@@ -26,6 +31,7 @@ const DocumentRequestSchema = new Schema({
     
     // Client's uploaded document (works for both direct-upload and template-based)
     url: { type: String }, // Supabase file URL 
+    uploadedFileName: { type: String }, // Store the actual uploaded filename separately
     uploadedAt: { type: Date, default: Date.now },
     status: {
       type: String,
