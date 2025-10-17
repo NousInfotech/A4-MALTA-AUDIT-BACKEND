@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const ec = require("../controllers/engagementController");
+const arc = require("../controllers/analyticalReviewController");
 const { requireAuth, requireRole } = require("../middlewares/auth");
 const upload = require("../middlewares/upload");
 const multer = require("multer")
@@ -166,6 +167,95 @@ router.post(
 router.post(
   "/:id/sections/:classification/working-papers/view-reference",
   ec.viewSelectedFromDB
+);
+
+// ========================================
+// Analytical Review Routes (Engagement-Nested)
+// ========================================
+
+// Create analytical review for engagement
+router.post(
+  "/:id/analytical-review",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.createAnalyticalReview
+);
+
+// Get analytical review by engagement
+router.get(
+  "/:id/analytical-review",
+  requireAuth,
+  arc.getAnalyticalReviewByEngagement
+);
+
+// Update analytical review
+router.put(
+  "/:id/analytical-review",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.updateAnalyticalReview
+);
+
+// Delete analytical review
+router.delete(
+  "/:id/analytical-review",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.deleteAnalyticalReview
+);
+
+// Get all versions
+router.get(
+  "/:id/analytical-review/versions",
+  requireAuth,
+  arc.getVersions
+);
+
+// Get specific version
+router.get(
+  "/:id/analytical-review/versions/:versionNumber",
+  requireAuth,
+  arc.getVersionByNumber
+);
+
+// Restore to specific version
+router.post(
+  "/:id/analytical-review/versions/:versionNumber/restore",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.restoreVersion
+);
+
+// Submit for review
+router.post(
+  "/:id/analytical-review/submit",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.submitForReview
+);
+
+// Approve review
+router.post(
+  "/:id/analytical-review/approve",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.approveReview
+);
+
+// Reject review
+router.post(
+  "/:id/analytical-review/reject",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.rejectReview
+);
+
+// Update status
+router.patch(
+  "/:id/analytical-review/status",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  arc.updateStatus
 );
 
 module.exports = router;
