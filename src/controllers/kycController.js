@@ -11,6 +11,15 @@ exports.createKYC = async (req, res, next) => {
   try {
     const { engagementId, clientId, auditorId, documentRequest } = req.body;
     
+    // Validate required fields
+    if (!engagementId || engagementId.trim() === '') {
+      return res.status(400).json({ message: 'Engagement ID is required' });
+    }
+    
+    if (!clientId || clientId.trim() === '') {
+      return res.status(400).json({ message: 'Client ID is required' });
+    }
+    
     // Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
     if (!engagement) {
