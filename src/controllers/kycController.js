@@ -11,6 +11,15 @@ exports.createKYC = async (req, res, next) => {
   try {
     const { engagementId, clientId, auditorId, documentRequest } = req.body;
     
+    // Validate required fields
+    if (!engagementId || engagementId.trim() === '') {
+      return res.status(400).json({ message: 'Engagement ID is required' });
+    }
+    
+    if (!clientId || clientId.trim() === '') {
+      return res.status(400).json({ message: 'Client ID is required' });
+    }
+    
     // Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
     if (!engagement) {
@@ -27,6 +36,18 @@ exports.createKYC = async (req, res, next) => {
 
     // Create document request if provided
     if (documentRequest) {
+      // Validate that all documents have required fields
+      if (documentRequest.documents && Array.isArray(documentRequest.documents)) {
+        for (let i = 0; i < documentRequest.documents.length; i++) {
+          const doc = documentRequest.documents[i];
+          if (!doc.name) {
+            return res.status(400).json({ 
+              message: `Document at index ${i} is missing required 'name' field` 
+            });
+          }
+        }
+      }
+
       // Set category to 'kyc' and add engagement info
       const documentRequestData = {
         ...documentRequest,
@@ -43,7 +64,7 @@ exports.createKYC = async (req, res, next) => {
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
       documentRequests: createdDocumentRequest ? [createdDocumentRequest._id] : [],
-      status: 'pending'
+      status: 'active' // Start with active state when KYC is created
     });
 
     // Populate the document request to return as object
@@ -155,7 +176,7 @@ exports.getAllKYCs = async (req, res, next) => {
     
     const kycs = await KYC.find(filter)
       .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status')
+      .populate('documentRequests', 'category description status documents')
       .sort({ createdAt: -1 });
 
     res.json(kycs);
@@ -325,9 +346,9 @@ exports.updateKYCStatus = async (req, res, next) => {
     }
 
     // Validate status
-    const validStatuses = ['pending', 'in-review', 'completed'];
+    const validStatuses = ['active', 'pending', 'submitted', 'in-review', 'completed', 'reopened'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be one of: pending, in-review, completed' });
+      return res.status(400).json({ message: 'Invalid status. Must be one of: active, pending, submitted, in-review, completed, reopened' });
     }
 
     // Update status

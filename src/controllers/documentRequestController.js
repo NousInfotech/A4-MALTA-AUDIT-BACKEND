@@ -66,11 +66,12 @@ exports.uploadDocuments = async (req, res, next) => {
     const categoryFolder = `${dr.category}/`;
 
     for (const file of req.files) {
-      const ext = file.originalname.split(".").pop();
-      const filename = `${Date.now()}_${Math.random()
+      const originalFilename = file.originalname;
+      const ext = originalFilename.split(".").pop();
+      const uniqueFilename = `${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 5)}.${ext}`;
-      const path = `${dr.engagement.toString()}/${categoryFolder}${filename}`;
+      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
@@ -81,13 +82,43 @@ exports.uploadDocuments = async (req, res, next) => {
         .from(bucket)
         .getPublicUrl(up.path);
 
-      dr.documents.push({
-        name: file.originalname,
-        url: urlData.publicUrl,
-        uploadedAt: new Date(),
-        status: 'uploaded', // Set initial status to uploaded
-        comment: req.body.comment || "" // Add comment from client upload
-      });
+      // For KYC documents, try to update existing pending document instead of adding new one
+      if (dr.category === 'kyc') {
+        // Find the first pending document to update
+        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+        
+        if (pendingDocIndex !== -1) {
+          // Update existing pending document
+          dr.documents[pendingDocIndex] = {
+            ...dr.documents[pendingDocIndex],
+            // Keep the original document name (like "Source of Wealth")
+            // Store uploaded filename separately
+            uploadedFileName: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded',
+            comment: req.body.comment || ""
+          };
+        } else {
+          // If no pending document found, add new one
+          dr.documents.push({
+            name: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded',
+            comment: req.body.comment || ""
+          });
+        }
+      } else {
+        // For non-KYC documents, add new document (existing behavior)
+        dr.documents.push({
+          name: originalFilename,
+          url: urlData.publicUrl,
+          uploadedAt: new Date(),
+          status: 'uploaded',
+          comment: req.body.comment || ""
+        });
+      }
 
       // Add to library
       await EngagementLibrary.create({
@@ -146,6 +177,23 @@ exports.uploadDocuments = async (req, res, next) => {
     }
 
     await dr.save();
+
+    // Update KYC status if this is a KYC document request
+    if (dr.category === 'kyc') {
+      try {
+        const KYC = require('../models/KnowYourClient');
+        const kyc = await KYC.findOne({ documentRequests: dr._id });
+        if (kyc) {
+          // Update KYC status to 'submitted' when documents are uploaded
+          kyc.status = 'submitted';
+          await kyc.save();
+        }
+      } catch (kycError) {
+        console.error('Error updating KYC status:', kycError);
+        // Don't fail the upload if KYC update fails
+      }
+    }
+
     return res.json({
       success: true,
       message: `${req.files.length} document(s) uploaded successfully and added to both library and evidence`,
@@ -159,6 +207,18 @@ exports.uploadDocuments = async (req, res, next) => {
 exports.createRequest = async (req, res, next) => {
   try {
     const { engagementId, category, name, description, comment, documents, attachment } = req.body;
+    
+    // Validate that all documents have required fields
+    if (documents && Array.isArray(documents)) {
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        if (!doc.name) {
+          return res.status(400).json({ 
+            message: `Document at index ${i} is missing required 'name' field` 
+          });
+        }
+      }
+    }
     
     // Handle file upload if attachment is provided
     let attachmentData = null;
@@ -350,11 +410,13 @@ exports.uploadSingleDocument = async (req, res, next) => {
     const categoryFolder = `${dr.category}/`;
     const file = req.file;
 
-    const ext = file.originalname.split(".").pop();
-    const filename = `${Date.now()}_${Math.random()
+    // Use the original filename for display, but generate a unique filename for storage
+    const originalFilename = file.originalname;
+    const ext = originalFilename.split(".").pop();
+    const uniqueFilename = `${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 5)}.${ext}`;
-    const path = `${dr.engagement.toString()}/${categoryFolder}${filename}`;
+    const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
@@ -365,14 +427,42 @@ exports.uploadSingleDocument = async (req, res, next) => {
       .from(bucket)
       .getPublicUrl(up.path);
 
-    const newDocument = {
-      name: file.originalname,
-      url: urlData.publicUrl,
-      uploadedAt: new Date(),
-      status: 'uploaded'
-    };
-
-    dr.documents.push(newDocument);
+    // For KYC documents, try to update existing pending document instead of adding new one
+    if (dr.category === 'kyc') {
+      // Find the first pending document to update
+      const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+      
+      if (pendingDocIndex !== -1) {
+        // Update existing pending document
+        dr.documents[pendingDocIndex] = {
+          ...dr.documents[pendingDocIndex],
+          // Keep the original document name (like "Source of Wealth")
+          // Store uploaded filename separately
+          uploadedFileName: originalFilename,
+          url: urlData.publicUrl,
+          uploadedAt: new Date(),
+          status: 'uploaded'
+        };
+      } else {
+        // If no pending document found, add new one
+        const newDocument = {
+          name: originalFilename,
+          url: urlData.publicUrl,
+          uploadedAt: new Date(),
+          status: 'uploaded'
+        };
+        dr.documents.push(newDocument);
+      }
+    } else {
+      // For non-KYC documents, add new document (existing behavior)
+      const newDocument = {
+        name: originalFilename,
+        url: urlData.publicUrl,
+        uploadedAt: new Date(),
+        status: 'uploaded'
+      };
+      dr.documents.push(newDocument);
+    }
 
     await EngagementLibrary.create({
       engagement: dr.engagement,
@@ -382,10 +472,29 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     await dr.save();
 
+    // Update KYC status if this is a KYC document request
+    if (dr.category === 'kyc') {
+      try {
+        const KYC = require('../models/KnowYourClient');
+        const kyc = await KYC.findOne({ documentRequests: dr._id });
+        if (kyc) {
+          // Update KYC status to 'submitted' when documents are uploaded
+          kyc.status = 'submitted';
+          await kyc.save();
+        }
+      } catch (kycError) {
+        console.error('Error updating KYC status:', kycError);
+        // Don't fail the upload if KYC update fails
+      }
+    }
+
+    // Find the uploaded document to return
+    const uploadedDoc = dr.documents.find(doc => doc.url === urlData.publicUrl);
+    
     res.json({
       success: true,
       message: 'Document uploaded successfully',
-      document: newDocument,
+      document: uploadedDoc,
       documentRequest: dr
     });
   } catch (err) {

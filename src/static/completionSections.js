@@ -373,7 +373,7 @@ module.exports = [
         ]
     },
     {
-        sectionId: "final_client_meeting",
+        sectionId: "final_client_meeting_notes",
         title: "P5: Notes of Final Client Meeting",
         standards: ["ISA 260", "ISA 265"],
         fields: [
@@ -399,7 +399,7 @@ module.exports = [
         ]
     },
     {
-        sectionId: "unadjusted_errors",
+        sectionId: "summary_unadjusted_errors",
         title: "P6: Summary of Unadjusted Errors",
         standards: ["ISA 450"],
         fields: [
