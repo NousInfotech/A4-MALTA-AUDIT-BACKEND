@@ -75,7 +75,11 @@ exports.uploadDocuments = async (req, res, next) => {
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+        .upload(path, file.buffer, { 
+          cacheControl: "3600", 
+          upsert: false,
+          contentType: file.mimetype 
+        });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
@@ -84,15 +88,16 @@ exports.uploadDocuments = async (req, res, next) => {
 
       // For KYC documents, try to update existing pending document instead of adding new one
       if (dr.category === 'kyc') {
-        // Find the first pending document to update
-        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+        // Check if we have a specific document index from the frontend
+        const documentIndex = req.body.documentIndex ? parseInt(req.body.documentIndex) : null;
+        const documentName = req.body.documentName || originalFilename;
         
-        if (pendingDocIndex !== -1) {
-          // Update existing pending document
-          dr.documents[pendingDocIndex] = {
-            ...dr.documents[pendingDocIndex],
-            // Keep the original document name (like "Source of Wealth")
-            // Store uploaded filename separately
+        if (documentIndex !== null && documentIndex >= 0 && documentIndex < dr.documents.length) {
+          // Update specific document by index
+          const existingDoc = dr.documents[documentIndex];
+          dr.documents[documentIndex] = {
+            ...existingDoc,
+            name: documentName, // Ensure name is always set
             uploadedFileName: originalFilename,
             url: urlData.publicUrl,
             uploadedAt: new Date(),
@@ -100,14 +105,32 @@ exports.uploadDocuments = async (req, res, next) => {
             comment: req.body.comment || ""
           };
         } else {
-          // If no pending document found, add new one
-          dr.documents.push({
-            name: originalFilename,
-            url: urlData.publicUrl,
-            uploadedAt: new Date(),
-            status: 'uploaded',
-            comment: req.body.comment || ""
-          });
+          // Find the first pending document to update
+          const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+          
+          if (pendingDocIndex !== -1) {
+            // Update existing pending document
+            const existingDoc = dr.documents[pendingDocIndex];
+            dr.documents[pendingDocIndex] = {
+              ...existingDoc,
+              name: existingDoc.name || documentName, // Ensure name is always set
+              uploadedFileName: originalFilename,
+              url: urlData.publicUrl,
+              uploadedAt: new Date(),
+              status: 'uploaded',
+              comment: req.body.comment || ""
+            };
+          } else {
+            // If no pending document found, add new one
+            dr.documents.push({
+              name: documentName,
+              uploadedFileName: originalFilename,
+              url: urlData.publicUrl,
+              uploadedAt: new Date(),
+              status: 'uploaded',
+              comment: req.body.comment || ""
+            });
+          }
         }
       } else {
         // For non-KYC documents, add new document (existing behavior)
@@ -420,7 +443,11 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
-      .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+      .upload(path, file.buffer, { 
+        cacheControl: "3600", 
+        upsert: false,
+        contentType: file.mimetype 
+      });
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
@@ -429,29 +456,47 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     // For KYC documents, try to update existing pending document instead of adding new one
     if (dr.category === 'kyc') {
-      // Find the first pending document to update
-      const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+      // Check if we have a specific document index from the frontend
+      const documentIndex = req.body.documentIndex ? parseInt(req.body.documentIndex) : null;
+      const documentName = req.body.documentName || originalFilename;
       
-      if (pendingDocIndex !== -1) {
-        // Update existing pending document
-        dr.documents[pendingDocIndex] = {
-          ...dr.documents[pendingDocIndex],
-          // Keep the original document name (like "Source of Wealth")
-          // Store uploaded filename separately
+      if (documentIndex !== null && documentIndex >= 0 && documentIndex < dr.documents.length) {
+        // Update specific document by index
+        const existingDoc = dr.documents[documentIndex];
+        dr.documents[documentIndex] = {
+          ...existingDoc,
+          name: documentName, // Ensure name is always set
           uploadedFileName: originalFilename,
           url: urlData.publicUrl,
           uploadedAt: new Date(),
           status: 'uploaded'
         };
       } else {
-        // If no pending document found, add new one
-        const newDocument = {
-          name: originalFilename,
-          url: urlData.publicUrl,
-          uploadedAt: new Date(),
-          status: 'uploaded'
-        };
-        dr.documents.push(newDocument);
+        // Find the first pending document to update
+        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+        
+        if (pendingDocIndex !== -1) {
+          // Update existing pending document
+          const existingDoc = dr.documents[pendingDocIndex];
+          dr.documents[pendingDocIndex] = {
+            ...existingDoc,
+            name: existingDoc.name || documentName, // Ensure name is always set
+            uploadedFileName: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded'
+          };
+        } else {
+          // If no pending document found, add new one
+          const newDocument = {
+            name: documentName,
+            uploadedFileName: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded'
+          };
+          dr.documents.push(newDocument);
+        }
       }
     } else {
       // For non-KYC documents, add new document (existing behavior)
