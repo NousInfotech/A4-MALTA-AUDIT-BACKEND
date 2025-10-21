@@ -632,3 +632,94 @@ exports.getDocumentRequestStats = async (req, res, next) => {
     next(err);
   }
 };
+
+// Upload template file for document requests
+exports.uploadTemplate = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const bucket = "engagement-documents";
+    const originalFilename = req.file.originalname;
+    const ext = originalFilename.split(".").pop();
+    const uniqueFilename = `template_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 5)}.${ext}`;
+    
+    // Store templates in a templates folder
+    const path = `templates/${uniqueFilename}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, req.file.buffer, { 
+        cacheControl: "3600", 
+        upsert: false,
+        contentType: req.file.mimetype 
+      });
+    
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      return res.status(500).json({ message: "Failed to upload template file" });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(uploadData.path);
+
+    res.json({
+      success: true,
+      url: urlData.publicUrl,
+      filename: uniqueFilename,
+      originalName: originalFilename
+    });
+  } catch (error) {
+    console.error('Template upload error:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// Download template file for clients
+exports.downloadTemplate = async (req, res, next) => {
+  try {
+    const { templateUrl } = req.query;
+    
+    if (!templateUrl) {
+      return res.status(400).json({ message: "Template URL is required" });
+    }
+
+    // Extract the file path from the Supabase URL
+    const url = new URL(templateUrl);
+    const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+    
+    if (!pathMatch) {
+      return res.status(400).json({ message: "Invalid template URL" });
+    }
+
+    const [, bucket, filePath] = pathMatch;
+
+    // Get the file from Supabase storage
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .download(filePath);
+
+    if (error) {
+      console.error('Supabase download error:', error);
+      return res.status(404).json({ message: "Template file not found" });
+    }
+
+    // Convert blob to buffer
+    const arrayBuffer = await data.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Set appropriate headers
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="template_${Date.now()}"`);
+    res.setHeader('Content-Length', buffer.length);
+
+    res.send(buffer);
+  } catch (error) {
+    console.error('Template download error:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
