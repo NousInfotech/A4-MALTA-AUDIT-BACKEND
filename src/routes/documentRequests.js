@@ -61,4 +61,20 @@ router.get(
   drc.getDocumentRequestStats
 );
 
+// Upload template file
+router.post(
+  '/template/upload',
+  requireAuth,
+  requireRole('employee'),
+  upload.single('file'),
+  drc.uploadTemplate
+);
+
+// Download template file
+router.get(
+  '/template/download',
+  requireAuth,
+  drc.downloadTemplate
+);
+
 module.exports = router;

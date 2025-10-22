@@ -75,7 +75,11 @@ exports.uploadDocuments = async (req, res, next) => {
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+        .upload(path, file.buffer, { 
+          cacheControl: "3600", 
+          upsert: false,
+          contentType: file.mimetype 
+        });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
@@ -84,15 +88,16 @@ exports.uploadDocuments = async (req, res, next) => {
 
       // For KYC documents, try to update existing pending document instead of adding new one
       if (dr.category === 'kyc') {
-        // Find the first pending document to update
-        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+        // Check if we have a specific document index from the frontend
+        const documentIndex = req.body.documentIndex ? parseInt(req.body.documentIndex) : null;
+        const documentName = req.body.documentName || originalFilename;
         
-        if (pendingDocIndex !== -1) {
-          // Update existing pending document
-          dr.documents[pendingDocIndex] = {
-            ...dr.documents[pendingDocIndex],
-            // Keep the original document name (like "Source of Wealth")
-            // Store uploaded filename separately
+        if (documentIndex !== null && documentIndex >= 0 && documentIndex < dr.documents.length) {
+          // Update specific document by index
+          const existingDoc = dr.documents[documentIndex];
+          dr.documents[documentIndex] = {
+            ...existingDoc,
+            name: documentName, // Ensure name is always set
             uploadedFileName: originalFilename,
             url: urlData.publicUrl,
             uploadedAt: new Date(),
@@ -100,14 +105,32 @@ exports.uploadDocuments = async (req, res, next) => {
             comment: req.body.comment || ""
           };
         } else {
-          // If no pending document found, add new one
-          dr.documents.push({
-            name: originalFilename,
-            url: urlData.publicUrl,
-            uploadedAt: new Date(),
-            status: 'uploaded',
-            comment: req.body.comment || ""
-          });
+          // Find the first pending document to update
+          const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+          
+          if (pendingDocIndex !== -1) {
+            // Update existing pending document
+            const existingDoc = dr.documents[pendingDocIndex];
+            dr.documents[pendingDocIndex] = {
+              ...existingDoc,
+              name: existingDoc.name || documentName, // Ensure name is always set
+              uploadedFileName: originalFilename,
+              url: urlData.publicUrl,
+              uploadedAt: new Date(),
+              status: 'uploaded',
+              comment: req.body.comment || ""
+            };
+          } else {
+            // If no pending document found, add new one
+            dr.documents.push({
+              name: documentName,
+              uploadedFileName: originalFilename,
+              url: urlData.publicUrl,
+              uploadedAt: new Date(),
+              status: 'uploaded',
+              comment: req.body.comment || ""
+            });
+          }
         }
       } else {
         // For non-KYC documents, add new document (existing behavior)
@@ -420,7 +443,11 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
-      .upload(path, file.buffer, { cacheControl: "3600", upsert: false });
+      .upload(path, file.buffer, { 
+        cacheControl: "3600", 
+        upsert: false,
+        contentType: file.mimetype 
+      });
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
@@ -429,29 +456,47 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     // For KYC documents, try to update existing pending document instead of adding new one
     if (dr.category === 'kyc') {
-      // Find the first pending document to update
-      const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+      // Check if we have a specific document index from the frontend
+      const documentIndex = req.body.documentIndex ? parseInt(req.body.documentIndex) : null;
+      const documentName = req.body.documentName || originalFilename;
       
-      if (pendingDocIndex !== -1) {
-        // Update existing pending document
-        dr.documents[pendingDocIndex] = {
-          ...dr.documents[pendingDocIndex],
-          // Keep the original document name (like "Source of Wealth")
-          // Store uploaded filename separately
+      if (documentIndex !== null && documentIndex >= 0 && documentIndex < dr.documents.length) {
+        // Update specific document by index
+        const existingDoc = dr.documents[documentIndex];
+        dr.documents[documentIndex] = {
+          ...existingDoc,
+          name: documentName, // Ensure name is always set
           uploadedFileName: originalFilename,
           url: urlData.publicUrl,
           uploadedAt: new Date(),
           status: 'uploaded'
         };
       } else {
-        // If no pending document found, add new one
-        const newDocument = {
-          name: originalFilename,
-          url: urlData.publicUrl,
-          uploadedAt: new Date(),
-          status: 'uploaded'
-        };
-        dr.documents.push(newDocument);
+        // Find the first pending document to update
+        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
+        
+        if (pendingDocIndex !== -1) {
+          // Update existing pending document
+          const existingDoc = dr.documents[pendingDocIndex];
+          dr.documents[pendingDocIndex] = {
+            ...existingDoc,
+            name: existingDoc.name || documentName, // Ensure name is always set
+            uploadedFileName: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded'
+          };
+        } else {
+          // If no pending document found, add new one
+          const newDocument = {
+            name: documentName,
+            uploadedFileName: originalFilename,
+            url: urlData.publicUrl,
+            uploadedAt: new Date(),
+            status: 'uploaded'
+          };
+          dr.documents.push(newDocument);
+        }
       }
     } else {
       // For non-KYC documents, add new document (existing behavior)
@@ -585,5 +630,96 @@ exports.getDocumentRequestStats = async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+};
+
+// Upload template file for document requests
+exports.uploadTemplate = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const bucket = "engagement-documents";
+    const originalFilename = req.file.originalname;
+    const ext = originalFilename.split(".").pop();
+    const uniqueFilename = `template_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 5)}.${ext}`;
+    
+    // Store templates in a templates folder
+    const path = `templates/${uniqueFilename}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, req.file.buffer, { 
+        cacheControl: "3600", 
+        upsert: false,
+        contentType: req.file.mimetype 
+      });
+    
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      return res.status(500).json({ message: "Failed to upload template file" });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(uploadData.path);
+
+    res.json({
+      success: true,
+      url: urlData.publicUrl,
+      filename: uniqueFilename,
+      originalName: originalFilename
+    });
+  } catch (error) {
+    console.error('Template upload error:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// Download template file for clients
+exports.downloadTemplate = async (req, res, next) => {
+  try {
+    const { templateUrl } = req.query;
+    
+    if (!templateUrl) {
+      return res.status(400).json({ message: "Template URL is required" });
+    }
+
+    // Extract the file path from the Supabase URL
+    const url = new URL(templateUrl);
+    const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+    
+    if (!pathMatch) {
+      return res.status(400).json({ message: "Invalid template URL" });
+    }
+
+    const [, bucket, filePath] = pathMatch;
+
+    // Get the file from Supabase storage
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .download(filePath);
+
+    if (error) {
+      console.error('Supabase download error:', error);
+      return res.status(404).json({ message: "Template file not found" });
+    }
+
+    // Convert blob to buffer
+    const arrayBuffer = await data.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Set appropriate headers
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="template_${Date.now()}"`);
+    res.setHeader('Content-Length', buffer.length);
+
+    res.send(buffer);
+  } catch (error) {
+    console.error('Template download error:', error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
