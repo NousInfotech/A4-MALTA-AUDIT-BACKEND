@@ -81,10 +81,25 @@ router.post(
   ec.uploadWorkbook
 );
 
+router.post(
+  "/engagement/excel/upload-trial-balance",
+  requireAuth,
+  multer_upload.single("file"),
+  ec.uploadTrialBalances
+);
+
+
+
 router.get(
   "/engagement/classification/excel/workbooks",
   requireAuth,
   ec.listWorkbooksInFolder
+);
+
+router.get(
+  "/engagement/excel/trial-balances",
+  requireAuth,
+  ec.listTrialbalancesInFolder
 );
 
 router.get(

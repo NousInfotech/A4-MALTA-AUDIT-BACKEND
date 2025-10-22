@@ -35,6 +35,7 @@ async function createNewWorkbookVersion(
     name: workbook.name, // Capture current workbook name
     classification: workbook.classification, // Capture current classification
     webUrl: workbook.webUrl, // Capture current webUrl
+    category: workbook.category,
     sheets: historicalSheetIds, // Link to the newly created historical sheets
     mappings: JSON.parse(JSON.stringify(workbook.mappings)), // Deep copy of *current* mappings
     namedRanges: JSON.parse(JSON.stringify(workbook.namedRanges)), // Deep copy of *current* named ranges
@@ -102,6 +103,7 @@ const saveWorkbookAndSheets = async (req, res) => {
         workbook.webUrl = workbookData.webUrl || workbook.webUrl;
         workbook.classification =
           workbookData.classification || workbook.classification;
+        workbook.category = workbookData.category || workbook.category;
         workbook.mappings = workbookData.mappings || []; // Update mappings from incoming data
         workbook.namedRanges = workbookData.namedRanges || []; // Update named ranges from incoming data
 
@@ -120,6 +122,7 @@ const saveWorkbookAndSheets = async (req, res) => {
         uploadedBy: currentUser,
         lastModifiedBy: currentUser,
         version: "v1", // Initial version for a new workbook
+        category: workbookData.category,
         mappings: workbookData.mappings || [],
         namedRanges: workbookData.namedRanges || [],
       });
@@ -156,13 +159,14 @@ const saveWorkbookAndSheets = async (req, res) => {
         name: workbook.name,
         classification: workbook.classification,
         webUrl: workbook.webUrl,
+        category: workbook.category,
         sheets: currentSheetIds, // These are the _id's of the *current* sheets, for the initial version they are the same
         mappings: JSON.parse(JSON.stringify(workbook.mappings)),
         namedRanges: JSON.parse(JSON.stringify(workbook.namedRanges)),
       };
       workbook.versions.push(initialVersionEntry);
       newVersionSubdocumentId = initialVersionEntry._id; // Store for response
-      
+
       // Update historical sheets with the correct workbookVersionId
       for (const sheetId of currentSheetIds) {
         await HistoricalSheet.findByIdAndUpdate(
@@ -173,7 +177,6 @@ const saveWorkbookAndSheets = async (req, res) => {
       }
       await workbook.save({ session });
     }
-
 
     const finalWorkbook = await Workbook.findById(workbook._id)
       .populate({ path: "sheets", session: session })
@@ -252,6 +255,7 @@ const getHistoricalWorkbookVersion = async (req, res) => {
       name: historicalVersion.name,
       classification: historicalVersion.classification,
       webUrl: historicalVersion.webUrl,
+      category: historicalVersion.category,
       version: historicalVersion.version,
       savedAt: historicalVersion.savedAt,
       savedBy: historicalVersion.savedBy,
@@ -368,6 +372,7 @@ const uploadWorkbookDataAndSheetData = async (req, res) => {
       fileName,
       workbookData,
       webUrl,
+      category,
     } = req.body;
 
     const userId = req.user?.id;
@@ -407,6 +412,7 @@ const uploadWorkbookDataAndSheetData = async (req, res) => {
       uploadedDate: new Date(),
       lastModifiedDate: new Date(),
       version: newVersionString,
+      category: category,
       mappings: [],
       namedRanges: [],
       sheets: [],
@@ -441,6 +447,7 @@ const uploadWorkbookDataAndSheetData = async (req, res) => {
       name: newWorkbook.name,
       classification: newWorkbook.classification,
       webUrl: newWorkbook.webUrl,
+      category: newWorkbook.category,
       sheets: savedSheetIds, // These are the _id's of the *current* sheets, for the initial version they are the same
       mappings: [],
       namedRanges: [],
@@ -486,8 +493,14 @@ const saveWorkbook = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { workbookId, workbookName, sheetData, metadata, savedByUserId } =
-      req.body;
+    const {
+      workbookId,
+      workbookName,
+      sheetData,
+      metadata,
+      savedByUserId,
+      category,
+    } = req.body;
     const userId = savedByUserId || req.user?.id;
 
     if (!workbookId) {
@@ -518,14 +531,44 @@ const saveWorkbook = async (req, res) => {
       });
     }
 
-    let versionSubdocumentId = null;
     let sheetChangesDetected = false;
+    let versionSubdocumentId = null;
 
     // Check for sheet data changes
     if (sheetData) {
-      // Simplistic check: If sheetData is provided, assume sheet changes
-      // A more robust check would involve comparing existing sheet data with incoming data.
-      sheetChangesDetected = true;
+      const existingSheets = await Sheet.find({
+        workbookId: workbook._id,
+      }).session(session);
+
+      // Create a map for easier lookup of existing sheets by name
+      const existingSheetsMap = new Map(existingSheets.map((s) => [s.name, s]));
+
+      const incomingSheetNames = Object.keys(sheetData);
+      const existingSheetNames = existingSheets.map((s) => s.name);
+
+      // Check for added, deleted, or modified sheets
+      if (incomingSheetNames.length !== existingSheetNames.length) {
+        sheetChangesDetected = true; // Sheets added or deleted
+      } else {
+        for (const sheetName of incomingSheetNames) {
+          const incomingData = sheetData[sheetName]
+            .slice(1)
+            .map((row) => row.slice(1)); // Assuming cleaning here
+
+          const existingSheet = existingSheetsMap.get(sheetName);
+
+          if (!existingSheet) {
+            sheetChangesDetected = true; // New sheet added
+            break;
+          }
+          if (
+            JSON.stringify(existingSheet.data) !== JSON.stringify(incomingData)
+          ) {
+            sheetChangesDetected = true; // Sheet data modified
+            break;
+          }
+        }
+      }
     }
 
     if (sheetChangesDetected) {
@@ -533,13 +576,14 @@ const saveWorkbook = async (req, res) => {
       versionSubdocumentId = await createNewWorkbookVersion(
         session,
         workbook,
-        workbook.sheets,
+        workbook.sheets, // These are the *old* sheets for the historical version
         userId
       );
 
-      // Delete existing current sheets as their historical version is saved
+      // Delete *all* old current sheets
       await Sheet.deleteMany({ workbookId: workbook._id }, { session });
 
+      // Save all *new* current sheets
       const updatedSheetIds = [];
       for (const sheetName in sheetData) {
         const data = sheetData[sheetName];
@@ -555,17 +599,22 @@ const saveWorkbook = async (req, res) => {
         await newSheet.save({ session });
         updatedSheetIds.push(newSheet._id);
       }
-      workbook.sheets = updatedSheetIds;
+      workbook.sheets = updatedSheetIds; // Update workbook's current sheets array
     }
 
     // Apply other workbook updates (name, metadata, etc.)
     if (workbookName) workbook.name = workbookName;
+    if (category !== undefined) workbook.category = category;
+    if (req.body.mappings) workbook.mappings = req.body.mappings; // Be careful with direct assignments, consider merging
+    if (req.body.namedRanges) workbook.namedRanges = req.body.namedRanges;
     if (metadata) {
       if (metadata.lastModifiedBy)
         workbook.lastModifiedBy = metadata.lastModifiedBy;
       workbook.lastModifiedDate = new Date(); // Always update last modified date
     }
 
+    workbook.lastModifiedDate = new Date();
+    workbook.lastModifiedBy = userId;
     await workbook.save({ session });
 
     await session.commitTransaction();
@@ -1218,12 +1267,19 @@ const getWorkbookLogs = async (req, res) => {
         engagementId: workbook.engagementId,
         classification: workbook.classification,
         webUrl: workbook.webUrl,
-        initialVersion: workbook.versions[0] ? workbook.versions[0].version : "N/A", // Use the first version's tag
+        category: workbook.category,
+        initialVersion: workbook.versions[0]
+          ? workbook.versions[0].version
+          : "N/A", // Use the first version's tag
       },
       // Note: At upload, mappings/named ranges might not be present or are initial.
       // We take the state from the first version entry if available.
-      mappingsCount: workbook.versions[0] ? workbook.versions[0].mappings.length : 0,
-      namedRangesCount: workbook.versions[0] ? workbook.versions[0].namedRanges.length : 0,
+      mappingsCount: workbook.versions[0]
+        ? workbook.versions[0].mappings.length
+        : 0,
+      namedRangesCount: workbook.versions[0]
+        ? workbook.versions[0].namedRanges.length
+        : 0,
     });
 
     // 2. Iterate through all historical versions (these now only represent sheet/workbook metadata changes)
@@ -1245,14 +1301,19 @@ const getWorkbookLogs = async (req, res) => {
           name: versionEntry.name,
           classification: versionEntry.classification,
           webUrl: versionEntry.webUrl,
+          category: versionEntry.category,
         },
         sheets: historicalSheets.map((hs) => ({
           _id: hs._id,
           name: hs.name,
           savedAt: hs.savedAt,
         })),
-        mappingsCountAtThisVersion: versionEntry.mappings ? versionEntry.mappings.length : 0,
-        namedRangesCountAtThisVersion: versionEntry.namedRanges ? versionEntry.namedRanges.length : 0,
+        mappingsCountAtThisVersion: versionEntry.mappings
+          ? versionEntry.mappings.length
+          : 0,
+        namedRangesCountAtThisVersion: versionEntry.namedRanges
+          ? versionEntry.namedRanges.length
+          : 0,
       });
 
       // --- Diffing Mappings and Named Ranges between versions for more granular logs ---
@@ -1266,22 +1327,40 @@ const getWorkbookLogs = async (req, res) => {
         const mappingChanges = [];
 
         // Added Mappings
-        currentMappings.forEach(currentMap => {
-          if (!prevMappings.some(prevMap => prevMap._id.toString() === currentMap._id.toString())) {
+        currentMappings.forEach((currentMap) => {
+          if (
+            !prevMappings.some(
+              (prevMap) => prevMap._id.toString() === currentMap._id.toString()
+            )
+          ) {
             mappingChanges.push({ type: "Mapping Added", mapping: currentMap });
           }
         });
         // Deleted Mappings
-        prevMappings.forEach(prevMap => {
-          if (!currentMappings.some(currentMap => currentMap._id.toString() === prevMap._id.toString())) {
+        prevMappings.forEach((prevMap) => {
+          if (
+            !currentMappings.some(
+              (currentMap) =>
+                currentMap._id.toString() === prevMap._id.toString()
+            )
+          ) {
             mappingChanges.push({ type: "Mapping Deleted", mapping: prevMap });
           }
         });
         // Updated Mappings
-        currentMappings.forEach(currentMap => {
-          const prevMap = prevMappings.find(prev => prev._id.toString() === currentMap._id.toString());
-          if (prevMap && JSON.stringify(prevMap) !== JSON.stringify(currentMap)) {
-            mappingChanges.push({ type: "Mapping Updated", old: prevMap, new: currentMap });
+        currentMappings.forEach((currentMap) => {
+          const prevMap = prevMappings.find(
+            (prev) => prev._id.toString() === currentMap._id.toString()
+          );
+          if (
+            prevMap &&
+            JSON.stringify(prevMap) !== JSON.stringify(currentMap)
+          ) {
+            mappingChanges.push({
+              type: "Mapping Updated",
+              old: prevMap,
+              new: currentMap,
+            });
           }
         });
 
@@ -1300,22 +1379,42 @@ const getWorkbookLogs = async (req, res) => {
         const namedRangeChanges = [];
 
         // Added Named Ranges
-        currentNamedRanges.forEach(currentNr => {
-          if (!prevNamedRanges.some(prevNr => prevNr._id.toString() === currentNr._id.toString())) {
-            namedRangeChanges.push({ type: "Named Range Added", namedRange: currentNr });
+        currentNamedRanges.forEach((currentNr) => {
+          if (
+            !prevNamedRanges.some(
+              (prevNr) => prevNr._id.toString() === currentNr._id.toString()
+            )
+          ) {
+            namedRangeChanges.push({
+              type: "Named Range Added",
+              namedRange: currentNr,
+            });
           }
         });
         // Deleted Named Ranges
-        prevNamedRanges.forEach(prevNr => {
-          if (!currentNamedRanges.some(currentNr => currentNr._id.toString() === prevNr._id.toString())) {
-            namedRangeChanges.push({ type: "Named Range Deleted", namedRange: prevNr });
+        prevNamedRanges.forEach((prevNr) => {
+          if (
+            !currentNamedRanges.some(
+              (currentNr) => currentNr._id.toString() === prevNr._id.toString()
+            )
+          ) {
+            namedRangeChanges.push({
+              type: "Named Range Deleted",
+              namedRange: prevNr,
+            });
           }
         });
         // Updated Named Ranges
-        currentNamedRanges.forEach(currentNr => {
-          const prevNr = prevNamedRanges.find(prev => prev._id.toString() === currentNr._id.toString());
+        currentNamedRanges.forEach((currentNr) => {
+          const prevNr = prevNamedRanges.find(
+            (prev) => prev._id.toString() === currentNr._id.toString()
+          );
           if (prevNr && JSON.stringify(prevNr) !== JSON.stringify(currentNr)) {
-            namedRangeChanges.push({ type: "Named Range Updated", old: prevNr, new: currentNr });
+            namedRangeChanges.push({
+              type: "Named Range Updated",
+              old: prevNr,
+              new: currentNr,
+            });
           }
         });
 
@@ -1342,6 +1441,7 @@ const getWorkbookLogs = async (req, res) => {
         name: workbook.name,
         classification: workbook.classification,
         webUrl: workbook.webUrl,
+        category: workbook.category,
         version: workbook.version,
       },
       sheets: currentSheets.map((s) => ({
@@ -1365,6 +1465,28 @@ const getWorkbookLogs = async (req, res) => {
   }
 };
 
+const listTrialBalanceWorkbooks = async (req, res) => {
+  try {
+    const { engagementId } = req.params;
+    const category = "Trial Balance";
+
+    if (!engagementId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "engagementId is required" });
+    }
+
+    const query = { engagementId, category };
+
+    const workbooks = await Workbook.find(query).select(
+      "-mappings -namedRanges -versions"
+    );
+
+    res.status(200).json({ success: true, data: workbooks });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
 
 module.exports = {
   saveWorkbookAndSheets,
@@ -1386,4 +1508,5 @@ module.exports = {
   deleteNamedRange,
   addOrUpdateCustomField,
   getWorkbookLogs,
+  listTrialBalanceWorkbooks,
 };

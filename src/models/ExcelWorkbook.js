@@ -38,6 +38,7 @@ const VersionSchema = new Schema(
     name: String,
     classification: String,
     webUrl: String,
+    category: { type: String },
     sheets: [{ type: Schema.Types.ObjectId, ref: "Sheet" }],
     mappings: [MappingSchema],
     namedRanges: [NamedRangeSchema],
@@ -81,6 +82,9 @@ const WorkbookSchema = new Schema(
     lastModifiedDate: { type: Date, default: Date.now },
 
     version: { type: String, default: "v1" },
+
+    // 🔹 New Category Field
+    category: { type: String },
 
     // Sheets and mappings
     sheets: [{ type: Schema.Types.ObjectId, ref: "Sheet" }],

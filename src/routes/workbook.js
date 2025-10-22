@@ -1,47 +1,59 @@
-// routes/workbookRoutes.ts
+// reordering
+
 const router = require("express").Router();
 const workbookController = require('../controllers/workbookController');
 const { requireAuth } = require("../middlewares/auth");
 
 
+
+// ===================================================================
+// 1. SPECIFIC ROUTES (No path parameters in the main segment)
+//    These must come first to avoid being caught by generic routes.
+// ===================================================================
+
 router.post('/', requireAuth, workbookController.saveWorkbookAndSheets);
-
-// Route to get a specific workbook with all its current sheets populated
-router.get('/:id', requireAuth, workbookController.getWorkbookWithSheets);
-
-// DELETE /api/workbooks/:workbookId
-router.delete('/:workbookId', requireAuth, workbookController.deleteWorkbook);
-
-// Route to get a specific historical version of a workbook
-router.get('/:workbookId/versions/:versionTag', requireAuth, workbookController.getHistoricalWorkbookVersion);
-
-// Route to get data for a specific sheet within a workbook, supporting versionTag
-router.get('/:workbookId/sheets/:sheetName/data/:versionTag?', requireAuth, workbookController.getSpecificSheetData);
-
-// Workbooks
-router.get('/:engagementId/:classification/workbooks/list', requireAuth, workbookController.listWorkbooks);
-router.get('/:workbookId', requireAuth, workbookController.getWorkbookById); // Get a single workbook and its sheets
-
-// store parsed workbook, sheet data
 router.post('/work-bookdata', requireAuth, workbookController.uploadWorkbookDataAndSheetData);
+router.post('/save-workbook', requireAuth, workbookController.saveWorkbook);
+router.post('/save-sheet', requireAuth, workbookController.saveSheet);
 
-// Sheets
-router.get('/:workbookId/sheets', requireAuth, workbookController.listSheets); // Get list of sheet names for a workbook
 
-// Save operations (for edited workbook/sheet data)
-router.post('/save-workbook', requireAuth, workbookController.saveWorkbook); // Save/update entire workbook data
-router.post('/save-sheet', requireAuth, workbookController.saveSheet); // Save/update a single sheet's data
+// ===================================================================
+// 2. SEMI-SPECIFIC ROUTES (Have a specific structure with parameters)
+//    These are more specific than a simple /:id, so they come next.
+// ===================================================================
 
-// Mappings (embedded in Workbook, so update workbook to manage them)
+router.get('/:engagementId/:classification/workbooks/list', requireAuth, workbookController.listWorkbooks);
+router.get('/engagement/:engagementId/trial-balance/list', requireAuth, workbookController.listTrialBalanceWorkbooks);
+
+
+// ===================================================================
+// 3. GENERIC ROUTES (Catch-all routes with path parameters)
+//    These are the most general and MUST come last.
+// ===================================================================
+
+// Routes for a specific workbook by its ID
+router.get('/:workbookId/versions/:versionTag', requireAuth, workbookController.getHistoricalWorkbookVersion);
+router.get('/:workbookId/sheets/:sheetName/data/:versionTag?', requireAuth, workbookController.getSpecificSheetData);
+router.get('/:workbookId/sheets', requireAuth, workbookController.listSheets);
+router.get('/:workbookId/logs/', requireAuth, workbookController.getWorkbookLogs);
+
+// NOTE: The two routes below are the most generic and were causing the issue.
+// They are now placed at the very end.
+router.get('/:id', requireAuth, workbookController.getWorkbookWithSheets);
+// router.get('/:workbookId', requireAuth, workbookController.getWorkbookById);
+
+// Other generic routes for a specific workbook
+router.delete('/:workbookId', requireAuth, workbookController.deleteWorkbook);
+router.patch("/:id/custom-fields", requireAuth, workbookController.addOrUpdateCustomField);
+
+// Nested resource routes for a specific workbook
 router.post('/:workbookId/mappings', requireAuth, workbookController.createMapping);
 router.put('/:workbookId/mappings/:mappingId', requireAuth, workbookController.updateMapping);
 router.delete('/:workbookId/mappings/:mappingId', requireAuth, workbookController.deleteMapping);
 
-// Named Ranges (embedded in Workbook, so update workbook to manage them)
 router.post('/:workbookId/named-ranges', requireAuth, workbookController.createNamedRange);
 router.put('/:workbookId/named-ranges/:namedRangeId', requireAuth, workbookController.updateNamedRange);
 router.delete('/:workbookId/named-ranges/:namedRangeId', requireAuth, workbookController.deleteNamedRange);
-router.patch("/:id/custom-fields", requireAuth,  workbookController.addOrUpdateCustomField);
-router.get("/:workbookId/logs/", requireAuth,  workbookController.getWorkbookLogs);
+
 
 module.exports = router;
