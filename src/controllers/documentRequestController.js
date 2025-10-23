@@ -688,15 +688,60 @@ exports.downloadTemplate = async (req, res, next) => {
       return res.status(400).json({ message: "Template URL is required" });
     }
 
-    // Extract the file path from the Supabase URL
-    const url = new URL(templateUrl);
-    const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
-    
-    if (!pathMatch) {
-      return res.status(400).json({ message: "Invalid template URL" });
+    let bucket, filePath;
+
+    // Check if it's a relative path (starts with /) - for default templates
+    if (templateUrl.startsWith('/')) {
+      // For default templates in public folder, serve them directly
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Remove leading slash and construct file path
+      const fileName = templateUrl.substring(1);
+      const filePath_local = path.join(__dirname, '../../public', fileName);
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath_local)) {
+        return res.status(404).json({ message: "Template file not found" });
+      }
+      
+      // Set appropriate content type
+      const ext = path.extname(fileName).toLowerCase();
+      const contentTypes = {
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.txt': 'text/plain'
+      };
+      
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+      
+      // Set headers and send file
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      
+      return res.sendFile(filePath_local);
     }
 
-    const [, bucket, filePath] = pathMatch;
+    // Handle Supabase URLs (existing logic)
+    try {
+      const url = new URL(templateUrl);
+      const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+      
+      if (!pathMatch) {
+        return res.status(400).json({ message: "Invalid template URL" });
+      }
+
+      [, bucket, filePath] = pathMatch;
+    } catch (urlError) {
+      return res.status(400).json({ message: "Invalid template URL format" });
+    }
 
     // Get the file from Supabase storage
     const { data, error } = await supabase.storage
