@@ -16,6 +16,8 @@ const {
   listWorksheets,
   readSheet,
   writeSheet,
+  getFileVersionHistory,
+  restoreFileVersion,
 } = require("../services/microsoftExcelService");
 
 const EXCEL_MIME =
@@ -2183,5 +2185,106 @@ exports.SaveOrwriteSpecificSheet = async (req, res, next) => {
   } catch (error) {
     console.error("Error saving sheet:", error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+exports.getFileVersionsHistory = async (req, res, next) => {
+  // Get driveItemId from request parameters or query string
+  // For production, always validate and sanitize user input.
+  const driveItemId = req.params.id || req.query.driveItemId; 
+
+  if (!driveItemId) {
+    return res.status(400).json({ success: false, message: "driveItemId is required." });
+  }
+
+  try {
+    const versions = await getFileVersionHistory(driveItemId);
+
+    if (versions && versions.length > 0) {
+      console.log(`[Controller] Found ${versions.length} versions for ${driveItemId}`);
+      // You might want to format the versions for the client if needed
+      const formattedVersions = versions.map(version => ({
+        id: version.id,
+        lastModifiedDateTime: version.lastModifiedDateTime,
+        size: version.size,
+        webUrl: version.driveItem?.webUrl, // Provide a URL to view this specific version
+        // Add any other relevant fields
+      }));
+      return res.json({ success: true, data: formattedVersions });
+    } else {
+      console.log(`[Controller] No versions found for ${driveItemId}.`);
+      return res.json({ success: true, message: "No versions created for this file.", data: [] });
+    }
+  } catch (error) {
+    console.error(`[Controller] Error getting file versions for ${driveItemId}:`, error.message);
+    // You could also pass the error to Express's error handling middleware: next(error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+
+
+exports.revertToPrevVersion = async (req, res, next) => {
+  // Get driveItemId from request parameters or body
+  const driveItemId = req.params.id || req.body.driveItemId;
+  // If you want to allow the user to specify a version to restore to:
+  // const versionIdToRestore = req.body.versionId; 
+
+  if (!driveItemId) {
+    return res.status(400).json({ success: false, message: "driveItemId is required." });
+  }
+
+  try {
+    console.log(`[Controller] Getting version history for ${driveItemId}...`);
+    const versions = await getFileVersionHistory(driveItemId);
+
+    if (!versions || versions.length < 2) {
+      const message = "Not enough versions to revert. Need at least 2 versions.";
+      console.log(`[Controller] ${message}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: message,
+        currentVersions: versions ? versions.map(v => ({ id: v.id, date: new Date(v.lastModifiedDateTime).toLocaleString() })) : []
+      });
+    }
+
+    // This example reverts to the SECOND-TO-LAST version in the history.
+    // If you implemented versionIdToRestore, you would use that here.
+    const versionToRestore = versions[versions.length - 2]; 
+    const targetVersionId = versionToRestore.id; // Or use req.body.versionId if provided
+
+    console.log(`[Controller] Attempting to restore ${driveItemId} to version ID: ${targetVersionId} 
+        (modified: ${new Date(versionToRestore.lastModifiedDateTime).toLocaleString()})`);
+
+    const restored = await restoreFileVersion(driveItemId, targetVersionId);
+
+    if (restored) {
+      console.log(`[Controller] File ${driveItemId} successfully restored to version ${targetVersionId}!`);
+      
+      // Optionally, fetch and return the new version history for confirmation
+      const newVersions = await getFileVersionHistory(driveItemId);
+      const formattedNewVersions = newVersions.map(version => ({
+        id: version.id,
+        lastModifiedDateTime: version.lastModifiedDateTime,
+        size: version.size,
+        webUrl: version.driveItem?.webUrl,
+      }));
+
+      return res.json({ 
+        success: true, 
+        message: `File restored to version ${targetVersionId}.`, 
+        newCurrentVersion: formattedNewVersions[0] || null, // The newest version will be the restored one
+        newVersionHistory: formattedNewVersions 
+      });
+    } else {
+      // This path should ideally not be hit if restoreFileVersion throws on failure.
+      console.log(`[Controller] Restore operation for ${driveItemId} did not return success status.`);
+      return res.status(500).json({ success: false, message: "Restore operation failed unexpectedly." });
+    }
+  } catch (error) {
+    console.error(`[Controller] Error reverting file ${driveItemId} to previous version:`, error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
 };

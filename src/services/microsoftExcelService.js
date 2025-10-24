@@ -577,6 +577,95 @@ async function writeWorkbook({ driveItemId, workbookData }) {
 }
 
 
+
+/**
+ * Retrieves the version history for a given drive item (file).
+ * @param {string} driveItemId The ID of the drive item (file) to get versions for.
+ * @returns {Promise<Array<Object>>} An array of version objects, or an empty array if no versions.
+ */
+async function getFileVersionHistory(driveItemId) {
+  const token = await getAccessToken();
+  const requestUrl = `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/versions`;
+
+  console.log(`[getFileVersionHistory] Attempting to retrieve versions for driveItemId: ${driveItemId}`);
+  console.log(`[getFileVersionHistory] Request URL: ${requestUrl}`);
+
+  try {
+    const res = await fetch(requestUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      // Graph might return 404 if versioning is not enabled on the library
+      // or if there are no versions yet (though usually it returns an empty array for no versions)
+      if (res.status === 404 && errorText.includes("ItemNotFound")) {
+        console.warn(`[getFileVersionHistory] No version history found or versioning not enabled for item ${driveItemId}. Status: ${res.status}, Message: ${errorText}`);
+        return [];
+      }
+      throw new Error(`Graph get file versions failed: ${res.status} ${errorText} (URL: ${requestUrl})`);
+    }
+
+    const json = await res.json();
+    console.log(`[getFileVersionHistory] Successfully retrieved ${json.value?.length || 0} versions.`);
+    
+    // Each version object includes details like:
+    // id: string (version ID)
+    // lastModifiedDateTime: string (ISO 8601)
+    // size: number (bytes)
+    // publication: object (with level and versionId for SharePoint)
+    // driveItem: object (containing webUrl to view/download this specific version)
+    return json.value || [];
+
+  } catch (error) {
+    console.error(`[getFileVersionHistory] Error retrieving version history for ${driveItemId}:`, error.message);
+    throw error;
+  }
+}
+
+
+/**
+ * Restores a specific version of a drive item (file) to become the current version.
+ * This operation adds the current file state to the version history as a new version,
+ * and then sets the specified old version as the new current version.
+ * @param {string} driveItemId The ID of the drive item (file).
+ * @param {string} versionId The ID of the specific version to restore.
+ * @returns {Promise<boolean>} True if the restore was successful, false otherwise.
+ */
+async function restoreFileVersion(driveItemId, versionId) {
+  const token = await getAccessToken();
+  const requestUrl = `${GRAPH_BASE}${driveRoot()}/items/${driveItemId}/versions/${versionId}/restoreVersion`;
+
+  console.log(`[restoreFileVersion] Attempting to restore version ${versionId} for driveItemId: ${driveItemId}`);
+  console.log(`[restoreFileVersion] Request URL: ${requestUrl}`);
+
+  try {
+    const res = await fetch(requestUrl, {
+      method: "POST", // This is a POST action
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json", // Although the body is empty, it's good practice
+      },
+      body: JSON.stringify({}), // The restoreVersion action takes an empty body
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Graph restore file version failed: ${res.status} ${errorText} (URL: ${requestUrl})`);
+    }
+
+    // A successful restoreVersion operation typically returns a 204 No Content
+    // or sometimes a 200 OK with the updated driveItem object.
+    console.log(`[restoreFileVersion] Successfully restored version ${versionId}. Status: ${res.status}`);
+    return true;
+
+  } catch (error) {
+    console.error(`[restoreFileVersion] Error restoring version ${versionId} for ${driveItemId}:`, error.message);
+    throw error;
+  }
+}
+
+
 module.exports = {
   ensureWorkbook,
   writeSheet,
@@ -587,5 +676,7 @@ module.exports = {
   listWorkbooks,
   listTrialbalanceWorkbooks,
   listWorksheets,
-  writeWorkbook
+  writeWorkbook,
+  getFileVersionHistory,
+  restoreFileVersion,
 }

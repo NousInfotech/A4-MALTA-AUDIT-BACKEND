@@ -32,10 +32,11 @@ router.get('/engagement/:engagementId/trial-balance/list', requireAuth, workbook
 // ===================================================================
 
 // Routes for a specific workbook by its ID
-router.get('/:workbookId/versions/:versionTag', requireAuth, workbookController.getHistoricalWorkbookVersion);
+
 router.get('/:workbookId/sheets/:sheetName/data/:versionTag?', requireAuth, workbookController.getSpecificSheetData);
 router.get('/:workbookId/sheets', requireAuth, workbookController.listSheets);
-router.get('/:workbookId/logs/', requireAuth, workbookController.getWorkbookLogs);
+router.get('/:workbookId/logs', requireAuth, workbookController.getWorkbookLogs);
+router.post('/:workbookId/update-sheets', requireAuth, workbookController.updateSheetsData);
 
 // NOTE: The two routes below are the most generic and were causing the issue.
 // They are now placed at the very end.
