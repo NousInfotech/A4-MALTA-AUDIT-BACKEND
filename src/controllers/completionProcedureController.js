@@ -146,7 +146,7 @@ async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
 async function callOpenAI(prompt) {
   console.log("prompt " + prompt)
   const r = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested." },
       { role: "user", content: prompt },
