@@ -1098,15 +1098,16 @@ const updateSheetsData = async (req, res) => {
   session.startTransaction();
   try {
     const { workbookId } = req.params;
-    const { sheetsData } = req.body; // sheetsData is expected to be an array of { name: 'SheetName', data: [['cell1'], ['cell2']] }
+    const { fileData } = req.body;
     const userId = req.user?.id;
 
-    if (!workbookId || !sheetsData || !Array.isArray(sheetsData)) {
+    
+    if (!workbookId || !fileData || typeof fileData !== 'object') {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        error: "workbookId and sheetsData (array of sheets) are required.",
+        error: "workbookId and fileData (object with sheet data) are required.",
       });
     }
 
@@ -1132,23 +1133,20 @@ const updateSheetsData = async (req, res) => {
     await Sheet.deleteMany({ workbookId: workbook._id }, { session });
 
     const newSheetIds = [];
-    for (const sheet of sheetsData) {
-      const { name, data } = sheet;
-      if (!name || !Array.isArray(data)) {
-        // Optionally log or skip invalid sheet entries
-        console.warn(`Skipping invalid sheet data: ${JSON.stringify(sheet)}`);
-        continue;
-      }
+    for (const sheetName in fileData) {
+      if (Object.prototype.hasOwnProperty.call(fileData, sheetName)) {
+        const sheetData = fileData[sheetName];
 
-      const newSheet = new Sheet({
-        workbookId: workbook._id,
-        name,
-        data,
-        lastModifiedDate: new Date(),
-        lastModifiedBy: userId,
-      });
-      await newSheet.save({ session });
-      newSheetIds.push(newSheet._id);
+        const newSheet = new Sheet({
+          workbookId: workbook._id,
+          name: sheetName,
+          data: sheetData,
+          lastModifiedDate: new Date(),
+          lastModifiedBy: userId,
+        });
+        await newSheet.save({ session });
+        newSheetIds.push(newSheet._id);
+      }
     }
 
     // Update the workbook's sheets array with the new sheet IDs
@@ -1157,16 +1155,21 @@ const updateSheetsData = async (req, res) => {
     workbook.lastModifiedBy = userId;
     await workbook.save({ session });
 
+    // Populate the sheets before returning the response, similar to saveWorkbookAndSheets
+    const finalWorkbook = await Workbook.findById(workbook._id)
+      .populate({ path: "sheets", session: session })
+      .session(session);
+
     await session.commitTransaction();
     session.endSession();
 
     res.status(200).json({
       success: true,
-      message: `Workbook '${workbook.name}' sheets updated successfully.`,
       data: {
-        workbookId: workbook._id,
-        updatedSheetsCount: newSheetIds.length,
+        workbook: finalWorkbook.toObject({ getters: true }),
+        sheetsUpdated: newSheetIds.length,
       },
+      message: `Workbook '${workbook.name}' sheets updated successfully.`,
     });
   } catch (error) {
     await session.abortTransaction();
