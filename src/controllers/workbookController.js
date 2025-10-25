@@ -599,7 +599,7 @@ const createMapping = async (req, res) => {
   session.startTransaction();
   try {
     const { workbookId } = req.params;
-    const { sheet, start, end, destinationField, transform, color } = req.body;
+    const { sheet, start, end, color } = req.body;
     const userId = req.user?.id;
 
     if (
@@ -607,8 +607,6 @@ const createMapping = async (req, res) => {
       !sheet ||
       !start ||
       !end ||
-      !destinationField ||
-      !transform ||
       !color
     ) {
       await session.abortTransaction();
@@ -636,8 +634,6 @@ const createMapping = async (req, res) => {
 
     const newMapping = {
       _id: new mongoose.Types.ObjectId(),
-      destinationField,
-      transform,
       color,
       details: { sheet, start, end },
     };
@@ -669,7 +665,7 @@ const updateMapping = async (req, res) => {
   session.startTransaction();
   try {
     const { workbookId, mappingId } = req.params;
-    const { sheet, start, end, destinationField, transform, color } = req.body;
+    const { sheet, start, end, color } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
@@ -698,8 +694,6 @@ const updateMapping = async (req, res) => {
         .json({ success: false, error: "Mapping not found" });
     }
 
-    if (destinationField) mapping.destinationField = destinationField;
-    if (transform) mapping.transform = transform;
     if (color) mapping.color = color;
     if (sheet) mapping.details.sheet = sheet;
     if (start) mapping.details.start = start;

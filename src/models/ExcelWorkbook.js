@@ -3,8 +3,6 @@ const { Schema } = mongoose;
 
 const MappingSchema = new Schema(
   {
-    destinationField: { type: String, required: true },
-    transform: { type: String, required: true },
     color: { type: String, required: true },
     details: {
       sheet: { type: String, required: true },

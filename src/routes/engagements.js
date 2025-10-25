@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const ec = require("../controllers/engagementController");
 const arc = require("../controllers/analyticalReviewController");
+const etbc = require("../controllers/ExtendedTrialBalanceController");
 const { requireAuth, requireRole } = require("../middlewares/auth");
 const upload = require("../middlewares/upload");
 const multer = require("multer")
@@ -83,6 +84,72 @@ router.delete(
   "/:id/etb/:classification/delete-linked-file",
   requireAuth,
   ec.deleteWorkbookFromLinkedFilesInExtendedTB
+);
+
+// ========================================
+// Extended Trial Balance with Mappings Routes
+// ========================================
+
+// Get Extended Trial Balance with mappings (supports classification filter)
+router.get(
+  "/:id/extended-trial-balance",
+  requireAuth, // Re-enabled authentication
+  (req, res, next) => {
+    console.log('Route: GET /:id/extended-trial-balance called with:', {
+      id: req.params.id,
+      classification: req.query.classification,
+      user: req.user?.id
+    });
+    next();
+  },
+  etbc.getExtendedTrialBalanceWithMappings
+);
+
+// Create or update Extended Trial Balance
+router.post(
+  "/:id/extended-trial-balance",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  etbc.createOrUpdateExtendedTrialBalance
+);
+
+// Add mapping to a specific ETB row
+router.post(
+  "/:id/extended-trial-balance/rows/:rowId/mappings",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  etbc.addMappingToRow
+);
+
+// Update a specific mapping
+router.put(
+  "/:id/extended-trial-balance/rows/:rowId/mappings/:mappingId",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  etbc.updateMapping
+);
+
+// Remove a mapping from a specific ETB row
+router.delete(
+  "/:id/extended-trial-balance/rows/:rowId/mappings/:mappingId",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  etbc.removeMappingFromRow
+);
+
+// Toggle mapping active status
+router.patch(
+  "/:id/extended-trial-balance/rows/:rowId/mappings/:mappingId/toggle",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  etbc.toggleMappingStatus
+);
+
+// Get mappings for a specific workbook (across all ETBs)
+router.get(
+  "/extended-trial-balance/mappings/workbook/:workbookId",
+  requireAuth,
+  etbc.getMappingsByWorkbook
 );
 
 router.post(

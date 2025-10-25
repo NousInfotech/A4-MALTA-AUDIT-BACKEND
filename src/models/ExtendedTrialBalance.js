@@ -1,6 +1,34 @@
 const mongoose = require("mongoose")
 const { Schema, Types } = mongoose
 
+// Schema for storing mappings from ExcelWorkbook to ETBRowSchema fields
+const ETBMappingSchema = new Schema({
+  workbookId: {
+    type: Schema.Types.ObjectId,
+    ref: "Workbook",
+    required: true
+  },
+  color: {
+    type: String,
+    required: true
+  },
+  details: {
+    sheet: { type: String, required: true },
+    start: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+    end: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, { _id: true })
+
 const ETBRowSchema = new Schema({
   _id: {
     type: String,
@@ -36,6 +64,10 @@ const ETBRowSchema = new Schema({
   },
   linkedExcelFiles: {
     type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }],
+    default: []
+  },
+  mappings: {
+    type: [ETBMappingSchema],
     default: []
   },
 }, { _id: false })
