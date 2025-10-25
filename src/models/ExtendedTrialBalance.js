@@ -34,6 +34,10 @@ const ETBRowSchema = new Schema({
   classification: {
     type: String,
   },
+  linkedExcelFiles: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }],
+    default: []
+  },
 }, { _id: false })
 
 const ExtendedTrialBalanceSchema = new Schema({

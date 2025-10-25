@@ -2229,6 +2229,236 @@ exports.deleteWorkbookFromLinkedFiles = async (req, res, next) => {
   }
 };
 
+// ETB with Linked Files Functions
+
+exports.getExtendedTBWithLinkedFiles = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Find ETB and populate linked Excel files with ALL Workbook model fields
+    const doc = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    }).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+      // No select clause - populate ALL fields from Workbook model
+    });
+
+    if (!doc) {
+      return res
+        .status(404)
+        .json({ message: "No Extended Trial Balance found for this engagement" });
+    }
+
+    // Filter rows by classification if provided
+    let filteredRows = doc.rows;
+    if (classification && classification !== 'ETB') {
+      filteredRows = doc.rows.filter(row => row.classification === decodedClassification);
+    }
+
+    // Transform the data to include ALL populated workbook information
+    const transformedRows = filteredRows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject() // Include ALL fields from Workbook model
+      }))
+    }));
+
+    return res.json({
+      engagement: doc.engagement,
+      classification: decodedClassification,
+      rows: transformedRows,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateLinkedExcelFilesInExtendedTB = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId, linkedExcelFiles } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Validate input
+    if (!rowId) {
+      return res.status(400).json({ 
+        message: "rowId is required" 
+      });
+    }
+
+    if (!Array.isArray(linkedExcelFiles)) {
+      return res.status(400).json({ 
+        message: "linkedExcelFiles must be an array" 
+      });
+    }
+
+    // Validate that all linkedExcelFiles are valid ObjectIds
+    const validObjectIds = linkedExcelFiles.every(fileId => 
+      mongoose.Types.ObjectId.isValid(fileId)
+    );
+
+    if (!validObjectIds) {
+      return res.status(400).json({ 
+        message: "All linkedExcelFiles must be valid ObjectIds" 
+      });
+    }
+
+    // Find the ETB document
+    const doc = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
+
+    if (!doc) {
+      return res.status(404).json({ 
+        message: "Extended Trial Balance not found for this engagement" 
+      });
+    }
+
+    // Find the specific row to update
+    const rowIndex = doc.rows.findIndex(row => row._id === rowId || row.code === rowId);
+    if (rowIndex === -1) {
+      return res.status(404).json({ 
+        message: "Row not found in Extended Trial Balance" 
+      });
+    }
+
+    // Update the linkedExcelFiles for the specific row
+    doc.rows[rowIndex].linkedExcelFiles = linkedExcelFiles;
+    
+    // Save the updated document
+    await doc.save();
+
+    // Return the updated ETB with populated linked files
+    const updatedDoc = await ExtendedTrialBalance.findById(doc._id).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+    });
+
+    // Filter rows by classification if provided
+    let filteredRows = updatedDoc.rows;
+    if (classification && classification !== 'ETB') {
+      filteredRows = updatedDoc.rows.filter(row => row.classification === decodedClassification);
+    }
+
+    // Transform the response to include populated workbook information
+    const transformedRows = filteredRows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject()
+      }))
+    }));
+
+    return res.json({
+      message: "Linked Excel files updated successfully in Extended Trial Balance",
+      engagement: updatedDoc.engagement,
+      classification: decodedClassification,
+      rows: transformedRows,
+      updatedAt: updatedDoc.updatedAt
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteWorkbookFromLinkedFilesInExtendedTB = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId, workbookId } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Validate input
+    if (!rowId) {
+      return res.status(400).json({ 
+        message: "rowId is required" 
+      });
+    }
+
+    if (!workbookId) {
+      return res.status(400).json({ 
+        message: "workbookId is required" 
+      });
+    }
+
+    // Validate that workbookId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(workbookId)) {
+      return res.status(400).json({ 
+        message: "workbookId must be a valid ObjectId" 
+      });
+    }
+
+    // Find the ETB document
+    const doc = await ExtendedTrialBalance.findOne({
+      engagement: engagementId,
+    });
+
+    if (!doc) {
+      return res.status(404).json({ 
+        message: "Extended Trial Balance not found for this engagement" 
+      });
+    }
+
+    // Find the specific row to update
+    const rowIndex = doc.rows.findIndex(row => row._id === rowId || row.code === rowId);
+    if (rowIndex === -1) {
+      return res.status(404).json({ 
+        message: "Row not found in Extended Trial Balance" 
+      });
+    }
+
+    // Check if the workbook exists in the linkedExcelFiles array
+    const workbookExists = doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
+    if (!workbookExists) {
+      return res.status(404).json({ 
+        message: "Workbook not found in linked Excel files for this row" 
+      });
+    }
+
+    // Remove the workbook from the linkedExcelFiles array
+    doc.rows[rowIndex].linkedExcelFiles = doc.rows[rowIndex].linkedExcelFiles.filter(
+      fileId => fileId.toString() !== workbookId.toString()
+    );
+    
+    // Save the updated document
+    await doc.save();
+
+    // Return the updated ETB with populated linked files
+    const updatedDoc = await ExtendedTrialBalance.findById(doc._id).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+    });
+
+    // Filter rows by classification if provided
+    let filteredRows = updatedDoc.rows;
+    if (classification && classification !== 'ETB') {
+      filteredRows = updatedDoc.rows.filter(row => row.classification === decodedClassification);
+    }
+
+    // Transform the response to include populated workbook information
+    const transformedRows = filteredRows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject()
+      }))
+    }));
+
+    return res.json({
+      message: "Workbook removed from linked Excel files successfully in Extended Trial Balance",
+      engagement: updatedDoc.engagement,
+      classification: decodedClassification,
+      rows: transformedRows,
+      updatedAt: updatedDoc.updatedAt
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 // workbooks from MsEXcel Service
 
 exports.uploadWorkbook = async (req, res, next) => {

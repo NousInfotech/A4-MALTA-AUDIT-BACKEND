@@ -66,6 +66,25 @@ router.post(
 );
 router.get("/:id/etb/category/:category", requireAuth, ec.getETBByCategory);
 
+// ETB with Linked Files Routes
+router.get(
+  "/:id/etb/:classification/with-linked-files",
+  requireAuth,
+  ec.getExtendedTBWithLinkedFiles
+);
+
+router.patch(
+  "/:id/etb/:classification/update-linked-files",
+  requireAuth,
+  ec.updateLinkedExcelFilesInExtendedTB
+);
+
+router.delete(
+  "/:id/etb/:classification/delete-linked-file",
+  requireAuth,
+  ec.deleteWorkbookFromLinkedFilesInExtendedTB
+);
+
 router.post(
   "/:id/sections/:classification/view-spreadsheet",
   requireAuth,
