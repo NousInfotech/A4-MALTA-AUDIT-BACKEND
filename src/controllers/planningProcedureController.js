@@ -141,19 +141,16 @@
     }
   }
 
-  async function callOpenAI(prompt) {
+ async function callOpenAI(prompt) {
     console.log("prompt " + prompt)
     const r = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested." },
         { role: "user", content: prompt },
       ],
-      max_tokens: 2000,
+      max_tokens: 4000,
       temperature: 0.2,
-      n:1,
-      stream: true,
-      top_p: 1,
     });
     return r.choices[0].message.content;
   }
