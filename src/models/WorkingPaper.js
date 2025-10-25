@@ -12,6 +12,7 @@ const WorkingPaperRowSchema = new mongoose.Schema(
     classification: { type: String, default: "" },
     reference: { type: mongoose.Schema.Types.Mixed, default: "" },
     referenceData: { type: mongoose.Schema.Types.Mixed, default: "" },
+    linkedExcelFiles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }], default: [] },
   },
   { _id: false }
 );
