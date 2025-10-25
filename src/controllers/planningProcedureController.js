@@ -77,6 +77,7 @@
   const OpenAI = require("openai");
   const { jsonrepair } = require("jsonrepair");
   const JSON5 = require("json5");
+  
   async function loadStripJsonComments() {
     const stripJsonComments = (await import('strip-json-comments')).default;
 
@@ -143,7 +144,7 @@
   async function callOpenAI(prompt) {
     console.log("prompt " + prompt)
     const r = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "You are an expert financial auditor. Follow the instructions exactly and provide structured output as requested." },
         { role: "user", content: prompt },
