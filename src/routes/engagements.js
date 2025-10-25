@@ -140,6 +140,24 @@ router.get(
   requireAuth,
   ec.getWorkingPaperFromDB
 );
+
+router.get(
+  "/:id/sections/:classification/working-papers/with-linked-files",
+  requireAuth,
+  ec.getWorkingPapersWithLinkedFiles
+);
+
+router.patch(
+  "/:id/sections/:classification/working-papers/update-linked-files",
+  requireAuth,
+  ec.updateLinkedExcelFiles
+);
+
+router.delete(
+  "/:id/sections/:classification/working-papers/delete-linked-file",
+  requireAuth,
+  ec.deleteWorkbookFromLinkedFiles
+);
 router.post(
   "/:id/sections/:classification/working-papers/db",
   requireAuth,

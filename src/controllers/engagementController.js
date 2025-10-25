@@ -2016,6 +2016,219 @@ exports.getWorkingPaperFromDB = async (req, res, next) => {
   }
 };
 
+exports.getWorkingPapersWithLinkedFiles = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Find working paper and populate linked Excel files with ALL Workbook model fields
+    const doc = await WorkingPaper.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    }).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+      // No select clause - populate ALL fields from Workbook model
+    });
+
+    if (!doc) {
+      return res
+        .status(404)
+        .json({ message: "No working paper found for this section" });
+    }
+
+    // Transform the data to include ALL populated workbook information
+    const transformedRows = doc.rows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject() // Include ALL fields from Workbook model
+      }))
+    }));
+
+    return res.json({
+      engagement: doc.engagement,
+      classification: doc.classification,
+      rows: transformedRows,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateLinkedExcelFiles = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId, linkedExcelFiles } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Validate input
+    if (!rowId) {
+      return res.status(400).json({ 
+        message: "rowId is required" 
+      });
+    }
+
+    if (!Array.isArray(linkedExcelFiles)) {
+      return res.status(400).json({ 
+        message: "linkedExcelFiles must be an array" 
+      });
+    }
+
+    // Validate that all linkedExcelFiles are valid ObjectIds
+    const validObjectIds = linkedExcelFiles.every(fileId => 
+      mongoose.Types.ObjectId.isValid(fileId)
+    );
+
+    if (!validObjectIds) {
+      return res.status(400).json({ 
+        message: "All linkedExcelFiles must be valid ObjectIds" 
+      });
+    }
+
+    // Find the working paper document
+    const doc = await WorkingPaper.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!doc) {
+      return res.status(404).json({ 
+        message: "Working paper not found for this section" 
+      });
+    }
+
+    // Find the specific row to update
+    const rowIndex = doc.rows.findIndex(row => row.id === rowId);
+    if (rowIndex === -1) {
+      return res.status(404).json({ 
+        message: "Row not found in working paper" 
+      });
+    }
+
+    // Update the linkedExcelFiles for the specific row
+    doc.rows[rowIndex].linkedExcelFiles = linkedExcelFiles;
+    
+    // Save the updated document
+    await doc.save();
+
+    // Return the updated working paper with populated linked files
+    const updatedDoc = await WorkingPaper.findById(doc._id).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+    });
+
+    // Transform the response to include populated workbook information
+    const transformedRows = updatedDoc.rows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject()
+      }))
+    }));
+
+    return res.json({
+      message: "Linked Excel files updated successfully",
+      engagement: updatedDoc.engagement,
+      classification: updatedDoc.classification,
+      rows: transformedRows,
+      updatedAt: updatedDoc.updatedAt
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteWorkbookFromLinkedFiles = async (req, res, next) => {
+  try {
+    const { id: engagementId, classification } = req.params;
+    const { rowId, workbookId } = req.body;
+    const decodedClassification = decodeURIComponent(classification);
+
+    // Validate input
+    if (!rowId) {
+      return res.status(400).json({ 
+        message: "rowId is required" 
+      });
+    }
+
+    if (!workbookId) {
+      return res.status(400).json({ 
+        message: "workbookId is required" 
+      });
+    }
+
+    // Validate that workbookId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(workbookId)) {
+      return res.status(400).json({ 
+        message: "workbookId must be a valid ObjectId" 
+      });
+    }
+
+    // Find the working paper document
+    const doc = await WorkingPaper.findOne({
+      engagement: engagementId,
+      classification: decodedClassification,
+    });
+
+    if (!doc) {
+      return res.status(404).json({ 
+        message: "Working paper not found for this section" 
+      });
+    }
+
+    // Find the specific row to update
+    const rowIndex = doc.rows.findIndex(row => row.id === rowId);
+    if (rowIndex === -1) {
+      return res.status(404).json({ 
+        message: "Row not found in working paper" 
+      });
+    }
+
+    // Check if the workbook exists in the linkedExcelFiles array
+    const workbookExists = doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
+    if (!workbookExists) {
+      return res.status(404).json({ 
+        message: "Workbook not found in linked Excel files for this row" 
+      });
+    }
+
+    // Remove the workbook from the linkedExcelFiles array
+    doc.rows[rowIndex].linkedExcelFiles = doc.rows[rowIndex].linkedExcelFiles.filter(
+      fileId => fileId.toString() !== workbookId.toString()
+    );
+    
+    // Save the updated document
+    await doc.save();
+
+    // Return the updated working paper with populated linked files
+    const updatedDoc = await WorkingPaper.findById(doc._id).populate({
+      path: 'rows.linkedExcelFiles',
+      model: 'Workbook'
+    });
+
+    // Transform the response to include populated workbook information
+    const transformedRows = updatedDoc.rows.map(row => ({
+      ...row.toObject(),
+      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
+        ...workbook.toObject()
+      }))
+    }));
+
+    return res.json({
+      message: "Workbook removed from linked Excel files successfully",
+      engagement: updatedDoc.engagement,
+      classification: updatedDoc.classification,
+      rows: transformedRows,
+      updatedAt: updatedDoc.updatedAt
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 // workbooks from MsEXcel Service
 
 exports.uploadWorkbook = async (req, res, next) => {
