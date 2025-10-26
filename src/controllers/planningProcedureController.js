@@ -99,6 +99,7 @@
 
   // ---------- Robust JSON parsing helper (same as your fieldwork) ----------
   async function robustParseJSON(raw, client, { debugLabel = "" } = {}) {
+    const parseStart = Date.now();
     if (typeof raw !== "string") raw = String(raw ?? "");
     let cleaned = raw.trim();
 
@@ -110,20 +111,44 @@
 
     cleaned = cleaned
       .replace(/\u00A0/g, " ")
-      .replace(/[“"]/g, '"')
-      .replace(/[‘']/g, "'")
+      .replace(/[""]/g, '"')
+      .replace(/['']/g, "'")
       .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");
 
-    try { return JSON.parse(cleaned); } catch { }
-    try { return JSON.parse(jsonrepair(cleaned)); } catch { }
-    try { return JSON5.parse(cleaned); } catch { }
+    // Try strategy 1: Direct JSON.parse
+    try {
+      const result = JSON.parse(cleaned);
+      console.log(`[robustParseJSON:${debugLabel}] Strategy 1 (JSON.parse) succeeded in ${Date.now() - parseStart}ms`);
+      return result;
+    } catch { }
+
+    // Try strategy 2: jsonrepair library
+    try {
+      const result = JSON.parse(jsonrepair(cleaned));
+      console.log(`[robustParseJSON:${debugLabel}] Strategy 2 (jsonrepair) succeeded in ${Date.now() - parseStart}ms`);
+      return result;
+    } catch { }
+
+    // Try strategy 3: JSON5 parser
+    try {
+      const result = JSON5.parse(cleaned);
+      console.log(`[robustParseJSON:${debugLabel}] Strategy 3 (JSON5) succeeded in ${Date.now() - parseStart}ms`);
+      return result;
+    } catch { }
+
+    // Try strategy 4: Strip comments manually
     try {
       const noComments = stripJsonComments(cleaned);
       const noTrailing = noComments.replace(/,(\s*[}\]])/g, "$1");
-      return JSON.parse(noTrailing);
+      const result = JSON.parse(noTrailing);
+      console.log(`[robustParseJSON:${debugLabel}] Strategy 4 (strip comments) succeeded in ${Date.now() - parseStart}ms`);
+      return result;
     } catch { }
 
+    // Try strategy 5: Call gpt-4o-mini to fix
+    console.log(`[robustParseJSON:${debugLabel}] All strategies failed, calling gpt-4o-mini to repair JSON...`);
     try {
+      const repairStart = Date.now();
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -132,17 +157,22 @@
         ],
         temperature: 0,
       });
+      console.log(`[robustParseJSON:${debugLabel}] gpt-4o-mini repair call took ${Date.now() - repairStart}ms`);
       let c = (response.choices?.[0]?.message?.content || "").trim();
       if (c.startsWith("```")) c = c.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
-      return JSON.parse(c);
+      const result = JSON.parse(c);
+      console.log(`[robustParseJSON:${debugLabel}] Strategy 5 (gpt-4o-mini repair) succeeded in ${Date.now() - parseStart}ms total`);
+      return result;
     } catch (err) {
-      console.error(`[robustParseJSON:${debugLabel}] Failed to repair JSON`, err);
+      console.error(`[robustParseJSON:${debugLabel}] Failed to repair JSON after ${Date.now() - parseStart}ms`, err);
       throw new Error("Could not parse AI JSON output.");
     }
   }
 
- async function callOpenAI(prompt) {
-    console.log("prompt " + prompt)
+ async function callOpenAI(prompt, label = "default") {
+    const apiStart = Date.now();
+    console.log(`[callOpenAI:${label}] Starting API call with prompt length: ${prompt.length} chars`);
+
     const r = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -152,7 +182,21 @@
       max_tokens: 4000,
       temperature: 0.2,
     });
-    return r.choices[0].message.content;
+
+    const apiDuration = Date.now() - apiStart;
+    const tokensUsed = r.usage?.total_tokens || 0;
+    const promptTokens = r.usage?.prompt_tokens || 0;
+    const completionTokens = r.usage?.completion_tokens || 0;
+
+    console.log(`[callOpenAI:${label}] API call completed in ${apiDuration}ms`);
+    console.log(`[callOpenAI:${label}] Tokens used - Prompt: ${promptTokens}, Completion: ${completionTokens}, Total: ${tokensUsed}`);
+    console.log(`[callOpenAI:${label}] Response length: ${r.choices[0].message.content?.length || 0} chars`);
+
+    return {
+      content: r.choices[0].message.content,
+      usage: r.usage,
+      duration: apiDuration
+    };
   }
 
   // ---------- small helpers for Supabase URLs ----------
@@ -299,21 +343,40 @@ exports.generateSectionQuestions = async (req, res) => {
   const { engagementId } = req.params;
   const { sectionId, materiality = 0 } = req.body;
 
+  // Start timing
+  const startTime = Date.now();
+  const timings = {};
+
   try {
+    console.log(`[TIMING] Starting section questions generation for section: ${sectionId}`);
+
+    // Step 1: Fetch engagement
+    let stepStart = Date.now();
     const engagement = await Engagement.findById(engagementId);
+    timings.fetchEngagement = Date.now() - stepStart;
+    console.log(`[TIMING] Step 1 - Fetch engagement: ${timings.fetchEngagement}ms`);
+
     if (!engagement) return res.status(404).json({ message: "Engagement not found" });
 
-    // client profile
+    // Step 2: Fetch client profile from Supabase
+    stepStart = Date.now();
     const { data: clientProfile } = await supabase
       .from("profiles")
       .select("company_summary,industry")
       .eq("user_id", engagement.clientId)
       .single();
+    timings.fetchClientProfile = Date.now() - stepStart;
+    console.log(`[TIMING] Step 2 - Fetch client profile: ${timings.fetchClientProfile}ms`);
 
-    // ETB summary
+    // Step 3: Fetch Extended Trial Balance
+    stepStart = Date.now();
     const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
     const etbRows = Array.isArray(etb?.rows) ? etb.rows : [];
-    
+    timings.fetchETB = Date.now() - stepStart;
+    console.log(`[TIMING] Step 3 - Fetch ETB (${etbRows.length} rows): ${timings.fetchETB}ms`);
+
+    // Step 4: Summarize ETB
+    stepStart = Date.now();
     const summarizeETB = (rows, materialityNum) => {
       const top = [...rows]
         .sort((a, b) => Math.abs(b.amount || 0) - Math.abs(a.amount || 0))
@@ -322,10 +385,16 @@ exports.generateSectionQuestions = async (req, res) => {
       const material = top.filter(r => Math.abs(r.amount || 0) >= (Number(materialityNum) || 0) * 0.5);
       return { top, material, count: rows.length };
     };
+    const etbSummary = summarizeETB(etbRows, materiality);
+    timings.summarizeETB = Date.now() - stepStart;
+    console.log(`[TIMING] Step 4 - Summarize ETB: ${timings.summarizeETB}ms`);
 
-    // Get section info
+    // Step 5: Get section info
+    stepStart = Date.now();
     const section = sectionsById.get(sectionId);
     if (!section) return res.status(404).json({ message: "Section not found" });
+    timings.getSection = Date.now() - stepStart;
+    console.log(`[TIMING] Step 5 - Get section metadata: ${timings.getSection}ms`);
 
     // field palette (examples only; NOT actual fields)
     const fieldPalette = [
@@ -340,22 +409,93 @@ exports.generateSectionQuestions = async (req, res) => {
       { type: "date", example: { key: "as_of", label: "As of date", required: false, help: "Select a date." } }
     ];
 
-    // build prompt from database
+    // Step 6: Build prompt from database
+    stepStart = Date.now();
     const promptContent = await getPrompt("planningAiSectionQuestionsPrompt");
+    timings.fetchPrompt = Date.now() - stepStart;
+    console.log(`[TIMING] Step 6 - Fetch prompt template from DB: ${timings.fetchPrompt}ms`);
+
+    stepStart = Date.now();
     const prompt = String(promptContent)
       .replace("{clientProfile}", JSON.stringify(clientProfile || {}))
       .replace("{materiality}", String(materiality))
-      .replace("{etbRows}", JSON.stringify(summarizeETB(etbRows, materiality)))
+      .replace("{etbRows}", JSON.stringify(etbSummary))
       .replace("{section}", JSON.stringify({ sectionId: section.sectionId, title: section.title }))
       .replace("{fieldPalette}", JSON.stringify(fieldPalette));
+    timings.buildPrompt = Date.now() - stepStart;
+    console.log(`[TIMING] Step 7 - Build prompt (${prompt.length} chars): ${timings.buildPrompt}ms`);
 
-    const raw = await callOpenAI(prompt);
-    const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_section_questions" });
+    // Step 8: Create 3 specialized prompts for parallel processing (HYBRID APPROACH)
+    stepStart = Date.now();
+    console.log(`[TIMING] Step 8 - Creating 3 parallel batch prompts...`);
 
-    // Enhanced normalization & validation
+    const batch1Prompt = String(prompt)
+      + "\n\nFOCUS: Generate the FIRST 10-12 fields focusing on ENGAGEMENT SETUP, ACCEPTANCE, INDEPENDENCE, and ETHICAL REQUIREMENTS. Ensure unique field keys starting with the section context.";
+
+    const batch2Prompt = String(prompt)
+      + "\n\nFOCUS: Generate the MIDDLE 10-12 fields focusing on RISK ASSESSMENT, CONTROL ENVIRONMENT, and BUSINESS UNDERSTANDING. Ensure unique field keys different from setup/acceptance fields.";
+
+    const batch3Prompt = String(prompt)
+      + "\n\nFOCUS: Generate the LAST 8-10 fields focusing on DOCUMENTATION, QUALITY CONTROL, and CONSULTATION requirements. Ensure unique field keys different from previous batches.";
+
+    timings.buildBatchPrompts = Date.now() - stepStart;
+    console.log(`[TIMING] Step 8 - Built 3 batch prompts: ${timings.buildBatchPrompts}ms`);
+
+    // Step 9: Execute 3 parallel API calls
+    stepStart = Date.now();
+    console.log(`[TIMING] Step 9 - Executing 3 parallel OpenAI API calls...`);
+
+    const [result1, result2, result3] = await Promise.all([
+      callOpenAI(batch1Prompt, "batch-1-setup"),
+      callOpenAI(batch2Prompt, "batch-2-risk"),
+      callOpenAI(batch3Prompt, "batch-3-docs")
+    ]);
+
+    timings.parallelOpenAICalls = Date.now() - stepStart;
+    const totalTokens = (result1.usage?.total_tokens || 0) + (result2.usage?.total_tokens || 0) + (result3.usage?.total_tokens || 0);
+    console.log(`[TIMING] Step 9 - All 3 parallel API calls completed in: ${timings.parallelOpenAICalls}ms`);
+    console.log(`[TIMING] Step 9 - Total tokens used across batches: ${totalTokens}`);
+
+    // Step 10: Parse all 3 responses in parallel
+    stepStart = Date.now();
+    console.log(`[TIMING] Step 10 - Parsing 3 JSON responses in parallel...`);
+
+    const [parsed1, parsed2, parsed3] = await Promise.all([
+      robustParseJSON(result1.content, openai, { debugLabel: "batch-1" }),
+      robustParseJSON(result2.content, openai, { debugLabel: "batch-2" }),
+      robustParseJSON(result3.content, openai, { debugLabel: "batch-3" })
+    ]);
+
+    timings.parseJSON = Date.now() - stepStart;
+    console.log(`[TIMING] Step 10 - All 3 JSON responses parsed in: ${timings.parseJSON}ms`);
+
+    // Step 11: Merge and deduplicate fields from all 3 batches
+    stepStart = Date.now();
+    const mergedFields = [
+      ...(parsed1?.fields || []),
+      ...(parsed2?.fields || []),
+      ...(parsed3?.fields || [])
+    ];
+
+    // Deduplicate by key (keep first occurrence)
+    const seenKeys = new Set();
+    const deduplicatedFields = mergedFields.filter(f => {
+      if (seenKeys.has(f?.key)) {
+        console.log(`[TIMING] Step 11 - Removing duplicate field: ${f?.key}`);
+        return false;
+      }
+      seenKeys.add(f?.key);
+      return true;
+    });
+
+    console.log(`[TIMING] Step 11 - Merged ${mergedFields.length} fields, deduplicated to ${deduplicatedFields.length} fields`);
+    timings.mergeAndDeduplicate = Date.now() - stepStart;
+
+    // Step 12: Normalize & validate fields
+    stepStart = Date.now();
     const ALLOWED_TYPES = new Set(["text", "textarea", "checkbox", "multiselect", "number", "currency", "select", "user", "date"]);
-    
-    const sectionFields = (parsed?.fields || [])
+
+    const sectionFields = deduplicatedFields
       .filter(f => f && typeof f === 'object' && ALLOWED_TYPES.has(f?.type)) // Ensure f is an object
       .map((f) => {
         // Ensure all required properties exist and are properly formatted
@@ -389,9 +529,17 @@ exports.generateSectionQuestions = async (req, res) => {
       })
       .filter(field => field.key && field.type && field.label); // Remove invalid fields
 
-    // Update or create the procedure document with enhanced validation
+    timings.normalizeFields = Date.now() - stepStart;
+    console.log(`[TIMING] Step 12 - Normalize & validate fields (${sectionFields.length} fields): ${timings.normalizeFields}ms`);
+
+    // Step 13: Fetch or create procedure document
+    stepStart = Date.now();
     let doc = await PlanningProcedure.findOne({ engagement: engagementId });
-    
+    timings.fetchProcedureDoc = Date.now() - stepStart;
+    console.log(`[TIMING] Step 13 - Fetch procedure document: ${timings.fetchProcedureDoc}ms`);
+
+    // Step 14: Prepare document structure
+    stepStart = Date.now();
     if (!doc) {
       doc = new PlanningProcedure({
         engagement: engagementId,
@@ -419,14 +567,14 @@ exports.generateSectionQuestions = async (req, res) => {
         standards: Array.isArray(proc?.standards) ? proc.standards : undefined,
         currency: proc?.currency,
         footer: proc?.footer ?? null,
-        fields: Array.isArray(proc?.fields) 
+        fields: Array.isArray(proc?.fields)
           ? proc.fields.filter(f => f && typeof f === 'object')
           : []
       }));
 
     // Update the specific section
     const existingSectionIndex = doc.procedures.findIndex(s => s && s.sectionId === sectionId);
-    
+
     const sectionData = {
       id: `sec-${doc.procedures.length + 1}`,
       sectionId: section.sectionId,
@@ -444,23 +592,42 @@ exports.generateSectionQuestions = async (req, res) => {
     }
 
     doc.questionsGeneratedAt = new Date();
-    
-    // Validate the document before saving
+    timings.prepareDocument = Date.now() - stepStart;
+    console.log(`[TIMING] Step 14 - Prepare document structure: ${timings.prepareDocument}ms`);
+
+    // Step 15: Validate document
+    stepStart = Date.now();
     try {
       await doc.validate();
+      timings.validateDocument = Date.now() - stepStart;
+      console.log(`[TIMING] Step 15 - Validate document: ${timings.validateDocument}ms`);
     } catch (validationError) {
+      timings.validateDocument = Date.now() - stepStart;
+      console.error(`[TIMING] Step 15 - Document validation failed: ${timings.validateDocument}ms`);
       console.error('Document validation failed:', validationError);
       throw new Error(`Document validation failed: ${validationError.message}`);
     }
 
+    // Step 16: Save to MongoDB
+    stepStart = Date.now();
     await doc.save();
+    timings.saveDocument = Date.now() - stepStart;
+    console.log(`[TIMING] Step 16 - Save document to MongoDB: ${timings.saveDocument}ms`);
+
+    // Calculate total time
+    timings.totalTime = Date.now() - startTime;
+    console.log(`[TIMING] ===== TOTAL TIME: ${timings.totalTime}ms =====`);
+    console.log(`[TIMING] Summary:`, JSON.stringify(timings, null, 2));
 
     res.json({
       sectionId: section.sectionId,
-      fields: sectionFields
+      fields: sectionFields,
+      _timings: timings // Include timing data in response for debugging
     });
 
   } catch (e) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[TIMING] Error occurred after ${totalTime}ms`);
     console.error("Error generating section questions:", e);
     res.status(400).json({ error: e.message });
   }
@@ -501,8 +668,8 @@ exports.generateSectionQuestions = async (req, res) => {
       .replace("{etbRows}", JSON.stringify(etbRows || []))
       .replace("{section}", JSON.stringify(section));
 
-    const raw = await callOpenAI(prompt);
-    const parsed = await robustParseJSON(raw, openai, { debugLabel: "planning_section_answers" });
+    const result = await callOpenAI(prompt, "section-answers");
+    const parsed = await robustParseJSON(result.content, openai, { debugLabel: "planning_section_answers" });
 
     // In the generateSectionAnswers function, update the response handling:
     if (parsed && parsed.sectionId === sectionId && Array.isArray(parsed.fields)) {
@@ -585,8 +752,8 @@ exports.generateSectionQuestions = async (req, res) => {
       .replace("{keyAnswers}", JSON.stringify(keyAnswers));
 
     console.log(recPrompt, " rec");
-    const recommendationsRaw = await callOpenAI(recPrompt);
-    const recommendations = await robustParseJSON(recommendationsRaw, openai, { debugLabel: "planning_recommendations" });
+    const recommendationsResult = await callOpenAI(recPrompt, "recommendations");
+    const recommendations = await robustParseJSON(recommendationsResult.content, openai, { debugLabel: "planning_recommendations" });
 
     // Process the sectioned recommendations into flat array and by-section map
     let allRecommendations = [];
@@ -666,8 +833,8 @@ exports.generateSectionQuestions = async (req, res) => {
         .replace("{section}", JSON.stringify(section))
         .replace("{existingProcedures}", JSON.stringify(existingProcedures));
 
-      const raw = await callOpenAI(prompt);
-      const parsed = await robustParseJSON(raw, openai, { debugLabel: "hybrid_section_questions" });
+      const result = await callOpenAI(prompt, "hybrid-section-questions");
+      const parsed = await robustParseJSON(result.content, openai, { debugLabel: "hybrid_section_questions" });
 
       res.json(parsed);
     } catch (error) {
@@ -743,8 +910,8 @@ exports.generateSectionQuestions = async (req, res) => {
         .replace("{etbRows}", JSON.stringify(etbRows))
         .replace("{section}", JSON.stringify(section));
 
-      const raw = await callOpenAI(prompt);
-      const parsed = await robustParseJSON(raw, openai, { debugLabel: "hybrid_section_answers" });
+      const result = await callOpenAI(prompt, "hybrid-section-answers");
+      const parsed = await robustParseJSON(result.content, openai, { debugLabel: "hybrid_section_answers" });
 
       // Update the section with answers (skip file fields)
       const answeredFields = section.fields.map(field => {
