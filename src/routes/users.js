@@ -11,4 +11,8 @@ router.get("/", requireAuth, requireRole(["employee", "reviewer", "partner", "ad
 router.get("/email/:id", requireAuth, uc.getEmail);
 router.delete("/:id", requireAuth, requireRole("admin"), uc.deleteUser);
 
+// ✅ NEW ROUTE — this fixes your 404 error
+router.put("/update/:id", requireAuth, uc.updateClientProfile);
+  
+
 module.exports = router;
