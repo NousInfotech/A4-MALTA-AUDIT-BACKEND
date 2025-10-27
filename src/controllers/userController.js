@@ -371,3 +371,52 @@ exports.updateClassificationStatus = async (req, res) => {
     });
   }
 };
+
+exports.updateClientProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, companyName, companyNumber, industry, summary, email } = req.body;
+
+    console.log("Updating client profile:", id, req.body);
+
+    // Update email in Supabase Auth if provided
+    if (email) {
+      const { error: authError } = await supabase.auth.admin.updateUserById(id, {
+        email: email,
+      });
+
+      if (authError) {
+        console.error("Supabase auth update error:", authError);
+        return res.status(400).json({ error: "Failed to update email: " + authError.message });
+      }
+      console.log("Email updated in auth:", email);
+    }
+
+    // Update profile data
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({
+        name,
+        company_name: companyName,
+        company_number: companyNumber,
+        industry,
+        company_summary: summary,
+      })
+      .eq("user_id", id)
+      .select();
+
+    if (error) {
+      console.error("Supabase update error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: "Client not found" });
+    }
+
+    res.json({ success: true, client: data[0] });
+  } catch (err) {
+    console.error("Error updating client:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
