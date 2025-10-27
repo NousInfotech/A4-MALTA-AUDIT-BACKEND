@@ -77,4 +77,12 @@ router.get(
   drc.downloadTemplate
 );
 
+// Delete a document from document request
+router.delete(
+  '/:id/documents/:documentIndex',
+  requireAuth,
+  requireRole('employee'),
+  drc.deleteDocument
+);
+
 module.exports = router;
