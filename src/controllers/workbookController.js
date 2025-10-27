@@ -1,5 +1,6 @@
 const { Workbook } = require("../models/ExcelWorkbook.js");
 const Sheet = require("../models/Sheet.js");
+const ExtendedTrialBalance = require("../models/ExtendedTrialBalance.js");
 const XLSX = require("xlsx");
 const mongoose = require("mongoose");
 
@@ -74,14 +75,18 @@ const saveWorkbookAndSheets = async (req, res) => {
 
     await workbook.save({ session });
 
+    // OPTIMIZATION: Only save sheet names/metadata, don't process the data
+    // Actual sheet data will be loaded on-demand from MS Drive
     for (const sheetName in fileData) {
       if (Object.prototype.hasOwnProperty.call(fileData, sheetName)) {
-        const sheetData = fileData[sheetName];
-
+        // Create minimal sheet record - just name and default dimensions
+        // Actual data will be fetched on-demand from MS Drive
         const newSheet = new Sheet({
           workbookId: workbook._id,
           name: sheetName,
-          data: sheetData,
+          rowCount: 0, // Will be updated when sheet is first loaded
+          columnCount: 0, // Will be updated when sheet is first loaded
+          address: `${sheetName}!A1`, // Default address
           lastModifiedBy: currentUser,
         });
         await newSheet.save({ session });
@@ -140,6 +145,15 @@ const getSpecificSheetData = async (req, res) => {
   try {
     const { workbookId, sheetName } = req.params;
 
+    const workbook = await Workbook.findById(workbookId);
+    if (!workbook) {
+      return res.status(404).json({
+        success: false,
+        error: "Workbook not found.",
+      });
+    }
+
+    // Fetch sheet metadata from DB
     const sheet = await Sheet.findOne({
       workbookId: workbookId,
       name: sheetName,
@@ -152,7 +166,26 @@ const getSpecificSheetData = async (req, res) => {
       });
     }
 
-    res.status(200).json({ success: true, data: sheet.data });
+    // Fetch actual data from MS Drive
+    const { readSheet } = require("../services/microsoftExcelService");
+    const sheetData = await readSheet({
+      driveItemId: workbook.cloudFileId,
+      worksheetName: sheetName,
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        metadata: {
+          name: sheet.name,
+          rowCount: sheet.rowCount,
+          columnCount: sheet.columnCount,
+          address: sheet.address,
+        },
+        values: sheetData.values || [],
+        address: sheetData.address,
+      }
+    });
   } catch (error) {
     console.error("Error fetching sheet data:", error);
     res.status(500).json({ success: false, error: error.message });
@@ -258,10 +291,16 @@ const uploadWorkbookDataAndSheetData = async (req, res) => {
       const { name, data } = sheet;
       if (!name || !Array.isArray(data)) continue;
 
+      // Calculate dimensions
+      const rowCount = data ? data.length : 0;
+      const columnCount = data && data[0] ? data[0].length : 0;
+
       const newSheet = new Sheet({
         workbookId: newWorkbook._id,
         name,
-        data,
+        rowCount: Math.max(0, rowCount - 1), // Subtract 1 for header row
+        columnCount: Math.max(0, columnCount - 1), // Subtract 1 for row numbers
+        address: `${name}!A1`, // Default address
         lastModifiedDate: new Date(),
         lastModifiedBy: userId,
       });
@@ -352,22 +391,12 @@ const saveWorkbook = async (req, res) => {
       const existingSheetsMap = new Map(existingSheets.map((s) => [s.name, s]));
 
       const incomingSheetNames = Object.keys(sheetData);
-      const existingSheetNames = existingSheets.map((s) => s.name);
 
-      if (incomingSheetNames.length !== existingSheetNames.length) {
+      if (incomingSheetNames.length !== existingSheets.length) {
         sheetChangesDetected = true;
       } else {
         for (const sheetName of incomingSheetNames) {
-          const incomingData = sheetData[sheetName];
-          const existingSheet = existingSheetsMap.get(sheetName);
-
-          if (!existingSheet) {
-            sheetChangesDetected = true;
-            break;
-          }
-          if (
-            JSON.stringify(existingSheet.data) !== JSON.stringify(incomingData)
-          ) {
+          if (!existingSheetsMap.has(sheetName)) {
             sheetChangesDetected = true;
             break;
           }
@@ -381,13 +410,17 @@ const saveWorkbook = async (req, res) => {
       const updatedSheetIds = [];
       for (const sheetName in sheetData) {
         const data = sheetData[sheetName];
-
-        const cleanData = data;
+        
+        // Calculate dimensions from the data
+        const rowCount = data ? data.length : 0;
+        const columnCount = data && data[0] ? data[0].length : 0;
 
         const newSheet = new Sheet({
           workbookId: workbook._id,
           name: sheetName,
-          data: cleanData,
+          rowCount: Math.max(0, rowCount - 1), // Subtract 1 for header row
+          columnCount: Math.max(0, columnCount - 1), // Subtract 1 for row numbers
+          address: `${sheetName}!A1`, // Default address
           lastModifiedDate: new Date(),
           lastModifiedBy: userId,
         });
@@ -467,6 +500,28 @@ const deleteWorkbook = async (req, res) => {
 
     await Sheet.deleteMany({ workbookId: workbook._id }, { session });
 
+    // Delete all mappings that reference this workbook from ExtendedTrialBalance
+    await ExtendedTrialBalance.updateMany(
+      {},
+      {
+        $pull: {
+          "rows.$[].mappings": { workbookId: workbook._id }
+        }
+      },
+      { session }
+    );
+
+    // Also remove workbook from linkedExcelFiles array in ExtendedTrialBalance
+    await ExtendedTrialBalance.updateMany(
+      {},
+      {
+        $pull: {
+          "rows.$[].linkedExcelFiles": workbook._id
+        }
+      },
+      { session }
+    );
+
     await Workbook.deleteOne({ _id: workbook._id }, { session });
 
     await session.commitTransaction();
@@ -474,7 +529,7 @@ const deleteWorkbook = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Workbook '${workbook.name}' (ID: ${workbook._id}) and all associated data deleted successfully.`,
+      message: `Workbook '${workbook.name}' (ID: ${workbook._id}), all associated sheets, mappings, and ETB references deleted successfully.`,
     });
   } catch (error) {
     await session.abortTransaction();
@@ -521,15 +576,19 @@ const saveSheet = async (req, res) => {
         .json({ success: false, error: "Workbook not found" });
     }
 
-    const cleanData = sheetData;
     let sheet = await Sheet.findOne({ workbookId, name: sheetName }).session(
       session
     );
     let currentSheetIds = workbook.sheets.map((s) => s._id);
     let sheetChangeOccurred = false;
+    
+    // Calculate dimensions from the data
+    const rowCount = sheetData ? sheetData.length : 0;
+    const columnCount = sheetData && sheetData[0] ? sheetData[0].length : 0;
 
     if (sheet) {
-      if (JSON.stringify(sheet.data) !== JSON.stringify(cleanData)) {
+      // Compare dimensions instead of full data
+      if (sheet.rowCount !== rowCount || sheet.columnCount !== columnCount) {
         sheetChangeOccurred = true;
       }
     } else {
@@ -538,7 +597,9 @@ const saveSheet = async (req, res) => {
 
     if (sheetChangeOccurred) {
       if (sheet) {
-        sheet.data = cleanData;
+        sheet.rowCount = rowCount - 1; // Subtract 1 for header row
+        sheet.columnCount = columnCount - 1; // Subtract 1 for row numbers
+        sheet.address = `${sheetName}!A1`;
         sheet.lastModifiedDate = new Date();
         sheet.lastModifiedBy = userId;
         await sheet.save({ session });
@@ -546,7 +607,9 @@ const saveSheet = async (req, res) => {
         const newSheet = new Sheet({
           workbookId,
           name: sheetName,
-          data: cleanData,
+          rowCount: Math.max(0, rowCount - 1),
+          columnCount: Math.max(0, columnCount - 1),
+          address: `${sheetName}!A1`,
           lastModifiedDate: new Date(),
           lastModifiedBy: userId,
         });
@@ -1130,11 +1193,17 @@ const updateSheetsData = async (req, res) => {
     for (const sheetName in fileData) {
       if (Object.prototype.hasOwnProperty.call(fileData, sheetName)) {
         const sheetData = fileData[sheetName];
+        
+        // Calculate dimensions from the data
+        const rowCount = sheetData ? sheetData.length : 0;
+        const columnCount = sheetData && sheetData[0] ? sheetData[0].length : 0;
 
         const newSheet = new Sheet({
           workbookId: workbook._id,
           name: sheetName,
-          data: sheetData,
+          rowCount: Math.max(0, rowCount - 1), // Subtract 1 for header row
+          columnCount: Math.max(0, columnCount - 1), // Subtract 1 for row numbers
+          address: `${sheetName}!A1`, // Default address
           lastModifiedDate: new Date(),
           lastModifiedBy: userId,
         });
