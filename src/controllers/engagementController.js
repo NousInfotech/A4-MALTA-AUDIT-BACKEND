@@ -75,8 +75,9 @@ function etbRowsToAOA(rows) {
     const cy = Number(r.currentYear) || 0;
     const py = Number(r.priorYear) || 0;
     const adj = Number(r.adjustments) || 0;
+    const fb = Number(r.finalBalance) || cy + adj;
 
-    return [r.code ?? "", r.accountName ?? "", cy, py, adj, "", g1, g2, g3];
+    return [r.code ?? "", r.accountName ?? "", cy, py, adj, fb, g1, g2, g3];
   });
 
   const aoa = [header, ...data];
@@ -293,11 +294,14 @@ exports.pullEtbFromExcel = async (req, res, next) => {
       });
     }
 
-    const aoa = await msExcel.readSheet({
+    const result = await msExcel.readSheet({
       driveItemId: section.spreadsheetId,
       worksheetName: "ETB",
     });
 
+    // Extract the values array from the result object
+    const aoa = result.values || result;
+    
     const rows = aoaToEtbRows(aoa);
 
     let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
@@ -315,7 +319,7 @@ exports.pullEtbFromExcel = async (req, res, next) => {
     section.lastSyncAt = new Date();
     await section.save();
 
-    return res.status(200).json(etb);
+    return res.status(200).json(etb.toObject ? etb.toObject() : etb);
   } catch (err) {
     next(err);
   }
@@ -342,11 +346,11 @@ function getFileNameFromPublicUrl(url) {
 }
 async function readLeadSheet(section) {
   const worksheetName = "Sheet1";
-  const data = await msExcel.readSheet({
+  const result = await msExcel.readSheet({
     driveItemId: section.workingPapersId,
     worksheetName,
   });
-  return data;
+  return result.values || result;
 }
 
 async function writeLeadSheet(section, values) {
@@ -1002,6 +1006,13 @@ exports.saveTrialBalance = async (req, res, next) => {
       });
     }
 
+    // Find the latest trial balance file URL from EngagementLibrary
+    const libraryEntry = await EngagementLibrary.findOne({
+      engagement: engagementId,
+      category: "Trial Balance",
+      url: { $ne: "" },
+    }).sort({ createdAt: -1 });
+
     let tb = await TrialBalance.findOne({ engagement: engagementId });
     if (tb) {
       tb.headers = headers;
@@ -1016,10 +1027,17 @@ exports.saveTrialBalance = async (req, res, next) => {
       });
     }
 
-    await Engagement.findByIdAndUpdate(engagementId, {
+    // Update engagement with trial balance ID and Supabase URL
+    const updateData = {
       trialBalance: tb._id,
       status: "active",
-    });
+    };
+
+    if (libraryEntry && libraryEntry.url) {
+      updateData.trialBalanceUrl = libraryEntry.url;
+    }
+
+    await Engagement.findByIdAndUpdate(engagementId, updateData);
 
     res.json({
       ...tb.toObject(),
@@ -1080,12 +1098,6 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
       });
     }
 
-    await Engagement.findByIdAndUpdate(engagementId, {
-      trialBalance: tb._id,
-      trialBalanceUrl: sheetUrl,
-      status: "active",
-    });
-
     try {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -1095,14 +1107,27 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
       const dateStamp = new Date().toISOString().slice(0, 10);
       const fileName = `Trial_Balance_${dateStamp}.xlsx`;
 
-      await uploadBufferToLibrary({
+      const libraryEntry = await uploadBufferToLibrary({
         engagementId,
         category: "Trial Balance",
         buffer,
         fileName,
       });
+
+      // Update engagement with trial balance ID and Supabase URL
+      await Engagement.findByIdAndUpdate(engagementId, {
+        trialBalance: tb._id,
+        trialBalanceUrl: libraryEntry?.url || sheetUrl,
+        status: "active",
+      });
     } catch (e) {
       console.error("Failed to archive TB Excel to Library:", e?.message || e);
+      // Fallback: update engagement without Supabase URL
+      await Engagement.findByIdAndUpdate(engagementId, {
+        trialBalance: tb._id,
+        trialBalanceUrl: sheetUrl,
+        status: "active",
+      });
     }
 
     res.json({
@@ -1703,10 +1728,11 @@ exports.pullFromWorkingPapers = async (req, res, next) => {
     const msExcel = require("../services/microsoftExcelService");
     const worksheetName = "Sheet1";
 
-    const data = await msExcel.readSheet({
+    const result = await msExcel.readSheet({
       driveItemId: section.workingPapersId,
       worksheetName: worksheetName,
     });
+    const data = result.values || result;
 
     const rows = data.slice(1).map((row, index) => ({
       id: `row-${index}`,
@@ -1774,10 +1800,11 @@ exports.fetchRowsFromSheets = async (req, res, next) => {
 
     for (const sheet of otherSheets) {
       try {
-        const sheetData = await msExcel.readSheet({
+        const result = await msExcel.readSheet({
           driveItemId: section.workingPapersId,
           worksheetName: sheet.name,
         });
+        const sheetData = result.values || result;
 
         sheetData.forEach((row, index) => {
           if (row.some((cell) => cell && cell.toString().trim())) {
@@ -1820,10 +1847,11 @@ exports.selectRowFromSheets = async (req, res, next) => {
     const msExcel = require("../services/microsoftExcelService");
     const worksheetName = "Sheet1";
 
-    const data = await msExcel.readSheet({
+    const result = await msExcel.readSheet({
       driveItemId: section.workingPapersId,
       worksheetName: worksheetName,
     });
+    const data = result.values || result;
 
     const updatedData = data.map((row, index) => {
       if (index === 0) return row;
@@ -1933,10 +1961,11 @@ exports.saveWorkingPaperToDB = async (req, res, next) => {
     const sheetCache = Object.create(null); // { [sheetName]: [][] }
     for (const sheetName of sheetNeeds) {
       try {
-        const data = await msExcel.readSheet({
+        const result = await msExcel.readSheet({
           driveItemId,
           worksheetName: sheetName,
         });
+        const data = result.values || result;
         sheetCache[sheetName] = Array.isArray(data) ? data : [];
       } catch (e) {
         // If a sheet fails to load, mark as empty to avoid throwing the whole save
@@ -2573,11 +2602,12 @@ exports.listWorksheetsInWorkbook = async (req, res, next) => {
 exports.readSpecificSheetFromWorkbook = async (req, res, next) => {
   try {
     const { workbookId, sheetName } = req.params;
-    // Note: readSheet returns raw values, which is good.
-    const sheetData = await readSheet({
+    // Note: readSheet returns { values, address }
+    const result = await readSheet({
       driveItemId: workbookId,
       worksheetName: sheetName,
     });
+    const sheetData = result.values || result;
     res.json({ success: true, data: sheetData });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

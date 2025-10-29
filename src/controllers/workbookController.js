@@ -168,10 +168,11 @@ const getSpecificSheetData = async (req, res) => {
 
     // Fetch actual data from MS Drive
     const { readSheet } = require("../services/microsoftExcelService");
-    const sheetData = await readSheet({
+    const result = await readSheet({
       driveItemId: workbook.cloudFileId,
       worksheetName: sheetName,
     });
+    const sheetData = result.values || result;
 
     res.status(200).json({ 
       success: true, 
