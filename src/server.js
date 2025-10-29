@@ -26,6 +26,8 @@ const classificationSectionsRoutes = require("./routes/classificationSections");
 const completionProceduresRoutes = require("./routes/completionProcedures");
 const analyticalReviewRoutes = require("./routes/analyticalReview");
 const workbookRoutes = require("./routes/workbook");
+const companyRoutes = require("./routes/companyRoutes");
+const personRoutes = require("./routes/personRoutes");
 
 const app = express();
 
@@ -73,6 +75,8 @@ app.use("/api/classification-sections", classificationSectionsRoutes);
 app.use("/api/completion-procedures", completionProceduresRoutes);
 app.use("/api/analytical-review", analyticalReviewRoutes);
 app.use("/api/workbooks", workbookRoutes);
+app.use("/api/client", companyRoutes);
+app.use("/api/client", personRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 

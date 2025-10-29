@@ -768,3 +768,81 @@ exports.downloadTemplate = async (req, res, next) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+// Delete a document from document request
+exports.deleteDocument = async (req, res, next) => {
+  try {
+    const { id, documentIndex } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    const parsedIndex = parseInt(documentIndex);
+    if (isNaN(parsedIndex) || parsedIndex < 0 || parsedIndex >= dr.documents.length) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    const documentToDelete = dr.documents[parsedIndex];
+    
+    // Delete file from Supabase storage if URL exists
+    if (documentToDelete && documentToDelete.url) {
+      try {
+        const url = new URL(documentToDelete.url);
+        // Match Supabase storage URL pattern
+        const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const [, bucket, filePath] = pathMatch;
+          console.log(`Attempting to delete file from bucket: ${bucket}, path: ${filePath}`);
+          
+          const { data, error: deleteError } = await supabase.storage
+            .from(bucket)
+            .remove([filePath]);
+          
+          if (deleteError) {
+            console.error('Error deleting file from storage:', deleteError);
+            // Continue with document removal even if storage delete fails
+          } else {
+            console.log('File successfully deleted from storage');
+          }
+        } else {
+          console.log('Could not parse Supabase URL:', documentToDelete.url);
+        }
+      } catch (storageError) {
+        console.error('Error handling storage deletion:', storageError);
+        // Continue with document removal
+      }
+    }
+
+    // Remove document from array using MongoDB's $pull operator
+    // This avoids validation errors from other documents
+    const result = await DocumentRequest.updateOne(
+      { _id: id },
+      { $pull: { documents: dr.documents[parsedIndex] } }
+    );
+    
+    // Also remove from EngagementLibrary if URL exists
+    if (documentToDelete && documentToDelete.url) {
+      try {
+        await EngagementLibrary.findOneAndDelete({ url: documentToDelete.url });
+      } catch (libError) {
+        console.error('Error removing from library:', libError);
+        // Continue anyway
+      }
+    }
+
+    // Fetch the updated document to return
+    const updatedDr = await DocumentRequest.findById(id);
+
+    return res.json({
+      success: true,
+      message: 'Document deleted successfully',
+      documentRequest: updatedDr
+    });
+  } catch (err) {
+    console.error('Error in deleteDocument:', err);
+    next(err);
+  }
+};
