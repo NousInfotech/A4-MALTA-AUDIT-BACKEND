@@ -10,7 +10,7 @@ const DocumentRequestSchema = new Schema({
   comment: { type: String, default: "" },
   status: {
     type: String,
-    enum: ['pending', 'completed'],
+    enum: ['pending', 'submitted', 'completed'],
     default: 'pending'
   },
   requestedAt: { type: Date, default: Date.now },
