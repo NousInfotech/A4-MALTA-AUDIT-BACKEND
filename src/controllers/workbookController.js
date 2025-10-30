@@ -172,8 +172,7 @@ const getSpecificSheetData = async (req, res) => {
       driveItemId: workbook.cloudFileId,
       worksheetName: sheetName,
     });
-    const sheetData = result.values || result;
-
+    // result is expected to be { values: [...], address: "Sheet!A1:D10" }
     res.status(200).json({ 
       success: true, 
       data: {
@@ -183,8 +182,8 @@ const getSpecificSheetData = async (req, res) => {
           columnCount: sheet.columnCount,
           address: sheet.address,
         },
-        values: sheetData.values || [],
-        address: sheetData.address,
+        values: Array.isArray(result?.values) ? result.values : [],
+        address: result?.address,
       }
     });
   } catch (error) {
