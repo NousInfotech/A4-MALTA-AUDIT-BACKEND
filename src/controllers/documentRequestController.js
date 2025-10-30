@@ -58,7 +58,8 @@ exports.uploadDocuments = async (req, res, next) => {
   try {
     const dr = await DocumentRequest.findById(req.params.id);
     if (!dr) return res.status(404).json({ message: "Request not found" });
-    if (dr.clientId !== req.user.id) {
+    const isClient = req.user?.role === 'client';
+    if (isClient && dr.clientId !== req.user.id) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
@@ -421,7 +422,8 @@ exports.uploadSingleDocument = async (req, res, next) => {
   try {
     const dr = await DocumentRequest.findById(req.params.id);
     if (!dr) return res.status(404).json({ message: "Request not found" });
-    if (dr.clientId !== req.user.id) {
+    const isClient = req.user?.role === 'client';
+    if (isClient && dr.clientId !== req.user.id) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
