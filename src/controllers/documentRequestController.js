@@ -818,12 +818,39 @@ exports.deleteDocument = async (req, res, next) => {
       }
     }
 
-    // Remove document from array using MongoDB's $pull operator
-    // This avoids validation errors from other documents
-    const result = await DocumentRequest.updateOne(
-      { _id: id },
-      { $pull: { documents: dr.documents[parsedIndex] } }
-    );
+    // If this document never had a file (pending with no URL), allow removing the slot entirely
+    if ((!documentToDelete || !documentToDelete.url) && documentToDelete?.status === 'pending') {
+      dr.documents.splice(parsedIndex, 1);
+      await dr.save();
+    } else {
+      // Otherwise, reset the entry to a pending slot so the requirement remains visible
+      const existingDoc = dr.documents[parsedIndex] || {};
+      dr.documents[parsedIndex] = {
+        ...existingDoc,
+        // Preserve name/type/template/description, but clear file-related fields
+        name: existingDoc.name || 'Document',
+        type: existingDoc.type || 'direct',
+        uploadedFileName: undefined,
+        url: undefined,
+        uploadedAt: undefined,
+        status: 'pending',
+        comment: ''
+      };
+
+      // Sanitize any invalid document statuses (legacy data may contain 'completed')
+      if (Array.isArray(dr.documents)) {
+        dr.documents = dr.documents.map(doc => ({
+          ...doc,
+          name: doc.name || 'Document',
+          type: doc.type || 'direct',
+          status: ['pending', 'uploaded', 'in-review', 'approved', 'rejected'].includes(doc.status)
+            ? doc.status
+            : 'uploaded'
+        }));
+      }
+
+      await dr.save();
+    }
     
     // Also remove from EngagementLibrary if URL exists
     if (documentToDelete && documentToDelete.url) {
