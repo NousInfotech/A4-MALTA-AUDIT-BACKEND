@@ -22,6 +22,28 @@ const {
 
 const EXCEL_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Parse accounting number formats: (55,662) → 55662, 42,127 → 42127
+// Removes parentheses and special characters, preserves any existing minus sign
+function parseAccountingNumber(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  
+  // If already a number, return it
+  if (typeof value === "number") return value;
+  
+  // Convert to string and clean
+  let str = String(value).trim();
+  
+  // Remove parentheses, commas, and currency symbols (preserves existing minus sign if present)
+  str = str.replace(/[(),\$€£¥]/g, "").trim();
+  
+  // Parse to number
+  const num = Number(str);
+  
+  // Return the number (no negative conversion for parentheses)
+  return isNaN(num) ? 0 : num;
+}
+
 // utils/referenceHelpers.js
 function parseReference(raw) {
   if (typeof raw !== "string" || !raw.trim()) return { type: "none" };
@@ -60,24 +82,28 @@ function etbRowsToAOA(rows) {
     "Grouping 1",
     "Grouping 2",
     "Grouping 3",
+    "Grouping 4",
   ];
 
   const data = (rows || []).map((r) => {
-    const parts = String(r.classification || "")
+    // Extract classification parts as fallback for grouping
+    const classificationParts = String(r.classification || "")
       .split(" > ")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const g1 = parts[0] || "";
-    const g2 = parts[1] || "";
-    const g3 = parts[2] || "";
+    // Use grouping fields from row first, fallback to classification parts
+    const g1 = String(r.grouping1 || "").trim() || classificationParts[0] || "";
+    const g2 = String(r.grouping2 || "").trim() || classificationParts[1] || "";
+    const g3 = String(r.grouping3 || "").trim() || classificationParts[2] || "";
+    const g4 = String(r.grouping4 || "").trim() || classificationParts[3] || "";
 
     const cy = Number(r.currentYear) || 0;
     const py = Number(r.priorYear) || 0;
     const adj = Number(r.adjustments) || 0;
     const fb = Number(r.finalBalance) || cy + adj;
 
-    return [r.code ?? "", r.accountName ?? "", cy, py, adj, fb, g1, g2, g3];
+    return [r.code ?? "", r.accountName ?? "", cy, py, adj, fb, g1, g2, g3, g4];
   });
 
   const aoa = [header, ...data];
@@ -92,6 +118,7 @@ function etbRowsToAOA(rows) {
       `=SUM(D${startRow}:D${endRow})`,
       `=SUM(E${startRow}:E${endRow})`,
       `=SUM(F${startRow}:F${endRow})`,
+      "",
       "",
       "",
       "",
@@ -127,21 +154,31 @@ function aoaToEtbRows(aoa) {
   const iG1 = idx("Grouping 1");
   const iG2 = idx("Grouping 2");
   const iG3 = idx("Grouping 3");
+  const iG4 = idx("Grouping 4");
   const iCls = idx("Classification");
 
   return data.map((row, k) => {
-    const cy = Number(row?.[iCY] ?? 0);
-    const adj = Number(row?.[iAdj] ?? 0);
-    const fb = Number(row?.[iFB] ?? Number.NaN) || cy + adj;
+    // Parse numeric values with accounting format support: (55,662) → -55662
+    const cy = parseAccountingNumber(row?.[iCY]);
+    const py = parseAccountingNumber(row?.[iPY]);
+    const adj = parseAccountingNumber(row?.[iAdj]);
+    const fb = iFB !== -1 ? parseAccountingNumber(row?.[iFB]) : cy + adj;
 
+    // Extract grouping data as separate fields
+    const g1 = (iG1 !== -1 ? String(row?.[iG1] ?? "") : "").trim();
+    const g2 = (iG2 !== -1 ? String(row?.[iG2] ?? "") : "").trim();
+    const g3 = (iG3 !== -1 ? String(row?.[iG3] ?? "") : "").trim();
+    const g4 = (iG4 !== -1 ? String(row?.[iG4] ?? "") : "").trim();
+
+    // Build classification from grouping if no explicit Classification column exists
+    // This supports both: explicit classification OR derived from grouping
     let classification = "";
-    if (iG1 !== -1 || iG2 !== -1 || iG3 !== -1) {
-      const g1 = (iG1 !== -1 ? String(row?.[iG1] ?? "") : "").trim();
-      const g2 = (iG2 !== -1 ? String(row?.[iG2] ?? "") : "").trim();
-      const g3 = (iG3 !== -1 ? String(row?.[iG3] ?? "") : "").trim();
-      classification = [g1, g2, g3].filter(Boolean).join(" > ");
-    } else if (iCls !== -1) {
+    if (iCls !== -1) {
+      // Prefer explicit Classification column
       classification = String(row?.[iCls] ?? "").trim();
+    } else if (g1 || g2 || g3 || g4) {
+      // Fallback: build classification from grouping columns
+      classification = [g1, g2, g3, g4].filter(Boolean).join(" > ");
     }
 
     return {
@@ -149,10 +186,14 @@ function aoaToEtbRows(aoa) {
       code: row?.[iCode] ?? "",
       accountName: row?.[iName] ?? "",
       currentYear: cy,
-      priorYear: Number(row?.[iPY] ?? 0),
+      priorYear: py,
       adjustments: adj,
       finalBalance: fb,
       classification,
+      grouping1: g1,
+      grouping2: g2,
+      grouping3: g3,
+      grouping4: g4,
     };
   });
 }
@@ -196,6 +237,7 @@ exports.initEtbExcel = async (req, res, next) => {
         "Grouping 1",
         "Grouping 2",
         "Grouping 3",
+        "Grouping 4",
       ],
     ];
 
@@ -258,6 +300,7 @@ exports.pushEtbToExcel = async (req, res, next) => {
             "Grouping 1",
             "Grouping 2",
             "Grouping 3",
+            "Grouping 4",
           ],
         ];
 
@@ -436,12 +479,16 @@ exports.selectTabFromSheets = async (req, res, next) => {
       id: `row-${index}`,
       code: row[0] || "",
       accountName: row[1] || "",
-      currentYear: Number(row[2]) || 0,
-      priorYear: Number(row[3]) || 0,
-      adjustments: Number(row[4]) || 0,
-      finalBalance: Number(row[5]) || 0,
+      currentYear: parseAccountingNumber(row[2]),
+      priorYear: parseAccountingNumber(row[3]),
+      adjustments: parseAccountingNumber(row[4]),
+      finalBalance: parseAccountingNumber(row[5]),
       classification: decodedClassification,
       reference: row[6] || "",
+      grouping1: row[7] || "",
+      grouping2: row[8] || "",
+      grouping3: row[9] || "",
+      grouping4: row[10] || "",
     }));
 
     section.lastSyncAt = new Date();
@@ -1197,10 +1244,10 @@ exports.saveETB = async (req, res, next) => {
       return {
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
-        currentYear: Number(currentYear || 0),
-        priorYear: Number(priorYear || 0),
-        adjustments: Number(adjustments || 0),
-        finalBalance: Number(finalBalance || 0),
+        currentYear: parseAccountingNumber(currentYear),
+        priorYear: parseAccountingNumber(priorYear),
+        adjustments: parseAccountingNumber(adjustments),
+        finalBalance: parseAccountingNumber(finalBalance),
         classification:
           classification != null ? String(classification).trim() : "",
         ...rest,
@@ -1326,12 +1373,16 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
         id: row.id || `row-${idx}`,
         code: row.code || "",
         accountName: row.accountName || "",
-        currentYear: Number(row.currentYear) || 0,
-        priorYear: Number(row.priorYear) || 0,
-        adjustments: Number(row.adjustments) || 0,
-        finalBalance: Number(row.finalBalance) || 0,
+        currentYear: parseAccountingNumber(row.currentYear),
+        priorYear: parseAccountingNumber(row.priorYear),
+        adjustments: parseAccountingNumber(row.adjustments),
+        finalBalance: parseAccountingNumber(row.finalBalance),
         classification: decodedClassification,
         reference: preservedRef ? preservedRef : "",
+        grouping1: row.grouping1 || "",
+        grouping2: row.grouping2 || "",
+        grouping3: row.grouping3 || "",
+        grouping4: row.grouping4 || "",
       };
     });
 
@@ -1590,6 +1641,10 @@ exports.initWorkingPapers = async (req, res, next) => {
       "Adjustments",
       "Final Balance",
       "Reference",
+      "Grouping 1",
+      "Grouping 2",
+      "Grouping 3",
+      "Grouping 4",
     ];
 
     const dataRows = leadSheetData.map((row) => [
@@ -1600,6 +1655,10 @@ exports.initWorkingPapers = async (req, res, next) => {
       row.adjustments,
       row.finalBalance,
       "",
+      row.grouping1 || "",
+      row.grouping2 || "",
+      row.grouping3 || "",
+      row.grouping4 || "",
     ]);
 
     const worksheetData = [headers, ...dataRows];
@@ -1678,6 +1737,10 @@ exports.pushToWorkingPapers = async (req, res, next) => {
       "Adjustments",
       "Final Balance",
       "Reference",
+      "Grouping 1",
+      "Grouping 2",
+      "Grouping 3",
+      "Grouping 4",
     ];
 
     const dataRows = data.map((row) => [
@@ -1688,6 +1751,10 @@ exports.pushToWorkingPapers = async (req, res, next) => {
       row.adjustments,
       row.finalBalance,
       row.reference || "",
+      row.grouping1 || "",
+      row.grouping2 || "",
+      row.grouping3 || "",
+      row.grouping4 || "",
     ]);
 
     const worksheetData = [headers, ...dataRows];
@@ -1738,12 +1805,16 @@ exports.pullFromWorkingPapers = async (req, res, next) => {
       id: `row-${index}`,
       code: row[0] || "",
       accountName: row[1] || "",
-      currentYear: Number(row[2]) || 0,
-      priorYear: Number(row[3]) || 0,
-      adjustments: Number(row[4]) || 0,
-      finalBalance: Number(row[5]) || 0,
+      currentYear: parseAccountingNumber(row[2]),
+      priorYear: parseAccountingNumber(row[3]),
+      adjustments: parseAccountingNumber(row[4]),
+      finalBalance: parseAccountingNumber(row[5]),
       classification: decodedClassification,
       reference: row[6] || "",
+      grouping1: row[7] || "",
+      grouping2: row[8] || "",
+      grouping3: row[9] || "",
+      grouping4: row[10] || "",
     }));
 
     const token = await msExcel.getAccessToken();
@@ -1875,12 +1946,16 @@ exports.selectRowFromSheets = async (req, res, next) => {
       id: `row-${index}`,
       code: row[0] || "",
       accountName: row[1] || "",
-      currentYear: Number(row[2]) || 0,
-      priorYear: Number(row[3]) || 0,
-      adjustments: Number(row[4]) || 0,
-      finalBalance: Number(row[5]) || 0,
+      currentYear: parseAccountingNumber(row[2]),
+      priorYear: parseAccountingNumber(row[3]),
+      adjustments: parseAccountingNumber(row[4]),
+      finalBalance: parseAccountingNumber(row[5]),
       classification: decodedClassification,
       reference: row[6] || "",
+      grouping1: row[7] || "",
+      grouping2: row[8] || "",
+      grouping3: row[9] || "",
+      grouping4: row[10] || "",
     }));
 
     section.lastSyncAt = new Date();
@@ -1904,13 +1979,17 @@ exports.saveWorkingPaperToDB = async (req, res, next) => {
           id: r.id || "",
           code: r.code || "",
           accountName: r.accountName || "",
-          currentYear: Number(r.currentYear) || 0,
-          priorYear: Number(r.priorYear) || 0,
-          adjustments: Number(r.adjustments) || 0,
-          finalBalance: Number(r.finalBalance) || 0,
+          currentYear: parseAccountingNumber(r.currentYear),
+          priorYear: parseAccountingNumber(r.priorYear),
+          adjustments: parseAccountingNumber(r.adjustments),
+          finalBalance: parseAccountingNumber(r.finalBalance),
           classification: decodedClassification,
           reference: r.reference ?? "",
           referenceData: "", // temp; will hydrate below
+          grouping1: r.grouping1 || "",
+          grouping2: r.grouping2 || "",
+          grouping3: r.grouping3 || "",
+          grouping4: r.grouping4 || "",
         }))
       : [];
 

@@ -35,20 +35,18 @@ const ETBRowSchema = new Schema({
   },
   code: {
     type: String,
-    required: true,
+    default: "",
   },
   accountName: {
     type: String,
-    required: true,
+    default: "",
   },
   currentYear: {
     type: Number,
-    required: true,
     default: 0,
   },
   priorYear: {
     type: Number,
-    required: true,
     default: 0,
   },
   adjustments: {
@@ -57,10 +55,27 @@ const ETBRowSchema = new Schema({
   },
   finalBalance: {
     type: Number,
-    required: true,
+    default: 0,
   },
   classification: {
     type: String,
+  },
+  // Optional grouping columns from Trial Balance
+  grouping1: {
+    type: String,
+    default: "",
+  },
+  grouping2: {
+    type: String,
+    default: "",
+  },
+  grouping3: {
+    type: String,
+    default: "",
+  },
+  grouping4: {
+    type: String,
+    default: "",
   },
   linkedExcelFiles: {
     type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }],
