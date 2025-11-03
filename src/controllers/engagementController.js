@@ -27,19 +27,19 @@ const EXCEL_MIME =
 // Removes parentheses and special characters, preserves any existing minus sign
 function parseAccountingNumber(value) {
   if (value === null || value === undefined || value === "") return 0;
-  
+
   // If already a number, return it
   if (typeof value === "number") return value;
-  
+
   // Convert to string and clean
   let str = String(value).trim();
-  
+
   // Remove parentheses, commas, and currency symbols (preserves existing minus sign if present)
   str = str.replace(/[(),\$€£¥]/g, "").trim();
-  
+
   // Parse to number
   const num = Number(str);
-  
+
   // Return the number (no negative conversion for parentheses)
   return isNaN(num) ? 0 : num;
 }
@@ -344,7 +344,7 @@ exports.pullEtbFromExcel = async (req, res, next) => {
 
     // Extract the values array from the result object
     const aoa = result.values || result;
-    
+
     const rows = aoaToEtbRows(aoa);
 
     let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
@@ -1294,14 +1294,14 @@ exports.getETBByClassification = async (req, res, next) => {
   try {
     const { id: engagementId, classification } = req.params;
     const decodedClassification = decodeURIComponent(classification);
-
+    
     const etb = await ExtendedTrialBalance.findOne({
       engagement: engagementId,
     });
 
     const section = await ClassificationSection.findOne({
       engagement: engagementId,
-      classification: decodedClassification,
+      classification: { $regex: `^${decodedClassification}`, $options: "i" },
     });
 
     if (!etb) {
@@ -1316,8 +1316,8 @@ exports.getETBByClassification = async (req, res, next) => {
       });
     }
 
-    const filteredRows = etb.rows.filter(
-      (row) => row.classification === decodedClassification
+    const filteredRows = etb.rows.filter((row) =>
+      row.classification.startsWith(decodedClassification)
     );
 
     // If ETB is found, but no rows match the classification,
@@ -2134,8 +2134,8 @@ exports.getWorkingPapersWithLinkedFiles = async (req, res, next) => {
       engagement: engagementId,
       classification: decodedClassification,
     }).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
       // No select clause - populate ALL fields from Workbook model
     });
 
@@ -2146,11 +2146,11 @@ exports.getWorkingPapersWithLinkedFiles = async (req, res, next) => {
     }
 
     // Transform the data to include ALL populated workbook information
-    const transformedRows = doc.rows.map(row => ({
+    const transformedRows = doc.rows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject() // Include ALL fields from Workbook model
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(), // Include ALL fields from Workbook model
+      })),
     }));
 
     return res.json({
@@ -2158,7 +2158,7 @@ exports.getWorkingPapersWithLinkedFiles = async (req, res, next) => {
       classification: doc.classification,
       rows: transformedRows,
       createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt
+      updatedAt: doc.updatedAt,
     });
   } catch (err) {
     next(err);
@@ -2173,25 +2173,25 @@ exports.updateLinkedExcelFiles = async (req, res, next) => {
 
     // Validate input
     if (!rowId) {
-      return res.status(400).json({ 
-        message: "rowId is required" 
+      return res.status(400).json({
+        message: "rowId is required",
       });
     }
 
     if (!Array.isArray(linkedExcelFiles)) {
-      return res.status(400).json({ 
-        message: "linkedExcelFiles must be an array" 
+      return res.status(400).json({
+        message: "linkedExcelFiles must be an array",
       });
     }
 
     // Validate that all linkedExcelFiles are valid ObjectIds
-    const validObjectIds = linkedExcelFiles.every(fileId => 
+    const validObjectIds = linkedExcelFiles.every((fileId) =>
       mongoose.Types.ObjectId.isValid(fileId)
     );
 
     if (!validObjectIds) {
-      return res.status(400).json({ 
-        message: "All linkedExcelFiles must be valid ObjectIds" 
+      return res.status(400).json({
+        message: "All linkedExcelFiles must be valid ObjectIds",
       });
     }
 
@@ -2202,37 +2202,37 @@ exports.updateLinkedExcelFiles = async (req, res, next) => {
     });
 
     if (!doc) {
-      return res.status(404).json({ 
-        message: "Working paper not found for this section" 
+      return res.status(404).json({
+        message: "Working paper not found for this section",
       });
     }
 
     // Find the specific row to update
-    const rowIndex = doc.rows.findIndex(row => row.id === rowId);
+    const rowIndex = doc.rows.findIndex((row) => row.id === rowId);
     if (rowIndex === -1) {
-      return res.status(404).json({ 
-        message: "Row not found in working paper" 
+      return res.status(404).json({
+        message: "Row not found in working paper",
       });
     }
 
     // Update the linkedExcelFiles for the specific row
     doc.rows[rowIndex].linkedExcelFiles = linkedExcelFiles;
-    
+
     // Save the updated document
     await doc.save();
 
     // Return the updated working paper with populated linked files
     const updatedDoc = await WorkingPaper.findById(doc._id).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
     });
 
     // Transform the response to include populated workbook information
-    const transformedRows = updatedDoc.rows.map(row => ({
+    const transformedRows = updatedDoc.rows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject()
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(),
+      })),
     }));
 
     return res.json({
@@ -2240,9 +2240,8 @@ exports.updateLinkedExcelFiles = async (req, res, next) => {
       engagement: updatedDoc.engagement,
       classification: updatedDoc.classification,
       rows: transformedRows,
-      updatedAt: updatedDoc.updatedAt
+      updatedAt: updatedDoc.updatedAt,
     });
-
   } catch (err) {
     next(err);
   }
@@ -2256,21 +2255,21 @@ exports.deleteWorkbookFromLinkedFiles = async (req, res, next) => {
 
     // Validate input
     if (!rowId) {
-      return res.status(400).json({ 
-        message: "rowId is required" 
+      return res.status(400).json({
+        message: "rowId is required",
       });
     }
 
     if (!workbookId) {
-      return res.status(400).json({ 
-        message: "workbookId is required" 
+      return res.status(400).json({
+        message: "workbookId is required",
       });
     }
 
     // Validate that workbookId is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(workbookId)) {
-      return res.status(400).json({ 
-        message: "workbookId must be a valid ObjectId" 
+      return res.status(400).json({
+        message: "workbookId must be a valid ObjectId",
       });
     }
 
@@ -2281,47 +2280,50 @@ exports.deleteWorkbookFromLinkedFiles = async (req, res, next) => {
     });
 
     if (!doc) {
-      return res.status(404).json({ 
-        message: "Working paper not found for this section" 
+      return res.status(404).json({
+        message: "Working paper not found for this section",
       });
     }
 
     // Find the specific row to update
-    const rowIndex = doc.rows.findIndex(row => row.id === rowId);
+    const rowIndex = doc.rows.findIndex((row) => row.id === rowId);
     if (rowIndex === -1) {
-      return res.status(404).json({ 
-        message: "Row not found in working paper" 
+      return res.status(404).json({
+        message: "Row not found in working paper",
       });
     }
 
     // Check if the workbook exists in the linkedExcelFiles array
-    const workbookExists = doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
+    const workbookExists =
+      doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
     if (!workbookExists) {
-      return res.status(404).json({ 
-        message: "Workbook not found in linked Excel files for this row" 
+      return res.status(404).json({
+        message: "Workbook not found in linked Excel files for this row",
       });
     }
 
     // Remove the workbook from the linkedExcelFiles array
-    doc.rows[rowIndex].linkedExcelFiles = doc.rows[rowIndex].linkedExcelFiles.filter(
-      fileId => fileId.toString() !== workbookId.toString()
+    doc.rows[rowIndex].linkedExcelFiles = doc.rows[
+      rowIndex
+    ].linkedExcelFiles.filter(
+      (fileId) => fileId.toString() !== workbookId.toString()
     );
-    
+
     // Save the updated document
     await doc.save();
 
     // Return the updated working paper with populated linked files
     const updatedDoc = await WorkingPaper.findById(doc._id).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
     });
 
     // Transform the response to include populated workbook information
-    const transformedRows = updatedDoc.rows.map(row => ({
+    const transformedRows = updatedDoc.rows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject()
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(),
+      })),
     }));
 
     return res.json({
@@ -2329,9 +2331,8 @@ exports.deleteWorkbookFromLinkedFiles = async (req, res, next) => {
       engagement: updatedDoc.engagement,
       classification: updatedDoc.classification,
       rows: transformedRows,
-      updatedAt: updatedDoc.updatedAt
+      updatedAt: updatedDoc.updatedAt,
     });
-
   } catch (err) {
     next(err);
   }
@@ -2348,29 +2349,31 @@ exports.getExtendedTBWithLinkedFiles = async (req, res, next) => {
     const doc = await ExtendedTrialBalance.findOne({
       engagement: engagementId,
     }).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
       // No select clause - populate ALL fields from Workbook model
     });
 
     if (!doc) {
-      return res
-        .status(404)
-        .json({ message: "No Extended Trial Balance found for this engagement" });
+      return res.status(404).json({
+        message: "No Extended Trial Balance found for this engagement",
+      });
     }
 
     // Filter rows by classification if provided
     let filteredRows = doc.rows;
-    if (classification && classification !== 'ETB') {
-      filteredRows = doc.rows.filter(row => row.classification === decodedClassification);
+    if (classification && classification !== "ETB") {
+      filteredRows = doc.rows.filter(
+        (row) => row.classification === decodedClassification
+      );
     }
 
     // Transform the data to include ALL populated workbook information
-    const transformedRows = filteredRows.map(row => ({
+    const transformedRows = filteredRows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject() // Include ALL fields from Workbook model
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(), // Include ALL fields from Workbook model
+      })),
     }));
 
     return res.json({
@@ -2378,7 +2381,7 @@ exports.getExtendedTBWithLinkedFiles = async (req, res, next) => {
       classification: decodedClassification,
       rows: transformedRows,
       createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt
+      updatedAt: doc.updatedAt,
     });
   } catch (err) {
     next(err);
@@ -2393,25 +2396,25 @@ exports.updateLinkedExcelFilesInExtendedTB = async (req, res, next) => {
 
     // Validate input
     if (!rowId) {
-      return res.status(400).json({ 
-        message: "rowId is required" 
+      return res.status(400).json({
+        message: "rowId is required",
       });
     }
 
     if (!Array.isArray(linkedExcelFiles)) {
-      return res.status(400).json({ 
-        message: "linkedExcelFiles must be an array" 
+      return res.status(400).json({
+        message: "linkedExcelFiles must be an array",
       });
     }
 
     // Validate that all linkedExcelFiles are valid ObjectIds
-    const validObjectIds = linkedExcelFiles.every(fileId => 
+    const validObjectIds = linkedExcelFiles.every((fileId) =>
       mongoose.Types.ObjectId.isValid(fileId)
     );
 
     if (!validObjectIds) {
-      return res.status(400).json({ 
-        message: "All linkedExcelFiles must be valid ObjectIds" 
+      return res.status(400).json({
+        message: "All linkedExcelFiles must be valid ObjectIds",
       });
     }
 
@@ -2421,53 +2424,57 @@ exports.updateLinkedExcelFilesInExtendedTB = async (req, res, next) => {
     });
 
     if (!doc) {
-      return res.status(404).json({ 
-        message: "Extended Trial Balance not found for this engagement" 
+      return res.status(404).json({
+        message: "Extended Trial Balance not found for this engagement",
       });
     }
 
     // Find the specific row to update
-    const rowIndex = doc.rows.findIndex(row => row._id === rowId || row.code === rowId);
+    const rowIndex = doc.rows.findIndex(
+      (row) => row._id === rowId || row.code === rowId
+    );
     if (rowIndex === -1) {
-      return res.status(404).json({ 
-        message: "Row not found in Extended Trial Balance" 
+      return res.status(404).json({
+        message: "Row not found in Extended Trial Balance",
       });
     }
 
     // Update the linkedExcelFiles for the specific row
     doc.rows[rowIndex].linkedExcelFiles = linkedExcelFiles;
-    
+
     // Save the updated document
     await doc.save();
 
     // Return the updated ETB with populated linked files
     const updatedDoc = await ExtendedTrialBalance.findById(doc._id).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
     });
 
     // Filter rows by classification if provided
     let filteredRows = updatedDoc.rows;
-    if (classification && classification !== 'ETB') {
-      filteredRows = updatedDoc.rows.filter(row => row.classification === decodedClassification);
+    if (classification && classification !== "ETB") {
+      filteredRows = updatedDoc.rows.filter(
+        (row) => row.classification === decodedClassification
+      );
     }
 
     // Transform the response to include populated workbook information
-    const transformedRows = filteredRows.map(row => ({
+    const transformedRows = filteredRows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject()
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(),
+      })),
     }));
 
     return res.json({
-      message: "Linked Excel files updated successfully in Extended Trial Balance",
+      message:
+        "Linked Excel files updated successfully in Extended Trial Balance",
       engagement: updatedDoc.engagement,
       classification: decodedClassification,
       rows: transformedRows,
-      updatedAt: updatedDoc.updatedAt
+      updatedAt: updatedDoc.updatedAt,
     });
-
   } catch (err) {
     next(err);
   }
@@ -2481,21 +2488,21 @@ exports.deleteWorkbookFromLinkedFilesInExtendedTB = async (req, res, next) => {
 
     // Validate input
     if (!rowId) {
-      return res.status(400).json({ 
-        message: "rowId is required" 
+      return res.status(400).json({
+        message: "rowId is required",
       });
     }
 
     if (!workbookId) {
-      return res.status(400).json({ 
-        message: "workbookId is required" 
+      return res.status(400).json({
+        message: "workbookId is required",
       });
     }
 
     // Validate that workbookId is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(workbookId)) {
-      return res.status(400).json({ 
-        message: "workbookId must be a valid ObjectId" 
+      return res.status(400).json({
+        message: "workbookId must be a valid ObjectId",
       });
     }
 
@@ -2505,63 +2512,70 @@ exports.deleteWorkbookFromLinkedFilesInExtendedTB = async (req, res, next) => {
     });
 
     if (!doc) {
-      return res.status(404).json({ 
-        message: "Extended Trial Balance not found for this engagement" 
+      return res.status(404).json({
+        message: "Extended Trial Balance not found for this engagement",
       });
     }
 
     // Find the specific row to update
-    const rowIndex = doc.rows.findIndex(row => row._id === rowId || row.code === rowId);
+    const rowIndex = doc.rows.findIndex(
+      (row) => row._id === rowId || row.code === rowId
+    );
     if (rowIndex === -1) {
-      return res.status(404).json({ 
-        message: "Row not found in Extended Trial Balance" 
+      return res.status(404).json({
+        message: "Row not found in Extended Trial Balance",
       });
     }
 
     // Check if the workbook exists in the linkedExcelFiles array
-    const workbookExists = doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
+    const workbookExists =
+      doc.rows[rowIndex].linkedExcelFiles.includes(workbookId);
     if (!workbookExists) {
-      return res.status(404).json({ 
-        message: "Workbook not found in linked Excel files for this row" 
+      return res.status(404).json({
+        message: "Workbook not found in linked Excel files for this row",
       });
     }
 
     // Remove the workbook from the linkedExcelFiles array
-    doc.rows[rowIndex].linkedExcelFiles = doc.rows[rowIndex].linkedExcelFiles.filter(
-      fileId => fileId.toString() !== workbookId.toString()
+    doc.rows[rowIndex].linkedExcelFiles = doc.rows[
+      rowIndex
+    ].linkedExcelFiles.filter(
+      (fileId) => fileId.toString() !== workbookId.toString()
     );
-    
+
     // Save the updated document
     await doc.save();
 
     // Return the updated ETB with populated linked files
     const updatedDoc = await ExtendedTrialBalance.findById(doc._id).populate({
-      path: 'rows.linkedExcelFiles',
-      model: 'Workbook'
+      path: "rows.linkedExcelFiles",
+      model: "Workbook",
     });
 
     // Filter rows by classification if provided
     let filteredRows = updatedDoc.rows;
-    if (classification && classification !== 'ETB') {
-      filteredRows = updatedDoc.rows.filter(row => row.classification === decodedClassification);
+    if (classification && classification !== "ETB") {
+      filteredRows = updatedDoc.rows.filter(
+        (row) => row.classification === decodedClassification
+      );
     }
 
     // Transform the response to include populated workbook information
-    const transformedRows = filteredRows.map(row => ({
+    const transformedRows = filteredRows.map((row) => ({
       ...row.toObject(),
-      linkedExcelFiles: row.linkedExcelFiles.map(workbook => ({
-        ...workbook.toObject()
-      }))
+      linkedExcelFiles: row.linkedExcelFiles.map((workbook) => ({
+        ...workbook.toObject(),
+      })),
     }));
 
     return res.json({
-      message: "Workbook removed from linked Excel files successfully in Extended Trial Balance",
+      message:
+        "Workbook removed from linked Excel files successfully in Extended Trial Balance",
       engagement: updatedDoc.engagement,
       classification: decodedClassification,
       rows: transformedRows,
-      updatedAt: updatedDoc.updatedAt
+      updatedAt: updatedDoc.updatedAt,
     });
-
   } catch (err) {
     next(err);
   }
@@ -2740,23 +2754,26 @@ exports.SaveOrwriteSpecificSheet = async (req, res, next) => {
   }
 };
 
-
 exports.getFileVersionsHistory = async (req, res, next) => {
   // Get driveItemId from request parameters or query string
   // For production, always validate and sanitize user input.
-  const driveItemId = req.params.id || req.query.driveItemId; 
+  const driveItemId = req.params.id || req.query.driveItemId;
 
   if (!driveItemId) {
-    return res.status(400).json({ success: false, message: "driveItemId is required." });
+    return res
+      .status(400)
+      .json({ success: false, message: "driveItemId is required." });
   }
 
   try {
     const versions = await getFileVersionHistory(driveItemId);
 
     if (versions && versions.length > 0) {
-      console.log(`[Controller] Found ${versions.length} versions for ${driveItemId}`);
+      console.log(
+        `[Controller] Found ${versions.length} versions for ${driveItemId}`
+      );
       // You might want to format the versions for the client if needed
-      const formattedVersions = versions.map(version => ({
+      const formattedVersions = versions.map((version) => ({
         id: version.id,
         lastModifiedDateTime: version.lastModifiedDateTime,
         size: version.size,
@@ -2766,26 +2783,32 @@ exports.getFileVersionsHistory = async (req, res, next) => {
       return res.json({ success: true, data: formattedVersions });
     } else {
       console.log(`[Controller] No versions found for ${driveItemId}.`);
-      return res.json({ success: true, message: "No versions created for this file.", data: [] });
+      return res.json({
+        success: true,
+        message: "No versions created for this file.",
+        data: [],
+      });
     }
   } catch (error) {
-    console.error(`[Controller] Error getting file versions for ${driveItemId}:`, error.message);
+    console.error(
+      `[Controller] Error getting file versions for ${driveItemId}:`,
+      error.message
+    );
     // You could also pass the error to Express's error handling middleware: next(error);
     return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-
-
 exports.revertToPrevVersion = async (req, res, next) => {
   // Get driveItemId from request parameters or body
   const driveItemId = req.params.id || req.body.driveItemId;
   // If you want to allow the user to specify a version to restore to:
-  // const versionIdToRestore = req.body.versionId; 
+  // const versionIdToRestore = req.body.versionId;
 
   if (!driveItemId) {
-    return res.status(400).json({ success: false, message: "driveItemId is required." });
+    return res
+      .status(400)
+      .json({ success: false, message: "driveItemId is required." });
   }
 
   try {
@@ -2793,50 +2816,68 @@ exports.revertToPrevVersion = async (req, res, next) => {
     const versions = await getFileVersionHistory(driveItemId);
 
     if (!versions || versions.length < 2) {
-      const message = "Not enough versions to revert. Need at least 2 versions.";
+      const message =
+        "Not enough versions to revert. Need at least 2 versions.";
       console.log(`[Controller] ${message}`);
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         message: message,
-        currentVersions: versions ? versions.map(v => ({ id: v.id, date: new Date(v.lastModifiedDateTime).toLocaleString() })) : []
+        currentVersions: versions
+          ? versions.map((v) => ({
+              id: v.id,
+              date: new Date(v.lastModifiedDateTime).toLocaleString(),
+            }))
+          : [],
       });
     }
 
     // This example reverts to the SECOND-TO-LAST version in the history.
     // If you implemented versionIdToRestore, you would use that here.
-    const versionToRestore = versions[versions.length - 2]; 
+    const versionToRestore = versions[versions.length - 2];
     const targetVersionId = versionToRestore.id; // Or use req.body.versionId if provided
 
     console.log(`[Controller] Attempting to restore ${driveItemId} to version ID: ${targetVersionId} 
-        (modified: ${new Date(versionToRestore.lastModifiedDateTime).toLocaleString()})`);
+        (modified: ${new Date(
+          versionToRestore.lastModifiedDateTime
+        ).toLocaleString()})`);
 
     const restored = await restoreFileVersion(driveItemId, targetVersionId);
 
     if (restored) {
-      console.log(`[Controller] File ${driveItemId} successfully restored to version ${targetVersionId}!`);
-      
+      console.log(
+        `[Controller] File ${driveItemId} successfully restored to version ${targetVersionId}!`
+      );
+
       // Optionally, fetch and return the new version history for confirmation
       const newVersions = await getFileVersionHistory(driveItemId);
-      const formattedNewVersions = newVersions.map(version => ({
+      const formattedNewVersions = newVersions.map((version) => ({
         id: version.id,
         lastModifiedDateTime: version.lastModifiedDateTime,
         size: version.size,
         webUrl: version.driveItem?.webUrl,
       }));
 
-      return res.json({ 
-        success: true, 
-        message: `File restored to version ${targetVersionId}.`, 
+      return res.json({
+        success: true,
+        message: `File restored to version ${targetVersionId}.`,
         newCurrentVersion: formattedNewVersions[0] || null, // The newest version will be the restored one
-        newVersionHistory: formattedNewVersions 
+        newVersionHistory: formattedNewVersions,
       });
     } else {
       // This path should ideally not be hit if restoreFileVersion throws on failure.
-      console.log(`[Controller] Restore operation for ${driveItemId} did not return success status.`);
-      return res.status(500).json({ success: false, message: "Restore operation failed unexpectedly." });
+      console.log(
+        `[Controller] Restore operation for ${driveItemId} did not return success status.`
+      );
+      return res.status(500).json({
+        success: false,
+        message: "Restore operation failed unexpectedly.",
+      });
     }
   } catch (error) {
-    console.error(`[Controller] Error reverting file ${driveItemId} to previous version:`, error.message);
+    console.error(
+      `[Controller] Error reverting file ${driveItemId} to previous version:`,
+      error.message
+    );
     return res.status(500).json({ success: false, error: error.message });
   }
 };
