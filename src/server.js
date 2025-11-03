@@ -28,6 +28,7 @@ const analyticalReviewRoutes = require("./routes/analyticalReview");
 const workbookRoutes = require("./routes/workbook");
 const companyRoutes = require("./routes/companyRoutes");
 const personRoutes = require("./routes/personRoutes");
+const brandingRoutes = require("./routes/brandingRoutes");
 
 const app = express();
 
@@ -77,6 +78,7 @@ app.use("/api/analytical-review", analyticalReviewRoutes);
 app.use("/api/workbooks", workbookRoutes);
 app.use("/api/client", companyRoutes);
 app.use("/api/client", personRoutes);
+app.use("/api/branding", brandingRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
