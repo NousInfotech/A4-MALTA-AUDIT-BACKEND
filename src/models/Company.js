@@ -54,7 +54,7 @@ CompanySchema.methods.getRepresentative = async function () {
   
   // Get person shareholders
   const personShareholders = this.personDetails.filter((person) =>
-    person.roles.includes("ShareHolder")
+    person.roles.includes("Shareholder")
   ).map(p => ({ type: 'person', name: p.name, sharePercentage: p.sharePercentage || 0 }));
   
   // Get company shareholders (they're already in shareHoldingCompanies array)

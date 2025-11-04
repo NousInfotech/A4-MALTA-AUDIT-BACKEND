@@ -11,11 +11,10 @@ const PersonSchema = new Schema(
       {
         type: String,
         enum: [
-          "ShareHolder",
+          "Shareholder",
           "Director",
-          "Judicial",
-          "Representative",
-          "LegalRepresentative",
+          "Judicial Representative",
+          "Legal Representative",
           "Secretary",
         ],
       },

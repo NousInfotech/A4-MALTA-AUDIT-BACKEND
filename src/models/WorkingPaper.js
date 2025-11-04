@@ -13,6 +13,10 @@ const WorkingPaperRowSchema = new mongoose.Schema(
     reference: { type: mongoose.Schema.Types.Mixed, default: "" },
     referenceData: { type: mongoose.Schema.Types.Mixed, default: "" },
     linkedExcelFiles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }], default: [] },
+    grouping1: { type: String, default: "" },
+    grouping2: { type: String, default: "" },
+    grouping3: { type: String, default: "" },
+    grouping4: { type: String, default: "" },
   },
   { _id: false }
 );
