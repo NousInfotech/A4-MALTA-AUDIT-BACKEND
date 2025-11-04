@@ -1,5 +1,6 @@
 const { supabase } = require('../config/supabase');
 const BrandingSettings = require('../models/BrandingSettings');
+const { extractColors, generateThemeSuggestions } = require('../utils/colorAnalyzer');
 
 /**
  * Get branding settings
@@ -88,6 +89,17 @@ exports.uploadLogo = async (req, res) => {
     const file = req.file;
     const fileName = `logos/${Date.now()}_${file.originalname}`;
 
+    // Extract colors from the image for theme suggestions
+    let themeSuggestions = [];
+    try {
+      const colors = await extractColors(file.buffer);
+      themeSuggestions = generateThemeSuggestions(colors);
+      console.log('Generated theme suggestions:', themeSuggestions.length);
+    } catch (colorError) {
+      console.error('Error generating theme suggestions:', colorError);
+      // Continue with upload even if color extraction fails
+    }
+
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from('branding')
@@ -106,7 +118,10 @@ exports.uploadLogo = async (req, res) => {
       .from('branding')
       .getPublicUrl(fileName);
 
-    res.json({ logo_url: publicUrl });
+    res.json({ 
+      logo_url: publicUrl,
+      theme_suggestions: themeSuggestions
+    });
   } catch (error) {
     console.error('Error in uploadLogo:', error);
     res.status(500).json({ error: 'Internal server error' });
