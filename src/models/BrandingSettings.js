@@ -6,6 +6,10 @@ const brandingSettingsSchema = new mongoose.Schema({
     required: true,
     default: 'Audit Portal'
   },
+  organization_subname: {
+    type: String,
+    default: 'AUDIT & COMPLIANCE'
+  },
   logo_url: {
     type: String,
     default: null
@@ -25,7 +29,7 @@ const brandingSettingsSchema = new mongoose.Schema({
   body_background_color: {
     type: String,
     required: true,
-    default: '210 40% 98%'
+    default: '48 100% 96%'
   },
   body_text_color: {
     type: String,
@@ -47,12 +51,12 @@ const brandingSettingsSchema = new mongoose.Schema({
   accent_color: {
     type: String,
     required: true,
-    default: '43 96% 56%'
+    default: '0 0% 45%'
   },
   accent_foreground_color: {
     type: String,
     required: true,
-    default: '222 47% 11%'
+    default: '0 0% 100%'
   }
 }, {
   timestamps: true
