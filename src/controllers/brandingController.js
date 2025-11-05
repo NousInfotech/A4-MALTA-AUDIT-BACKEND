@@ -13,14 +13,15 @@ exports.getBrandingSettings = async (req, res) => {
     if (!settings) {
       settings = await BrandingSettings.create({
         organization_name: 'Audit Portal',
+        organization_subname: 'AUDIT & COMPLIANCE',
         sidebar_background_color: '222 47% 11%',
         sidebar_text_color: '220 14% 96%',
-        body_background_color: '210 40% 98%',
+        body_background_color: '48 100% 96%',
         body_text_color: '222 47% 11%',
         primary_color: '222 47% 11%',
         primary_foreground_color: '0 0% 100%',
-        accent_color: '43 96% 56%',
-        accent_foreground_color: '222 47% 11%'
+        accent_color: '0 0% 45%',
+        accent_foreground_color: '0 0% 100%'
       });
     }
 
@@ -38,6 +39,7 @@ exports.updateBrandingSettings = async (req, res) => {
   try {
     const {
       organization_name,
+      organization_subname,
       logo_url,
       sidebar_background_color,
       sidebar_text_color,
@@ -58,6 +60,7 @@ exports.updateBrandingSettings = async (req, res) => {
 
     // Update the settings
     if (organization_name !== undefined) settings.organization_name = organization_name;
+    if (organization_subname !== undefined) settings.organization_subname = organization_subname;
     if (logo_url !== undefined) settings.logo_url = logo_url;
     if (sidebar_background_color !== undefined) settings.sidebar_background_color = sidebar_background_color;
     if (sidebar_text_color !== undefined) settings.sidebar_text_color = sidebar_text_color;
@@ -142,15 +145,16 @@ exports.resetBrandingSettings = async (req, res) => {
 
     // Reset to defaults
     settings.organization_name = 'Audit Portal';
+    settings.organization_subname = 'AUDIT & COMPLIANCE';
     settings.logo_url = null;
     settings.sidebar_background_color = '222 47% 11%';
     settings.sidebar_text_color = '220 14% 96%';
-    settings.body_background_color = '210 40% 98%';
+    settings.body_background_color = '48 100% 96%';
     settings.body_text_color = '222 47% 11%';
     settings.primary_color = '222 47% 11%';
     settings.primary_foreground_color = '0 0% 100%';
-    settings.accent_color = '43 96% 56%';
-    settings.accent_foreground_color = '222 47% 11%';
+    settings.accent_color = '0 0% 45%';
+    settings.accent_foreground_color = '0 0% 100%';
 
     await settings.save();
 
