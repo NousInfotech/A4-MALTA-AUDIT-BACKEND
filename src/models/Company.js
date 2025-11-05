@@ -20,8 +20,10 @@ const CompanySchema = new Schema(
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
         sharePercentage: { type: Number, required: true, min: 0, max: 100 },
+        shares: { type: Number, min: 0, default: 0 }, 
       },
     ],
+    totalShares: { type: Number, min: 0, default: 0, required: true },
     createdBy: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
@@ -83,6 +85,20 @@ CompanySchema.methods.getRepresentative = async function () {
   // Return single shareholder if only one, array if multiple
   return representatives.length === 1 ? representatives[0] : representatives;
 };
+
+CompanySchema.pre("save", function (next) {
+  if (this.totalShares > 0 && Array.isArray(this.shareHoldingCompanies)) {
+    this.shareHoldingCompanies = this.shareHoldingCompanies.map((sh) => {
+      const pct =
+        sh.shares && this.totalShares
+          ? (sh.shares / this.totalShares) * 100
+          : sh.sharePercentage || 0;
+      return { ...sh.toObject?.() ?? sh, sharePercentage: pct };
+    });
+  }
+  this.updatedAt = new Date();
+  next();
+});
 
 module.exports = mongoose.model("Company", CompanySchema);
 
