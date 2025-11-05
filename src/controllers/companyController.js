@@ -10,10 +10,20 @@ exports.getAllCompanies = async (req, res) => {
     const { clientId } = req.params;
 
     const companies = await Company.find({ clientId })
-      .populate("personDetails")
       .populate({
-        path: "shareHoldingCompanyDetails",
-        select: "name registrationNumber",
+        path: "shareHolders.personId",
+        select: "name email phoneNumber nationality address",
+        model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.personId",
+        select: "name email phoneNumber nationality address",
+        model: "Person",
+      })
+      .populate({
+        path: "shareHoldingCompanies.companyId",
+        select: "name registrationNumber status",
+        model: "Company",
       })
       .sort({ createdAt: -1 });
 
@@ -43,7 +53,16 @@ exports.getCompanyById = async (req, res) => {
       _id: companyId,
       clientId,
     })
-      .populate("personDetails")
+      .populate({
+        path: "shareHolders.personId",
+        select: "name email phoneNumber nationality address supportingDocuments",
+        model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.personId",
+        select: "name email phoneNumber nationality address supportingDocuments",
+        model: "Person",
+      })
       .populate({
         path: "shareHoldingCompanies.companyId",
         select: "name registrationNumber status",
@@ -57,15 +76,9 @@ exports.getCompanyById = async (req, res) => {
       });
     }
 
-    // Get the representative person (highest share holder)
-    const representative = await company.getRepresentative();
-
     res.status(200).json({
       success: true,
-      data: {
-        ...company.toObject(),
-        representative,
-      },
+      data: company,
     });
   } catch (error) {
     console.error("Error fetching company:", error);
@@ -104,19 +117,26 @@ exports.createCompany = async (req, res) => {
       });
     }
 
-    // ✅ Normalize shareHoldings
+    // Normalize shareHoldingCompanies to use sharesData structure
     const formattedShareholdings = Array.isArray(shareHoldingCompanies)
       ? shareHoldingCompanies.map((s) => {
-          const shares = Number(s.shares) || 0;
-          const pct =
-            totalShares && shares
-              ? (shares / totalShares) * 100
-              : Number(s.sharePercentage) || 0;
+          const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
+          const sharePercentage = Number(s.sharePercentage) || 0;
+          const totalSharesValue = Number(totalShares) || 0;
+          
+          // Calculate share class
+          let shareClass = "General";
+          if (sharePercentage >= 50) shareClass = "A";
+          else if (sharePercentage >= 30) shareClass = "B";
+          else if (sharePercentage >= 20) shareClass = "Ordinary";
 
           return {
-            companyId: s.companyId,
-            shares,
-            sharePercentage: pct,
+            companyId: companyId,
+            sharesData: {
+              percentage: sharePercentage,
+              totalShares: totalSharesValue,
+              class: shareClass,
+            },
           };
         })
       : [];
@@ -127,12 +147,12 @@ exports.createCompany = async (req, res) => {
       registrationNumber,
       address,
       supportingDocuments: supportingDocuments || [],
-      timelineStart,
-      timelineEnd,
-      status: status || "active",
-      totalShares: Number(totalShares) || 0,   // ✅ saved to DB
+      companyStartedAt: timelineStart ? new Date(timelineStart) : undefined,
+      totalShares: Number(totalShares) || 0,
       shareHoldingCompanies: formattedShareholdings,
-      createdBy: createdBy || req.user?.id || "system",
+      shareHolders: [], // Will be populated separately when persons are added
+      representationalSchema: [], // Will be populated separately when persons are added
+      // Note: status and timelineEnd are not in the model, ignoring them
     });
 
     await company.save();
@@ -167,15 +187,51 @@ exports.updateCompany = async (req, res) => {
     delete updateData.createdAt;
     updateData.updatedAt = new Date();
 
+    // Handle shareHoldingCompanies update if provided
+    if (updateData.shareHoldingCompanies) {
+      const totalSharesValue = updateData.totalShares || 0;
+      updateData.shareHoldingCompanies = Array.isArray(updateData.shareHoldingCompanies)
+        ? updateData.shareHoldingCompanies.map((s) => {
+            const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
+            const sharePercentage = Number(s.sharePercentage) || 0;
+            
+            // Calculate share class
+            let shareClass = "General";
+            if (sharePercentage >= 50) shareClass = "A";
+            else if (sharePercentage >= 30) shareClass = "B";
+            else if (sharePercentage >= 20) shareClass = "Ordinary";
+
+            return {
+              companyId: companyId,
+              sharesData: {
+                percentage: sharePercentage,
+                totalShares: totalSharesValue,
+                class: shareClass,
+              },
+            };
+          })
+        : [];
+    }
+
     const company = await Company.findOneAndUpdate(
       { _id: companyId, clientId },
       { $set: updateData },
       { new: true, runValidators: true }
     )
-      .populate("personDetails")
       .populate({
-        path: "shareHoldingCompanyDetails",
+        path: "shareHolders.personId",
+        select: "name email phoneNumber nationality address",
+        model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.personId",
+        select: "name email phoneNumber nationality address",
+        model: "Person",
+      })
+      .populate({
+        path: "shareHoldingCompanies.companyId",
         select: "name registrationNumber status",
+        model: "Company",
       });
 
     if (!company) {
@@ -208,11 +264,8 @@ exports.deleteCompany = async (req, res) => {
   try {
     const { clientId, companyId } = req.params;
 
-    // First, delete all persons associated with this company
-    await Person.deleteMany({ companyId });
-
-    // Then delete the company
-    const company = await Company.findOneAndDelete({
+    // Find the company first
+    const company = await Company.findOne({
       _id: companyId,
       clientId,
     });
@@ -223,6 +276,13 @@ exports.deleteCompany = async (req, res) => {
         message: "Company not found",
       });
     }
+
+    // Note: We don't delete persons as they are decoupled from companies
+    // The relationships will be automatically cleaned up when company is deleted
+    // (via references in shareHolders and representationalSchema)
+
+    // Delete the company
+    await Company.findByIdAndDelete(companyId);
 
     res.status(200).json({
       success: true,
@@ -239,42 +299,4 @@ exports.deleteCompany = async (req, res) => {
   }
 };
 
-/**
- * Add a person to a company
- * This updates the company's persons array
- */
-exports.addPersonToCompany = async (req, res) => {
-  try {
-    const { companyId } = req.params;
-    const { personId } = req.body;
-
-    const company = await Company.findById(companyId);
-
-    if (!company) {
-      return res.status(404).json({
-        success: false,
-        message: "Company not found",
-      });
-    }
-
-    // Add personId to persons array if not already present
-    if (!company.persons.includes(personId)) {
-      company.persons.push(personId);
-      await company.save();
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Person added to company successfully",
-      data: company,
-    });
-  } catch (error) {
-    console.error("Error adding person to company:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to add person to company",
-      error: error.message,
-    });
-  }
-};
 

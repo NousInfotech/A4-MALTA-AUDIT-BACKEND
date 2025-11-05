@@ -1,30 +1,64 @@
 const mongoose = require("mongoose");
 const { Schema, Types } = mongoose;
 
+const ShareClassEnum = ["A", "B", "Ordinary", "General"];
+
+const ShareDataSchema = new Schema(
+  {
+    percentage: { type: Number, required: true, min: 0, max: 100 },
+    totalShares: { type: Number, required: true, min: 0 },
+    class: { type: String, enum: ShareClassEnum, required: true },
+    // Ultimate Beneficial Owner (only for shareHoldingCompanies)
+    ubo: { type: Types.ObjectId, ref: "Person" },
+  },
+  { _id: false }
+);
+
 const CompanySchema = new Schema(
   {
     clientId: { type: String, required: true },
     name: { type: String, required: true },
     registrationNumber: { type: String },
     address: { type: String },
-    persons: [{ type: Types.ObjectId, ref: "Person" }],
-    supportingDocuments: [{ type: String }], // Array of document URLs
-    timelineStart: { type: Date },
-    timelineEnd: { type: Date },
-    status: {
-      type: String,
-      enum: ["active", "record"],
-      default: "active",
-    },
+    supportingDocuments: [{ type: String }], // URLs or file keys
+
+    companyStartedAt: { type: Date },
+    totalShares: { type: Number, default: 0 },
+
+    // Shareholding by other companies
     shareHoldingCompanies: [
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
-        sharePercentage: { type: Number, required: true, min: 0, max: 100 },
-        shares: { type: Number, min: 0, default: 0 }, 
+        sharesData: { type: ShareDataSchema, required: true },
       },
     ],
-    totalShares: { type: Number, min: 0, default: 0, required: true },
-    createdBy: { type: String, required: true },
+
+    // Direct shareholders (persons)
+    shareHolders: [
+      {
+        personId: { type: Types.ObjectId, ref: "Person", required: true },
+        sharesData: { type: ShareDataSchema, required: true },
+      },
+    ],
+
+    // Board/representative schema
+    representationalSchema: [
+      {
+        personId: { type: Types.ObjectId, ref: "Person", required: true },
+        role: {
+          type: [String],
+          enum: [
+            "Shareholder",
+            "Director",
+            "Judicial Representative",
+            "Legal Representative",
+            "Secretary",
+          ],
+          required: true,
+        },
+      },
+    ],
+
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },
@@ -34,15 +68,14 @@ const CompanySchema = new Schema(
   }
 );
 
-// Virtual to get persons with details
-CompanySchema.virtual("personDetails", {
+// 🔹 Virtuals
+CompanySchema.virtual("shareHolderDetails", {
   ref: "Person",
-  localField: "persons",
+  localField: "shareHolders.personId",
   foreignField: "_id",
   justOne: false,
 });
 
-// Virtual to get shareholding companies with details
 CompanySchema.virtual("shareHoldingCompanyDetails", {
   ref: "Company",
   localField: "shareHoldingCompanies.companyId",
@@ -50,55 +83,66 @@ CompanySchema.virtual("shareHoldingCompanyDetails", {
   justOne: false,
 });
 
-// Method to get the representative person(s) and company(s) (highest share holder)
-CompanySchema.methods.getRepresentative = async function () {
-  await this.populate("personDetails");
-  
-  // Get person shareholders
-  const personShareholders = this.personDetails.filter((person) =>
-    person.roles.includes("Shareholder")
-  ).map(p => ({ type: 'person', name: p.name, sharePercentage: p.sharePercentage || 0 }));
-  
-  // Get company shareholders (they're already in shareHoldingCompanies array)
-  const companyShareholders = (this.shareHoldingCompanies || []).map(sh => ({
-    type: 'company',
-    name: typeof sh.companyId === 'object' && sh.companyId.name 
-      ? sh.companyId.name 
-      : 'Unknown Company',
-    sharePercentage: sh.sharePercentage || 0
-  }));
-  
-  // Combine all shareholders
-  const allShareholders = [...personShareholders, ...companyShareholders];
-  
-  if (allShareholders.length === 0) return null;
-  
-  // Find the maximum percentage
-  const maxPercentage = Math.max(...allShareholders.map(s => s.sharePercentage));
-  
-  // Get all shareholders with the maximum percentage
-  const representatives = allShareholders.filter(s => s.sharePercentage === maxPercentage);
-  
-  // Sort by name alphabetically for consistent display
-  representatives.sort((a, b) => a.name.localeCompare(b.name));
-  
-  // Return single shareholder if only one, array if multiple
-  return representatives.length === 1 ? representatives[0] : representatives;
+// 🔹 Utility method to classify share class automatically
+CompanySchema.methods.getShareClass = function (percentage) {
+  if (percentage >= 50) return "A";
+  if (percentage >= 30) return "B";
+  if (percentage >= 20) return "Ordinary";
+  return "General";
 };
 
+// 🔹 Pre-save hook to auto-assign share classes if not provided
 CompanySchema.pre("save", function (next) {
-  if (this.totalShares > 0 && Array.isArray(this.shareHoldingCompanies)) {
-    this.shareHoldingCompanies = this.shareHoldingCompanies.map((sh) => {
-      const pct =
-        sh.shares && this.totalShares
-          ? (sh.shares / this.totalShares) * 100
-          : sh.sharePercentage || 0;
-      return { ...sh.toObject?.() ?? sh, sharePercentage: pct };
-    });
-  }
-  this.updatedAt = new Date();
+  this.shareHolders?.forEach((holder) => {
+    if (!holder.sharesData.class) {
+      holder.sharesData.class = this.getShareClass(holder.sharesData.percentage);
+    }
+  });
+
+  this.shareHoldingCompanies?.forEach((sh) => {
+    if (!sh.sharesData.class) {
+      sh.sharesData.class = this.getShareClass(sh.sharesData.percentage);
+    }
+  });
+
   next();
 });
+
+// 🔹 Method to get ultimate beneficial owners (UBOs)
+CompanySchema.methods.getUBOs = async function () {
+  await this.populate({
+    path: "shareHoldingCompanies.companyId",
+    populate: {
+      path: "shareHolders.personId",
+      select: "name nationality",
+    },
+  });
+
+  const ubos = [];
+
+  this.shareHoldingCompanies.forEach((sh) => {
+    const company = sh.companyId;
+    if (!company) return;
+
+    // Find top shareholder (class A or highest percentage)
+    const topShareholder = company.shareHolders.reduce((max, curr) =>
+      curr.sharesData.percentage > (max?.sharesData?.percentage || 0)
+        ? curr
+        : max,
+      null
+    );
+
+    if (topShareholder && topShareholder.personId) {
+      ubos.push({
+        company: company.name,
+        person: topShareholder.personId.name,
+        percentage: topShareholder.sharesData.percentage,
+      });
+    }
+  });
+
+  return ubos;
+};
 
 module.exports = mongoose.model("Company", CompanySchema);
 
