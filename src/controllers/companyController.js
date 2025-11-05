@@ -94,6 +94,7 @@ exports.createCompany = async (req, res) => {
       status,
       shareHoldingCompanies,
       createdBy,
+      totalShares,                 // ✅ <-- add
     } = req.body;
 
     if (!name) {
@@ -102,6 +103,23 @@ exports.createCompany = async (req, res) => {
         message: "Company name is required",
       });
     }
+
+    // ✅ Normalize shareHoldings
+    const formattedShareholdings = Array.isArray(shareHoldingCompanies)
+      ? shareHoldingCompanies.map((s) => {
+          const shares = Number(s.shares) || 0;
+          const pct =
+            totalShares && shares
+              ? (shares / totalShares) * 100
+              : Number(s.sharePercentage) || 0;
+
+          return {
+            companyId: s.companyId,
+            shares,
+            sharePercentage: pct,
+          };
+        })
+      : [];
 
     const company = new Company({
       clientId,
@@ -112,7 +130,8 @@ exports.createCompany = async (req, res) => {
       timelineStart,
       timelineEnd,
       status: status || "active",
-      shareHoldingCompanies: shareHoldingCompanies || [],
+      totalShares: Number(totalShares) || 0,   // ✅ saved to DB
+      shareHoldingCompanies: formattedShareholdings,
       createdBy: createdBy || req.user?.id || "system",
     });
 
