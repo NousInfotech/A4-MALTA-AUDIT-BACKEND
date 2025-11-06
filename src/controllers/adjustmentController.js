@@ -442,40 +442,101 @@ exports.unpostAdjustment = async (req, res) => {
 };
 
 /**
- * Delete a draft adjustment
+ * Delete an adjustment
+ * If posted, reverses its ETB impact before deleting
  * DELETE /api/adjustments/:id
  */
 exports.deleteAdjustment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
 
-    const adjustment = await Adjustment.findById(id);
+    const adjustment = await Adjustment.findById(id).session(session);
 
     if (!adjustment) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({
         success: false,
         message: "Adjustment not found",
       });
     }
 
-    // TEMPORARY: Allow deletion of posted adjustments (will be removed later)
-    // if (adjustment.status === "posted") {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Posted adjustments cannot be deleted. Unpost first.",
-    //   });
-    // }
-    
     console.log(`Deleting adjustment ${id} with status: ${adjustment.status}`);
 
-    await Adjustment.findByIdAndDelete(id);
+    // If the adjustment is posted, reverse its ETB impact first
+    if (adjustment.status === "posted") {
+      console.log("Reversing ETB impact before deleting posted adjustment");
+
+      // Fetch ETB
+      const etb = await ExtendedTrialBalance.findById(adjustment.etbId).session(session);
+
+      if (!etb) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({
+          success: false,
+          message: "Extended Trial Balance not found",
+        });
+      }
+
+      // Reverse each entry from ETB rows
+      for (const entry of adjustment.entries) {
+        // Search by _id, id, or code for maximum compatibility
+        const rowIndex = etb.rows.findIndex(
+          (row) => row._id === entry.etbRowId || 
+                   row.id === entry.etbRowId || 
+                   row.code === entry.etbRowId
+        );
+
+        if (rowIndex === -1) {
+          console.warn(`ETB row not found during delete. Looking for: ${entry.etbRowId}, Entry code: ${entry.code}`);
+          // Continue with other entries instead of aborting
+          continue;
+        }
+
+        const row = etb.rows[rowIndex];
+        const netAdjustment = (entry.dr || 0) - (entry.cr || 0);
+
+        // Reverse adjustments and finalBalance
+        row.adjustments = (row.adjustments || 0) - netAdjustment;
+        row.finalBalance = (row.currentYear || 0) + row.adjustments;
+
+        // Remove adjustment reference
+        if (row.adjustmentRefs) {
+          row.adjustmentRefs = row.adjustmentRefs.filter(
+            (ref) => ref !== adjustment._id.toString()
+          );
+        }
+
+        etb.rows[rowIndex] = row;
+      }
+
+      // Mark ETB as modified and save
+      etb.markModified("rows");
+      await etb.save({ session });
+
+      console.log("ETB impact reversed successfully");
+    }
+
+    // Delete the adjustment
+    await Adjustment.findByIdAndDelete(id).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res.status(200).json({
       success: true,
-      data: { id },
-      message: "Adjustment deleted successfully",
+      data: { id, wasPosted: adjustment.status === "posted" },
+      message: adjustment.status === "posted" 
+        ? "Adjustment deleted and ETB impact reversed"
+        : "Adjustment deleted successfully",
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error deleting adjustment:", error);
     return res.status(500).json({
       success: false,
