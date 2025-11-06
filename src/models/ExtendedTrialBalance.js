@@ -85,6 +85,10 @@ const ETBRowSchema = new Schema({
     type: [ETBMappingSchema],
     default: []
   },
+  adjustmentRefs: {
+    type: [String],
+    default: []
+  },
 }, { _id: false })
 
 const ExtendedTrialBalanceSchema = new Schema({

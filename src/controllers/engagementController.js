@@ -1241,7 +1241,11 @@ exports.saveETB = async (req, res, next) => {
         ...rest
       } = r || {};
 
+      // Use existing _id or id, or generate one from code
+      const rowId = _id || id || String(code).trim();
+
       return {
+        _id: rowId,
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
         currentYear: parseAccountingNumber(currentYear),
@@ -1284,7 +1288,17 @@ exports.getETB = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    res.json(etb);
+    // Ensure all rows have an _id field (for adjustments support)
+    const etbObject = etb.toObject();
+    etbObject.rows = etbObject.rows.map((row) => {
+      // Use existing _id, or generate from code
+      if (!row._id) {
+        row._id = row.id || row.code || `row_${Math.random().toString(36).slice(2)}`;
+      }
+      return row;
+    });
+
+    res.json(etbObject);
   } catch (err) {
     next(err);
   }
@@ -1316,9 +1330,16 @@ exports.getETBByClassification = async (req, res, next) => {
       });
     }
 
-    const filteredRows = etb.rows.filter((row) =>
-      row.classification.startsWith(decodedClassification)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification.startsWith(decodedClassification))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     // If ETB is found, but no rows match the classification,
     // this will return an empty 'rows' array, which is correct.
@@ -1369,8 +1390,10 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
         row.accountName || ""
       ).trim()}`;
       const preservedRef = refMap.get(key);
+      const rowId = row._id || row.id || row.code || `row-${idx}`;
       return {
-        id: row.id || `row-${idx}`,
+        _id: rowId,
+        id: rowId,
         code: row.code || "",
         accountName: row.accountName || "",
         currentYear: parseAccountingNumber(row.currentYear),
@@ -1405,10 +1428,16 @@ exports.getETBByCategory = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    const filteredRows = etb.rows.filter(
-      (row) =>
-        row.classification && row.classification.startsWith(decodedCategory)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification && row.classification.startsWith(decodedCategory))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     res.json({ rows: filteredRows });
   } catch (err) {
