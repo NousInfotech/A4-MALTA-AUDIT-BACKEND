@@ -76,9 +76,10 @@ function etbRowsToAOA(rows) {
     "Code",
     "Account Name",
     "Current Year",
-    "Prior Year",
+    "Re-Classification",
     "Adjustments",
     "Final Balance",
+    "Prior Year",
     "Grouping 1",
     "Grouping 2",
     "Grouping 3",
@@ -102,8 +103,9 @@ function etbRowsToAOA(rows) {
     const py = Number(r.priorYear) || 0;
     const adj = Number(r.adjustments) || 0;
     const fb = Number(r.finalBalance) || cy + adj;
+    const reclassification = String(r.reclassification || "").trim();
 
-    return [r.code ?? "", r.accountName ?? "", cy, py, adj, fb, g1, g2, g3, g4];
+    return [r.code ?? "", r.accountName ?? "", cy, reclassification, adj, fb, py, g1, g2, g3, g4];
   });
 
   const aoa = [header, ...data];
@@ -115,9 +117,10 @@ function etbRowsToAOA(rows) {
       "TOTALS",
       "",
       `=SUM(C${startRow}:C${endRow})`,
-      `=SUM(D${startRow}:D${endRow})`,
+      "",
       `=SUM(E${startRow}:E${endRow})`,
       `=SUM(F${startRow}:F${endRow})`,
+      `=SUM(G${startRow}:G${endRow})`,
       "",
       "",
       "",
@@ -150,6 +153,7 @@ function aoaToEtbRows(aoa) {
   const iPY = idx("Prior Year");
   const iAdj = idx("Adjustments");
   const iFB = idx("Final Balance");
+  const iReclass = idx("Re-Classification");
 
   const iG1 = idx("Grouping 1");
   const iG2 = idx("Grouping 2");
@@ -169,6 +173,9 @@ function aoaToEtbRows(aoa) {
     const g2 = (iG2 !== -1 ? String(row?.[iG2] ?? "") : "").trim();
     const g3 = (iG3 !== -1 ? String(row?.[iG3] ?? "") : "").trim();
     const g4 = (iG4 !== -1 ? String(row?.[iG4] ?? "") : "").trim();
+
+    // Extract re-classification field
+    const reclassification = (iReclass !== -1 ? String(row?.[iReclass] ?? "") : "").trim();
 
     // Build classification from grouping if no explicit Classification column exists
     // This supports both: explicit classification OR derived from grouping
@@ -190,6 +197,7 @@ function aoaToEtbRows(aoa) {
       adjustments: adj,
       finalBalance: fb,
       classification,
+      reclassification,
       grouping1: g1,
       grouping2: g2,
       grouping3: g3,
@@ -231,9 +239,10 @@ exports.initEtbExcel = async (req, res, next) => {
         "Code",
         "Account Name",
         "Current Year",
-        "Prior Year",
+        "Re-Classification",
         "Adjustments",
         "Final Balance",
+        "Prior Year",
         "Grouping 1",
         "Grouping 2",
         "Grouping 3",
@@ -294,9 +303,10 @@ exports.pushEtbToExcel = async (req, res, next) => {
             "Code",
             "Account Name",
             "Current Year",
-            "Prior Year",
+            "Re-Classification",
             "Adjustments",
             "Final Balance",
+            "Prior Year",
             "Grouping 1",
             "Grouping 2",
             "Grouping 3",
@@ -1238,10 +1248,15 @@ exports.saveETB = async (req, res, next) => {
         adjustments,
         finalBalance,
         classification,
+        reclassification,
         ...rest
       } = r || {};
 
+      // Use existing _id or id, or generate one from code
+      const rowId = _id || id || String(code).trim();
+
       return {
+        _id: rowId,
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
         currentYear: parseAccountingNumber(currentYear),
@@ -1250,6 +1265,8 @@ exports.saveETB = async (req, res, next) => {
         finalBalance: parseAccountingNumber(finalBalance),
         classification:
           classification != null ? String(classification).trim() : "",
+        reclassification:
+          reclassification != null ? String(reclassification).trim() : "",
         ...rest,
       };
     });
@@ -1284,7 +1301,17 @@ exports.getETB = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    res.json(etb);
+    // Ensure all rows have an _id field (for adjustments support)
+    const etbObject = etb.toObject();
+    etbObject.rows = etbObject.rows.map((row) => {
+      // Use existing _id, or generate from code
+      if (!row._id) {
+        row._id = row.id || row.code || `row_${Math.random().toString(36).slice(2)}`;
+      }
+      return row;
+    });
+
+    res.json(etbObject);
   } catch (err) {
     next(err);
   }
@@ -1316,9 +1343,16 @@ exports.getETBByClassification = async (req, res, next) => {
       });
     }
 
-    const filteredRows = etb.rows.filter((row) =>
-      row.classification.startsWith(decodedClassification)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification.startsWith(decodedClassification))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     // If ETB is found, but no rows match the classification,
     // this will return an empty 'rows' array, which is correct.
@@ -1369,8 +1403,10 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
         row.accountName || ""
       ).trim()}`;
       const preservedRef = refMap.get(key);
+      const rowId = row._id || row.id || row.code || `row-${idx}`;
       return {
-        id: row.id || `row-${idx}`,
+        _id: rowId,
+        id: rowId,
         code: row.code || "",
         accountName: row.accountName || "",
         currentYear: parseAccountingNumber(row.currentYear),
@@ -1405,10 +1441,16 @@ exports.getETBByCategory = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    const filteredRows = etb.rows.filter(
-      (row) =>
-        row.classification && row.classification.startsWith(decodedCategory)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification && row.classification.startsWith(decodedCategory))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     res.json({ rows: filteredRows });
   } catch (err) {

@@ -60,6 +60,10 @@ const ETBRowSchema = new Schema({
   classification: {
     type: String,
   },
+  reclassification: {
+    type: String,
+    default: "",
+  },
   // Optional grouping columns from Trial Balance
   grouping1: {
     type: String,
@@ -83,6 +87,10 @@ const ETBRowSchema = new Schema({
   },
   mappings: {
     type: [ETBMappingSchema],
+    default: []
+  },
+  adjustmentRefs: {
+    type: [String],
     default: []
   },
 }, { _id: false })
