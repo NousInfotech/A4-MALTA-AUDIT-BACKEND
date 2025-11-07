@@ -109,21 +109,39 @@ const createOrUpdateExtendedTrialBalance = async (req, res) => {
       });
     }
 
-    // Validate each row has required fields
-    for (const row of rows) {
-      if (!row.code || !row.accountName || row.finalBalance === undefined) {
-        return res.status(400).json({
-          success: false,
-          message: "Each row must have code, accountName, and finalBalance"
-        });
+    // Validate and clean each row
+    const cleanedRows = rows.map((row) => {
+      if (!row.code || !row.accountName) {
+        throw new Error("Each row must have code and accountName");
       }
-    }
+
+      const currentYear = Number(row.currentYear) || 0;
+      const adjustments = Number(row.adjustments) || 0;
+      const reclassification = typeof row.reclassification === "string"
+        ? (parseFloat(row.reclassification) || 0)
+        : (Number(row.reclassification) || 0);
+      
+      // Compute finalBalance from formula: currentYear + adjustments + reclassification
+      const computedFinal = currentYear + adjustments + reclassification;
+      const finalBalance = row.finalBalance !== undefined && row.finalBalance !== null
+        ? Number(row.finalBalance)
+        : computedFinal;
+
+      return {
+        ...row,
+        currentYear,
+        adjustments,
+        reclassification,
+        finalBalance,
+        priorYear: Number(row.priorYear) || 0,
+      };
+    });
 
     const etb = await ExtendedTrialBalance.findOneAndUpdate(
       { engagement: engagementId },
       { 
         engagement: engagementId,
-        rows: rows,
+        rows: cleanedRows,
         updatedAt: new Date()
       },
       { 
