@@ -1,8 +1,10 @@
 const DocumentRequest = require("../models/DocumentRequest");
+const Engagement = require("../models/Engagement");
 const EngagementLibrary = require("../models/EngagementLibrary");
 const ClassificationEvidence = require("../models/ClassificationEvidence");
 const ClassificationSection = require("../models/ClassificationSection");
 const { supabase } = require("../config/supabase");
+const { notifyDocumentRequested } = require("../utils/notificationTriggers");
 
 // Get user profile from Supabase
 async function getUserProfile(userId) {
@@ -286,9 +288,11 @@ exports.createRequest = async (req, res, next) => {
       }
     }
     
+    const clientId = req.body.clientId || req.user.id;
+    
     const dr = await DocumentRequest.create({
       engagement: engagementId,
-      clientId: req.body.clientId || req.user.id,
+      clientId: clientId,
       name: name || `${category} Request - ${new Date().toLocaleDateString()}`,
       category,
       description,
@@ -296,6 +300,44 @@ exports.createRequest = async (req, res, next) => {
       documents,
       attachment: attachmentData
     });
+    
+    // Send notification to client when auditor/admin creates document request
+    try {
+      // Only notify if:
+      // 1. The requester is an auditor (employee) or admin
+      // 2. The clientId is different from the requester (to avoid self-notification)
+      const isAuditorOrAdmin = req.user.role === 'employee' || req.user.role === 'admin';
+      const isDifferentUser = clientId !== req.user.id;
+      
+      if (isAuditorOrAdmin && isDifferentUser) {
+        // Get engagement details
+        const engagement = await Engagement.findById(engagementId);
+        const engagementTitle = engagement?.entityName || engagement?.title || 'Your engagement';
+        
+        // Get auditor/admin name
+        const requesterProfile = await getUserProfile(req.user.id);
+        const requesterName = requesterProfile?.name || (req.user.role === 'admin' ? 'Admin' : 'Auditor');
+        
+        // Get document names for notification message
+        const documentNames = documents && documents.length > 0 
+          ? documents.map(doc => doc.name).join(', ')
+          : name || `${category} documents`;
+        
+        // Send notification to client
+        await notifyDocumentRequested(
+          dr._id,
+          clientId,  // Notify the client
+          documentNames,
+          requesterName,
+          category
+        );
+        
+        console.log(`✅ Notification sent to client ${clientId} for document request ${dr._id}`);
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the request
+      console.error('Failed to send document request notification:', notificationError);
+    }
     
     return res.status(201).json({
       success: true,
