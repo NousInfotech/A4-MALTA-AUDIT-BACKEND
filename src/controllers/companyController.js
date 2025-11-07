@@ -21,6 +21,11 @@ exports.getAllCompanies = async (req, res) => {
         model: "Person",
       })
       .populate({
+        path: "representationalSchema.companyId",
+        select: "name",
+        model: "Company",
+      })
+      .populate({
         path: "shareHoldingCompanies.companyId",
         select: "name registrationNumber status",
         model: "Company",
@@ -62,6 +67,11 @@ exports.getCompanyById = async (req, res) => {
         path: "representationalSchema.personId",
         select: "name email phoneNumber nationality address supportingDocuments",
         model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.companyId",
+        select: "name",
+        model: "Company",
       })
       .populate({
         path: "shareHoldingCompanies.companyId",
@@ -121,7 +131,10 @@ exports.createCompany = async (req, res) => {
     const formattedShareholdings = Array.isArray(shareHoldingCompanies)
       ? shareHoldingCompanies.map((s) => {
           const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
-          const sharePercentage = Number(s.sharePercentage) || 0;
+          const sharePercentage =
+            s.sharePercentage !== undefined && s.sharePercentage !== null
+              ? Number(s.sharePercentage)
+              : Number(s?.sharesData?.percentage) || 0;
           const totalSharesValue = Number(totalShares) || 0;
           
           // Calculate share class
@@ -134,7 +147,7 @@ exports.createCompany = async (req, res) => {
             companyId: companyId,
             sharesData: {
               percentage: sharePercentage,
-              totalShares: totalSharesValue,
+              totalShares: Math.round((sharePercentage / 100) * totalSharesValue),
               class: shareClass,
             },
           };
@@ -189,11 +202,14 @@ exports.updateCompany = async (req, res) => {
 
     // Handle shareHoldingCompanies update if provided
     if (updateData.shareHoldingCompanies) {
-      const totalSharesValue = updateData.totalShares || 0;
+      const totalSharesValue = Number(updateData.totalShares) || 0;
       updateData.shareHoldingCompanies = Array.isArray(updateData.shareHoldingCompanies)
         ? updateData.shareHoldingCompanies.map((s) => {
             const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
-            const sharePercentage = Number(s.sharePercentage) || 0;
+            const sharePercentage =
+              s.sharePercentage !== undefined && s.sharePercentage !== null
+                ? Number(s.sharePercentage)
+                : Number(s?.sharesData?.percentage) || 0;
             
             // Calculate share class
             let shareClass = "General";
@@ -205,7 +221,7 @@ exports.updateCompany = async (req, res) => {
               companyId: companyId,
               sharesData: {
                 percentage: sharePercentage,
-                totalShares: totalSharesValue,
+                totalShares: Math.round((sharePercentage / 100) * totalSharesValue),
                 class: shareClass,
               },
             };
@@ -227,6 +243,11 @@ exports.updateCompany = async (req, res) => {
         path: "representationalSchema.personId",
         select: "name email phoneNumber nationality address",
         model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.companyId",
+        select: "name",
+        model: "Company",
       })
       .populate({
         path: "shareHoldingCompanies.companyId",
@@ -294,6 +315,75 @@ exports.deleteCompany = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete company",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Remove a representative from a company (only removes from representationalSchema)
+ * DELETE /api/client/:clientId/company/:companyId/representative/:personId
+ */
+exports.removeRepresentative = async (req, res) => {
+  try {
+    const { clientId, companyId, personId } = req.params;
+
+    const company = await Company.findOne({
+      _id: companyId,
+      clientId,
+    });
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
+      });
+    }
+
+    // Verify person exists
+    const person = await Person.findOne({
+      _id: personId,
+      clientId,
+    });
+
+    if (!person) {
+      return res.status(404).json({
+        success: false,
+        message: "Person not found",
+      });
+    }
+
+    // Remove only from representationalSchema (not from shareHolders)
+    const beforeCount = company.representationalSchema?.length || 0;
+    company.representationalSchema = company.representationalSchema?.filter(
+      (rs) => rs.personId?.toString() !== personId
+    ) || [];
+
+    const removed = beforeCount > (company.representationalSchema?.length || 0);
+
+    if (!removed) {
+      return res.status(404).json({
+        success: false,
+        message: "Representative relationship not found",
+      });
+    }
+
+    company.updatedAt = new Date();
+    await company.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Representative removed successfully",
+      data: {
+        person: person,
+        company: company,
+      },
+    });
+  } catch (error) {
+    console.error("Error removing representative:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to remove representative",
       error: error.message,
     });
   }

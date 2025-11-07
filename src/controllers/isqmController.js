@@ -22,7 +22,7 @@ exports.createISQMParent = async (req, res, next) => {
       status = 'draft'
     } = req.body;
 
-    // Create the parent document
+    // Create the parent document with organization scoping
     const parent = await ISQMParent.create({
       metadata: {
         title: metadata.title,
@@ -33,6 +33,7 @@ exports.createISQMParent = async (req, res, next) => {
       },
       children: [],
       createdBy: req.user.id,
+      organizationId: req.user.organizationId,
       status
     });
 
@@ -81,10 +82,15 @@ exports.getAllISQMParents = async (req, res, next) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter
+    // Build filter with organization scoping
     let filter = {};
     if (status) filter.status = status;
     if (createdBy) filter.createdBy = createdBy;
+    
+    // Organization scoping: only super-admin can see all
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      filter.organizationId = req.user.organizationId;
+    }
 
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);

@@ -76,9 +76,10 @@ function etbRowsToAOA(rows) {
     "Code",
     "Account Name",
     "Current Year",
-    "Prior Year",
+    "Re-Classification",
     "Adjustments",
     "Final Balance",
+    "Prior Year",
     "Grouping 1",
     "Grouping 2",
     "Grouping 3",
@@ -101,9 +102,23 @@ function etbRowsToAOA(rows) {
     const cy = Number(r.currentYear) || 0;
     const py = Number(r.priorYear) || 0;
     const adj = Number(r.adjustments) || 0;
-    const fb = Number(r.finalBalance) || cy + adj;
+    const reclassification = Number(r.reclassification) || 0;
+    const fb = Number(r.finalBalance);
+    const computedFinal = cy + adj + reclassification;
 
-    return [r.code ?? "", r.accountName ?? "", cy, py, adj, fb, g1, g2, g3, g4];
+    return [
+      r.code ?? "",
+      r.accountName ?? "",
+      cy,
+      reclassification,
+      adj,
+      Number.isFinite(fb) ? fb : computedFinal,
+      py,
+      g1,
+      g2,
+      g3,
+      g4,
+    ];
   });
 
   const aoa = [header, ...data];
@@ -115,9 +130,10 @@ function etbRowsToAOA(rows) {
       "TOTALS",
       "",
       `=SUM(C${startRow}:C${endRow})`,
-      `=SUM(D${startRow}:D${endRow})`,
+      "",
       `=SUM(E${startRow}:E${endRow})`,
       `=SUM(F${startRow}:F${endRow})`,
+      `=SUM(G${startRow}:G${endRow})`,
       "",
       "",
       "",
@@ -150,6 +166,7 @@ function aoaToEtbRows(aoa) {
   const iPY = idx("Prior Year");
   const iAdj = idx("Adjustments");
   const iFB = idx("Final Balance");
+  const iReclass = idx("Re-Classification");
 
   const iG1 = idx("Grouping 1");
   const iG2 = idx("Grouping 2");
@@ -162,13 +179,19 @@ function aoaToEtbRows(aoa) {
     const cy = parseAccountingNumber(row?.[iCY]);
     const py = parseAccountingNumber(row?.[iPY]);
     const adj = parseAccountingNumber(row?.[iAdj]);
-    const fb = iFB !== -1 ? parseAccountingNumber(row?.[iFB]) : cy + adj;
+    const reclassification = parseAccountingNumber(row?.[iReclass]);
+    const fb =
+      iFB !== -1 && row?.[iFB] !== undefined && row?.[iFB] !== ""
+        ? parseAccountingNumber(row?.[iFB])
+        : cy + adj + reclassification;
 
     // Extract grouping data as separate fields
     const g1 = (iG1 !== -1 ? String(row?.[iG1] ?? "") : "").trim();
     const g2 = (iG2 !== -1 ? String(row?.[iG2] ?? "") : "").trim();
     const g3 = (iG3 !== -1 ? String(row?.[iG3] ?? "") : "").trim();
     const g4 = (iG4 !== -1 ? String(row?.[iG4] ?? "") : "").trim();
+
+    // Extract re-classification field
 
     // Build classification from grouping if no explicit Classification column exists
     // This supports both: explicit classification OR derived from grouping
@@ -190,6 +213,7 @@ function aoaToEtbRows(aoa) {
       adjustments: adj,
       finalBalance: fb,
       classification,
+      reclassification,
       grouping1: g1,
       grouping2: g2,
       grouping3: g3,
@@ -231,9 +255,10 @@ exports.initEtbExcel = async (req, res, next) => {
         "Code",
         "Account Name",
         "Current Year",
-        "Prior Year",
+        "Re-Classification",
         "Adjustments",
         "Final Balance",
+        "Prior Year",
         "Grouping 1",
         "Grouping 2",
         "Grouping 3",
@@ -294,9 +319,10 @@ exports.pushEtbToExcel = async (req, res, next) => {
             "Code",
             "Account Name",
             "Current Year",
-            "Prior Year",
+            "Re-Classification",
             "Adjustments",
             "Final Balance",
+            "Prior Year",
             "Grouping 1",
             "Grouping 2",
             "Grouping 3",
@@ -529,7 +555,11 @@ exports.viewSelectedFromDB = async (req, res, next) => {
         currentYear: Number(r.currentYear) || 0,
         priorYear: Number(r.priorYear) || 0,
         adjustments: Number(r.adjustments) || 0,
-        finalBalance: Number(r.finalBalance) || 0,
+        finalBalance:
+          Number(r.finalBalance) ||
+          (Number(r.currentYear) || 0) +
+            (Number(r.adjustments) || 0) +
+            (Number(r.reclassification) || 0),
       },
       reference: r.reference || "",
       referenceData: r.referenceData || "", // <- hydrated at save time
@@ -681,6 +711,7 @@ exports.createEngagement = async (req, res, next) => {
     const engagement = await Engagement.create({
       createdBy,
       clientId,
+      organizationId: req.user.organizationId,
       title,
       yearEndDate,
       trialBalanceUrl,
@@ -930,7 +961,14 @@ exports.deleteFile = async (req, res, next) => {
 
 exports.getAllEngagements = async (req, res, next) => {
   try {
-    const engagements = await Engagement.find();
+    const query = {};
+    
+    // Organization scoping: only super-admin can see all engagements
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagements = await Engagement.find(query);
     res.json(engagements);
   } catch (err) {
     next(err);
@@ -943,7 +981,15 @@ exports.getClientEngagements = async (req, res, next) => {
       req.user.role === "client"
         ? req.user.id
         : req.query.clientId || req.user.id;
-    const engagements = await Engagement.find({ clientId });
+    
+    const query = { clientId };
+    
+    // Organization scoping: only super-admin can see all engagements
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagements = await Engagement.find(query);
     res.json(engagements);
   } catch (err) {
     next(err);
@@ -952,11 +998,18 @@ exports.getClientEngagements = async (req, res, next) => {
 
 exports.getEngagementById = async (req, res, next) => {
   try {
-    const engagement = await Engagement.findById(req.params.id)
+    const query = { _id: req.params.id };
+    
+    // Organization scoping: only super-admin can access engagements from other orgs
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagement = await Engagement.findOne(query)
       .populate("documentRequests")
       .populate("procedures")
       .populate("trialBalanceDoc");
-    if (!engagement) return res.status(404).json({ message: "Not found" });
+    if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
     next(err);
@@ -965,12 +1018,19 @@ exports.getEngagementById = async (req, res, next) => {
 
 exports.updateEngagement = async (req, res, next) => {
   try {
-    const engagement = await Engagement.findByIdAndUpdate(
-      req.params.id,
+    const query = { _id: req.params.id };
+    
+    // Organization scoping: only super-admin can update engagements from other orgs
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagement = await Engagement.findOneAndUpdate(
+      query,
       req.body,
       { new: true }
     );
-    if (!engagement) return res.status(404).json({ message: "Not found" });
+    if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
     next(err);
@@ -1238,18 +1298,34 @@ exports.saveETB = async (req, res, next) => {
         adjustments,
         finalBalance,
         classification,
+        reclassification,
         ...rest
       } = r || {};
 
+      // Use existing _id or id, or generate one from code
+      const rowId = _id || id || String(code).trim();
+
+      const current = parseAccountingNumber(currentYear);
+      const prior = parseAccountingNumber(priorYear);
+      const adjValue = parseAccountingNumber(adjustments);
+      const reclassValue = parseAccountingNumber(reclassification);
+      const providedFinal =
+        finalBalance !== undefined && finalBalance !== null && finalBalance !== ""
+          ? parseAccountingNumber(finalBalance)
+          : undefined;
+      const computedFinal = current + adjValue + reclassValue;
+
       return {
+        _id: rowId,
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
-        currentYear: parseAccountingNumber(currentYear),
-        priorYear: parseAccountingNumber(priorYear),
-        adjustments: parseAccountingNumber(adjustments),
-        finalBalance: parseAccountingNumber(finalBalance),
+        currentYear: current,
+        priorYear: prior,
+        adjustments: adjValue,
+        finalBalance: Number.isFinite(providedFinal) ? providedFinal : computedFinal,
         classification:
           classification != null ? String(classification).trim() : "",
+        reclassification: reclassValue,
         ...rest,
       };
     });
@@ -1284,7 +1360,17 @@ exports.getETB = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    res.json(etb);
+    // Ensure all rows have an _id field (for adjustments support)
+    const etbObject = etb.toObject();
+    etbObject.rows = etbObject.rows.map((row) => {
+      // Use existing _id, or generate from code
+      if (!row._id) {
+        row._id = row.id || row.code || `row_${Math.random().toString(36).slice(2)}`;
+      }
+      return row;
+    });
+
+    res.json(etbObject);
   } catch (err) {
     next(err);
   }
@@ -1316,9 +1402,16 @@ exports.getETBByClassification = async (req, res, next) => {
       });
     }
 
-    const filteredRows = etb.rows.filter((row) =>
-      row.classification.startsWith(decodedClassification)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification.startsWith(decodedClassification))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     // If ETB is found, but no rows match the classification,
     // this will return an empty 'rows' array, which is correct.
@@ -1369,14 +1462,21 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
         row.accountName || ""
       ).trim()}`;
       const preservedRef = refMap.get(key);
+      const rowId = row._id || row.id || row.code || `row-${idx}`;
+      const current = parseAccountingNumber(row.currentYear);
+      const adjustments = parseAccountingNumber(row.adjustments);
+      const reclassification = parseAccountingNumber(row.reclassification);
+      const final = parseAccountingNumber(row.finalBalance);
       return {
-        id: row.id || `row-${idx}`,
+        _id: rowId,
+        id: rowId,
         code: row.code || "",
         accountName: row.accountName || "",
-        currentYear: parseAccountingNumber(row.currentYear),
+        currentYear: current,
         priorYear: parseAccountingNumber(row.priorYear),
-        adjustments: parseAccountingNumber(row.adjustments),
-        finalBalance: parseAccountingNumber(row.finalBalance),
+        adjustments: adjustments,
+        reclassification,
+        finalBalance: Number.isFinite(final) ? final : current + adjustments + reclassification,
         classification: decodedClassification,
         reference: preservedRef ? preservedRef : "",
         grouping1: row.grouping1 || "",
@@ -1405,10 +1505,16 @@ exports.getETBByCategory = async (req, res, next) => {
         .json({ message: "Extended Trial Balance not found" });
     }
 
-    const filteredRows = etb.rows.filter(
-      (row) =>
-        row.classification && row.classification.startsWith(decodedCategory)
-    );
+    const filteredRows = etb.rows
+      .filter((row) => row.classification && row.classification.startsWith(decodedCategory))
+      .map((row) => {
+        // Ensure _id field exists
+        const rowObj = row.toObject ? row.toObject() : { ...row };
+        if (!rowObj._id) {
+          rowObj._id = rowObj.id || rowObj.code || `row_${Math.random().toString(36).slice(2)}`;
+        }
+        return rowObj;
+      });
 
     res.json({ rows: filteredRows });
   } catch (err) {
@@ -1474,9 +1580,10 @@ exports.createViewOnlySpreadsheet = async (req, res, next) => {
         const cy = n(r.currentYear);
         const py = n(r.priorYear);
         const adj = n(r.adjustments);
+        const reclass = n(r.reclassification);
         const fb = Number.isFinite(Number(r.finalBalance))
           ? n(r.finalBalance)
-          : cy + adj;
+          : cy + adj + reclass;
 
         sheetData.push([
           top || "",

@@ -5,8 +5,7 @@ const PromptSchema = new Schema(
   {
     name: {
       type: String,
-      required: true,
-      unique: true
+      required: true
     },
     description: {
       type: String,
@@ -31,12 +30,17 @@ const PromptSchema = new Schema(
     lastModifiedBy: {
       type: String,
       required: true
+    },
+    organizationId: {
+      type: String,
+      required: true
     }
   },
   { timestamps: true }
 );
 
-// Index for faster queries
-PromptSchema.index({ name: 1, category: 1, isActive: 1 });
+// Index for faster queries with organization scoping
+PromptSchema.index({ name: 1, organizationId: 1, category: 1 });
+PromptSchema.index({ organizationId: 1, isActive: 1 });
 
 module.exports = mongoose.model("Prompt", PromptSchema);

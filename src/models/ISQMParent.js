@@ -17,6 +17,7 @@ const ISQMParentSchema = new Schema({
   
   // Additional metadata for audit purposes
   createdBy: { type: String, required: true },
+  organizationId: { type: String, required: true },
   status: { 
     type: String, 
     enum: ['draft', 'in-progress', 'completed', 'archived'],
@@ -53,5 +54,6 @@ ISQMParentSchema.virtual('documents', {
 ISQMParentSchema.index({ 'metadata.title': 1 });
 ISQMParentSchema.index({ createdBy: 1 });
 ISQMParentSchema.index({ status: 1 });
+ISQMParentSchema.index({ organizationId: 1, status: 1 });
 
 module.exports = mongoose.model('ISQMParent', ISQMParentSchema);
