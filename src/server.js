@@ -33,7 +33,7 @@ const tourRoutes = require("./routes/tourRoutes");
 const adjustmentRoutes = require("./routes/adjustment.routes");
 const reclassificationRoutes = require("./routes/reclassification.routes");
 const organizationRoutes = require("./routes/organizations");
-
+const notificationRoutes = require("./routes/notifications");
 const app = express();
 
 app.use(
@@ -87,6 +87,7 @@ app.use("/api/tours", tourRoutes);
 app.use("/api/adjustments", adjustmentRoutes);
 app.use("/api/reclassifications", reclassificationRoutes);
 app.use("/api/organizations", organizationRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
