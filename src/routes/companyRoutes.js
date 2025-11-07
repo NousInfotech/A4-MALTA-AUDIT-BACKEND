@@ -21,5 +21,8 @@ router.put("/:clientId/company/:companyId", companyController.updateCompany);
 // DELETE /api/client/:clientId/company/:companyId - Delete a company
 router.delete("/:clientId/company/:companyId", companyController.deleteCompany);
 
+// DELETE /api/client/:clientId/company/:companyId/representative/:personId - Remove representative only
+router.delete("/:clientId/company/:companyId/representative/:personId", companyController.removeRepresentative);
+
 module.exports = router;
 
