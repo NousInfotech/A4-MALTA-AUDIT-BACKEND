@@ -102,10 +102,23 @@ function etbRowsToAOA(rows) {
     const cy = Number(r.currentYear) || 0;
     const py = Number(r.priorYear) || 0;
     const adj = Number(r.adjustments) || 0;
-    const fb = Number(r.finalBalance) || cy + adj;
-    const reclassification = String(r.reclassification || "").trim();
+    const reclassification = Number(r.reclassification) || 0;
+    const fb = Number(r.finalBalance);
+    const computedFinal = cy + adj + reclassification;
 
-    return [r.code ?? "", r.accountName ?? "", cy, reclassification, adj, fb, py, g1, g2, g3, g4];
+    return [
+      r.code ?? "",
+      r.accountName ?? "",
+      cy,
+      reclassification,
+      adj,
+      Number.isFinite(fb) ? fb : computedFinal,
+      py,
+      g1,
+      g2,
+      g3,
+      g4,
+    ];
   });
 
   const aoa = [header, ...data];
@@ -166,7 +179,11 @@ function aoaToEtbRows(aoa) {
     const cy = parseAccountingNumber(row?.[iCY]);
     const py = parseAccountingNumber(row?.[iPY]);
     const adj = parseAccountingNumber(row?.[iAdj]);
-    const fb = iFB !== -1 ? parseAccountingNumber(row?.[iFB]) : cy + adj;
+    const reclassification = parseAccountingNumber(row?.[iReclass]);
+    const fb =
+      iFB !== -1 && row?.[iFB] !== undefined && row?.[iFB] !== ""
+        ? parseAccountingNumber(row?.[iFB])
+        : cy + adj + reclassification;
 
     // Extract grouping data as separate fields
     const g1 = (iG1 !== -1 ? String(row?.[iG1] ?? "") : "").trim();
@@ -175,7 +192,6 @@ function aoaToEtbRows(aoa) {
     const g4 = (iG4 !== -1 ? String(row?.[iG4] ?? "") : "").trim();
 
     // Extract re-classification field
-    const reclassification = (iReclass !== -1 ? String(row?.[iReclass] ?? "") : "").trim();
 
     // Build classification from grouping if no explicit Classification column exists
     // This supports both: explicit classification OR derived from grouping
@@ -539,7 +555,11 @@ exports.viewSelectedFromDB = async (req, res, next) => {
         currentYear: Number(r.currentYear) || 0,
         priorYear: Number(r.priorYear) || 0,
         adjustments: Number(r.adjustments) || 0,
-        finalBalance: Number(r.finalBalance) || 0,
+        finalBalance:
+          Number(r.finalBalance) ||
+          (Number(r.currentYear) || 0) +
+            (Number(r.adjustments) || 0) +
+            (Number(r.reclassification) || 0),
       },
       reference: r.reference || "",
       referenceData: r.referenceData || "", // <- hydrated at save time
@@ -1285,18 +1305,27 @@ exports.saveETB = async (req, res, next) => {
       // Use existing _id or id, or generate one from code
       const rowId = _id || id || String(code).trim();
 
+      const current = parseAccountingNumber(currentYear);
+      const prior = parseAccountingNumber(priorYear);
+      const adjValue = parseAccountingNumber(adjustments);
+      const reclassValue = parseAccountingNumber(reclassification);
+      const providedFinal =
+        finalBalance !== undefined && finalBalance !== null && finalBalance !== ""
+          ? parseAccountingNumber(finalBalance)
+          : undefined;
+      const computedFinal = current + adjValue + reclassValue;
+
       return {
         _id: rowId,
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
-        currentYear: parseAccountingNumber(currentYear),
-        priorYear: parseAccountingNumber(priorYear),
-        adjustments: parseAccountingNumber(adjustments),
-        finalBalance: parseAccountingNumber(finalBalance),
+        currentYear: current,
+        priorYear: prior,
+        adjustments: adjValue,
+        finalBalance: Number.isFinite(providedFinal) ? providedFinal : computedFinal,
         classification:
           classification != null ? String(classification).trim() : "",
-        reclassification:
-          reclassification != null ? String(reclassification).trim() : "",
+        reclassification: reclassValue,
         ...rest,
       };
     });
@@ -1434,15 +1463,20 @@ exports.reloadClassificationFromETB = async (req, res, next) => {
       ).trim()}`;
       const preservedRef = refMap.get(key);
       const rowId = row._id || row.id || row.code || `row-${idx}`;
+      const current = parseAccountingNumber(row.currentYear);
+      const adjustments = parseAccountingNumber(row.adjustments);
+      const reclassification = parseAccountingNumber(row.reclassification);
+      const final = parseAccountingNumber(row.finalBalance);
       return {
         _id: rowId,
         id: rowId,
         code: row.code || "",
         accountName: row.accountName || "",
-        currentYear: parseAccountingNumber(row.currentYear),
+        currentYear: current,
         priorYear: parseAccountingNumber(row.priorYear),
-        adjustments: parseAccountingNumber(row.adjustments),
-        finalBalance: parseAccountingNumber(row.finalBalance),
+        adjustments: adjustments,
+        reclassification,
+        finalBalance: Number.isFinite(final) ? final : current + adjustments + reclassification,
         classification: decodedClassification,
         reference: preservedRef ? preservedRef : "",
         grouping1: row.grouping1 || "",
@@ -1546,9 +1580,10 @@ exports.createViewOnlySpreadsheet = async (req, res, next) => {
         const cy = n(r.currentYear);
         const py = n(r.priorYear);
         const adj = n(r.adjustments);
+        const reclass = n(r.reclassification);
         const fb = Number.isFinite(Number(r.finalBalance))
           ? n(r.finalBalance)
-          : cy + adj;
+          : cy + adj + reclass;
 
         sheetData.push([
           top || "",

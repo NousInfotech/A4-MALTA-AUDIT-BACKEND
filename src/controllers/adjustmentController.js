@@ -279,7 +279,8 @@ exports.postAdjustment = async (req, res) => {
 
       // Update adjustments and finalBalance
       row.adjustments = (row.adjustments || 0) + netAdjustment;
-      row.finalBalance = (row.currentYear || 0) + row.adjustments;
+      row.finalBalance =
+        (row.currentYear || 0) + (row.adjustments || 0) + (row.reclassification || 0);
 
       // Add adjustment reference (if not already tracked)
       if (!row.adjustmentRefs) {
@@ -396,7 +397,8 @@ exports.unpostAdjustment = async (req, res) => {
 
       // Reverse adjustments and finalBalance
       row.adjustments = (row.adjustments || 0) - netAdjustment;
-      row.finalBalance = (row.currentYear || 0) + row.adjustments;
+      row.finalBalance =
+        (row.currentYear || 0) + (row.adjustments || 0) + (row.reclassification || 0);
 
       // Remove adjustment reference
       if (row.adjustmentRefs) {
@@ -502,7 +504,8 @@ exports.deleteAdjustment = async (req, res) => {
 
         // Reverse adjustments and finalBalance
         row.adjustments = (row.adjustments || 0) - netAdjustment;
-        row.finalBalance = (row.currentYear || 0) + row.adjustments;
+        row.finalBalance =
+          (row.currentYear || 0) + (row.adjustments || 0) + (row.reclassification || 0);
 
         // Remove adjustment reference
         if (row.adjustmentRefs) {

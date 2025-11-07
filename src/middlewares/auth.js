@@ -16,7 +16,7 @@ async function requireAuth(req, res, next) {
 
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
-      .select('role, organization_id, name')
+      .select('role, name')
       .eq('user_id', user.id)
       .single();
 
@@ -28,7 +28,6 @@ async function requireAuth(req, res, next) {
       id: user.id, 
       email: user.email, 
       role: profile.role,
-      organizationId: profile.organization_id,
       name: profile.name
     };
     next();

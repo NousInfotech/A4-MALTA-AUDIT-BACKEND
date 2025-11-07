@@ -61,8 +61,8 @@ const ETBRowSchema = new Schema({
     type: String,
   },
   reclassification: {
-    type: String,
-    default: "",
+    type: Number,
+    default: 0,
   },
   // Optional grouping columns from Trial Balance
   grouping1: {
@@ -93,6 +93,10 @@ const ETBRowSchema = new Schema({
     type: [String],
     default: []
   },
+  reclassificationRefs: {
+    type: [String],
+    default: [],
+  },
 }, { _id: false })
 
 const ExtendedTrialBalanceSchema = new Schema({
@@ -115,6 +119,37 @@ const ExtendedTrialBalanceSchema = new Schema({
 
 ExtendedTrialBalanceSchema.pre("save", function (next) {
   this.updatedAt = new Date()
+
+  if (Array.isArray(this.rows)) {
+    this.rows = this.rows.map((row = {}) => {
+      const mutableRow = row
+
+      mutableRow._id = mutableRow._id || mutableRow.id || mutableRow.code || `row_${Math.random().toString(36).slice(2, 11)}`
+      mutableRow.currentYear = Number(mutableRow.currentYear) || 0
+      mutableRow.adjustments = Number(mutableRow.adjustments) || 0
+      
+      // Handle string reclassification values from old data - convert to 0
+      if (typeof mutableRow.reclassification === "string") {
+        const parsed = parseFloat(mutableRow.reclassification)
+        mutableRow.reclassification = isNaN(parsed) ? 0 : parsed
+      } else {
+        mutableRow.reclassification = Number(mutableRow.reclassification) || 0
+      }
+      
+      mutableRow.finalBalance = (mutableRow.currentYear || 0) + (mutableRow.adjustments || 0) + (mutableRow.reclassification || 0)
+
+      if (!Array.isArray(mutableRow.adjustmentRefs)) {
+        mutableRow.adjustmentRefs = []
+      }
+
+      if (!Array.isArray(mutableRow.reclassificationRefs)) {
+        mutableRow.reclassificationRefs = []
+      }
+
+      return mutableRow
+    })
+  }
+
   next()
 })
 
