@@ -16,7 +16,7 @@ async function requireAuth(req, res, next) {
 
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, organization_id, name')
       .eq('user_id', user.id)
       .single();
 
@@ -24,7 +24,13 @@ async function requireAuth(req, res, next) {
       return res.status(403).json({ message: 'No profile found for user' });
     }
 
-    req.user = { id: user.id, email: user.email, role: profile.role };
+    req.user = { 
+      id: user.id, 
+      email: user.email, 
+      role: profile.role,
+      organizationId: profile.organization_id,
+      name: profile.name
+    };
     next();
 
   } catch (err) {
@@ -119,5 +125,38 @@ async function saltedgeAuth(req, res, next) {
   }
 }
 
+function requireSuperAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'super-admin') {
+    return res.status(403).json({ 
+      message: 'Access denied. Super admin role required.' 
+    });
+  }
+  next();
+}
 
-module.exports = { requireAuth, requireRole, saltedgeAuth };
+// Middleware to automatically scope queries by organizationId
+function organizationScope(req, res, next) {
+  // Skip for super-admin
+  if (req.user && req.user.role === 'super-admin') {
+    return next();
+  }
+  
+  // For other users, ensure they have organizationId
+  if (!req.user || !req.user.organizationId) {
+    return res.status(403).json({ 
+      message: 'No organization assigned to user' 
+    });
+  }
+  
+  // Attach organizationId to query params for easy filtering
+  req.organizationId = req.user.organizationId;
+  next();
+}
+
+module.exports = { 
+  requireAuth, 
+  requireRole, 
+  saltedgeAuth, 
+  requireSuperAdmin, 
+  organizationScope 
+};

@@ -7,6 +7,7 @@ const EngagementSchema = new Schema(
   {
     excelURL: { type: String },
     clientId: { type: String, required: true },
+    organizationId: { type: String, required: true },
     title: { type: String, required: true },
     yearEndDate: { type: Date, required: true },
     status: {
@@ -62,5 +63,9 @@ EngagementSchema.virtual("kyc",{
   foreignField: "engagement",
 })
 
+// Index for better query performance with organization scoping
+EngagementSchema.index({ organizationId: 1, status: 1 });
+EngagementSchema.index({ organizationId: 1, createdBy: 1 });
+EngagementSchema.index({ clientId: 1, organizationId: 1 });
 
 module.exports = mongoose.model("Engagement", EngagementSchema);

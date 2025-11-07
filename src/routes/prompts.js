@@ -1,11 +1,19 @@
 const express = require("express");
 const router = express.Router();
 const Prompt = require("../models/Prompt");
+const { requireAuth, organizationScope } = require("../middlewares/auth");
 
-// Get all prompts
-router.get("/", async (req, res) => {
+// Get all prompts (organization-scoped)
+router.get("/", requireAuth, organizationScope, async (req, res) => {
   try {
-    const prompts = await Prompt.find().sort({ category: 1, name: 1 });
+    const query = {};
+    
+    // Organization scoping: only super-admin can see all
+    if (req.user.role !== 'super-admin') {
+      query.organizationId = req.organizationId;
+    }
+    
+    const prompts = await Prompt.find(query).sort({ category: 1, name: 1 });
     res.json({ prompts });
   } catch (error) {
     console.error("Error fetching prompts:", error);
@@ -13,14 +21,21 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Update a prompt
-router.put("/", async (req, res) => {
+// Update a prompt (organization-scoped)
+router.put("/", requireAuth, organizationScope, async (req, res) => {
   try {
     const { _id, name, description, category, content, isActive, lastModifiedBy } = req.body;
 
-    const prompt = await Prompt.findById(_id);
+    const query = { _id };
+    
+    // Organization scoping: only super-admin can update any prompt
+    if (req.user.role !== 'super-admin') {
+      query.organizationId = req.organizationId;
+    }
+
+    const prompt = await Prompt.findOne(query);
     if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found" });
+      return res.status(404).json({ error: "Prompt not found or access denied" });
     }
 
     // Update prompt

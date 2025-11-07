@@ -691,6 +691,7 @@ exports.createEngagement = async (req, res, next) => {
     const engagement = await Engagement.create({
       createdBy,
       clientId,
+      organizationId: req.user.organizationId,
       title,
       yearEndDate,
       trialBalanceUrl,
@@ -940,7 +941,14 @@ exports.deleteFile = async (req, res, next) => {
 
 exports.getAllEngagements = async (req, res, next) => {
   try {
-    const engagements = await Engagement.find();
+    const query = {};
+    
+    // Organization scoping: only super-admin can see all engagements
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagements = await Engagement.find(query);
     res.json(engagements);
   } catch (err) {
     next(err);
@@ -953,7 +961,15 @@ exports.getClientEngagements = async (req, res, next) => {
       req.user.role === "client"
         ? req.user.id
         : req.query.clientId || req.user.id;
-    const engagements = await Engagement.find({ clientId });
+    
+    const query = { clientId };
+    
+    // Organization scoping: only super-admin can see all engagements
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagements = await Engagement.find(query);
     res.json(engagements);
   } catch (err) {
     next(err);
@@ -962,11 +978,18 @@ exports.getClientEngagements = async (req, res, next) => {
 
 exports.getEngagementById = async (req, res, next) => {
   try {
-    const engagement = await Engagement.findById(req.params.id)
+    const query = { _id: req.params.id };
+    
+    // Organization scoping: only super-admin can access engagements from other orgs
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagement = await Engagement.findOne(query)
       .populate("documentRequests")
       .populate("procedures")
       .populate("trialBalanceDoc");
-    if (!engagement) return res.status(404).json({ message: "Not found" });
+    if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
     next(err);
@@ -975,12 +998,19 @@ exports.getEngagementById = async (req, res, next) => {
 
 exports.updateEngagement = async (req, res, next) => {
   try {
-    const engagement = await Engagement.findByIdAndUpdate(
-      req.params.id,
+    const query = { _id: req.params.id };
+    
+    // Organization scoping: only super-admin can update engagements from other orgs
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+    
+    const engagement = await Engagement.findOneAndUpdate(
+      query,
       req.body,
       { new: true }
     );
-    if (!engagement) return res.status(404).json({ message: "Not found" });
+    if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
     next(err);

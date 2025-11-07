@@ -31,6 +31,7 @@ const personRoutes = require("./routes/personRoutes");
 const brandingRoutes = require("./routes/brandingRoutes");
 const tourRoutes = require("./routes/tourRoutes");
 const adjustmentRoutes = require("./routes/adjustment.routes");
+const organizationRoutes = require("./routes/organizations");
 
 const app = express();
 
@@ -83,6 +84,7 @@ app.use("/api/client", personRoutes);
 app.use("/api/branding", brandingRoutes);
 app.use("/api/tours", tourRoutes);
 app.use("/api/adjustments", adjustmentRoutes);
+app.use("/api/organizations", organizationRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
