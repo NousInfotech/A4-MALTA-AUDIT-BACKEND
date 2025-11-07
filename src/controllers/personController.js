@@ -298,6 +298,12 @@ exports.updatePerson = async (req, res) => {
 
         // Update representationalSchema if roles are provided
         if (roles !== undefined) {
+          // Find existing entry to preserve companyId if it exists
+          const existingEntry = company.representationalSchema?.find(
+            rs => rs.personId?.toString() === personIdStr
+          );
+          const existingCompanyId = existingEntry?.companyId || null;
+          
           // Remove existing entries for this person
           company.representationalSchema = company.representationalSchema?.filter(
             rs => rs.personId?.toString() !== personIdStr
@@ -305,10 +311,15 @@ exports.updatePerson = async (req, res) => {
           
           // Add single entry with array of roles if roles array is provided
           if (Array.isArray(roles) && roles.length > 0) {
-            company.representationalSchema.push({
+            const newEntry = {
               personId: person._id,
               role: roles, // Store as array of strings
-            });
+            };
+            // Preserve companyId if it existed
+            if (existingCompanyId) {
+              newEntry.companyId = existingCompanyId;
+            }
+            company.representationalSchema.push(newEntry);
           }
         }
 

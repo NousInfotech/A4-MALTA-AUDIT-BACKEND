@@ -56,6 +56,9 @@ const CompanySchema = new Schema(
           ],
           required: true,
         },
+        // Optional: companyId for persons from shareholding companies (outsiders)
+        // Only store if person is from a different company
+        companyId: { type: Types.ObjectId, ref: "Company", required: false },
       },
     ],
 
