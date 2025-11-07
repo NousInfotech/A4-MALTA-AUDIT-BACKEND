@@ -389,4 +389,73 @@ exports.removeRepresentative = async (req, res) => {
   }
 };
 
+exports.getCompanyHierarchy = async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    const getHierarchy = async (companyId, depth = 0) => {
+      if (depth > 3) return null; // avoid infinite loops
+
+      const company = await Company.findById(companyId)
+        .populate("shareHolders.personId", "name nationality address")
+        .populate({
+          path: "shareHoldingCompanies.companyId",
+          select: "name totalShares address",
+        })
+        .lean();
+
+      if (!company) return null;
+
+      // Represent the company node
+      const node = {
+        id: company._id,
+        name: company.name,
+        totalShares: company.totalShares,
+        type: "company",
+        address: company.address,
+        shareholders: [],
+      };
+
+      // Direct persons
+      for (const sh of company.shareHolders || []) {
+        if (!sh?.personId?._id) continue;
+        node.shareholders.push({
+          id: sh.personId._id,
+          name: sh.personId.name,
+          type: "person",
+          percentage: sh?.sharesData?.percentage ?? 0,
+          class: sh?.sharesData?.class,
+          totalShares: sh?.sharesData?.totalShares,
+          address: sh.personId.address,
+        });
+      }
+
+      // Shareholding companies (recursively fetch)
+      for (const sh of company.shareHoldingCompanies || []) {
+        if (!sh?.companyId?._id) continue;
+        const subCompany = await getHierarchy(sh.companyId._id, depth + 1);
+        node.shareholders.push({
+          id: sh.companyId._id,
+          name: sh.companyId.name,
+          type: "company",
+          percentage: sh?.sharesData?.percentage ?? sh?.sharePercentage ?? 0,
+          class: sh?.sharesData?.class,
+          totalShares: sh?.sharesData?.totalShares,
+          address: subCompany?.address ?? sh.companyId.address,
+          children: subCompany?.shareholders || [],
+        });
+      }
+
+      return node;
+    };
+
+    const hierarchy = await getHierarchy(companyId);
+    return res.status(200).json({ success: true, data: hierarchy });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Failed to fetch hierarchy" });
+  }
+};
+
+
 
