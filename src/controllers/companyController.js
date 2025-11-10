@@ -298,9 +298,18 @@ exports.deleteCompany = async (req, res) => {
       });
     }
 
-    // Note: We don't delete persons as they are decoupled from companies
-    // The relationships will be automatically cleaned up when company is deleted
-    // (via references in shareHolders and representationalSchema)
+    // Remove this company from any shareholding relationships in other companies
+    await Company.updateMany(
+      {
+        clientId,
+        "shareHoldingCompanies.companyId": companyId,
+      },
+      {
+        $pull: {
+          shareHoldingCompanies: { companyId },
+        },
+      }
+    );
 
     // Delete the company
     await Company.findByIdAndDelete(companyId);
