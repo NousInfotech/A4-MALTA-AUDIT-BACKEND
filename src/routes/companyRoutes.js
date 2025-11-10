@@ -24,5 +24,8 @@ router.delete("/:clientId/company/:companyId", companyController.deleteCompany);
 // DELETE /api/client/:clientId/company/:companyId/representative/:personId - Remove representative only
 router.delete("/:clientId/company/:companyId/representative/:personId", companyController.removeRepresentative);
 
+// GET /api/client/:clientId/company/:companyId/hierarchy - Get company hierarchy
+router.get("/:clientId/company/:companyId/hierarchy", companyController.getCompanyHierarchy);
+
 module.exports = router;
 

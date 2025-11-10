@@ -141,7 +141,7 @@ exports.createOrganization = async (req, res) => {
     }
 
     // 4. Seed default prompts for the organization
-    await seedDefaultPrompts(organizationId);
+    // await seedDefaultPrompts(organizationId);
 
     res.status(201).json({
       message: "Organization created successfully",

@@ -127,35 +127,35 @@ exports.getReclassificationById = async (req, res) => {
 
 /**
  * Update an existing reclassification
+ * If posted, reverses old ETB impact and applies new impact
  * PUT /api/reclassifications/:id
  */
 exports.updateReclassification = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
     const { description, entries } = req.body;
 
-    const reclassification = await Reclassification.findById(id);
+    const reclassification = await Reclassification.findById(id).session(session);
 
     if (!reclassification) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({
         success: false,
         message: "Reclassification not found",
       });
     }
 
-    // TEMPORARY: Allow updating posted reclassifications (will be tightened later)
-    // if (reclassification.status !== "draft") {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Only draft reclassifications can be edited",
-    //   });
-    // }
-
     console.log(`Updating reclassification ${id} with status: ${reclassification.status}`);
 
     if (entries && entries.length > 0) {
       for (const entry of entries) {
         if (entry.dr > 0 && entry.cr > 0) {
+          await session.abortTransaction();
+          session.endSession();
           return res.status(400).json({
             success: false,
             message: `Entry for ${entry.code} cannot have both Dr and Cr values`,
@@ -164,17 +164,99 @@ exports.updateReclassification = async (req, res) => {
       }
     }
 
+    // If posted, need to update ETB
+    if (reclassification.status === "posted" && entries !== undefined) {
+      const etb = await ExtendedTrialBalance.findById(reclassification.etbId).session(session);
+
+      if (!etb) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({
+          success: false,
+          message: "Extended Trial Balance not found",
+        });
+      }
+
+      // 1. Reverse OLD entries from ETB
+      for (const oldEntry of reclassification.entries) {
+        const rowIndex = etb.rows.findIndex(
+          (row) =>
+            row._id === oldEntry.etbRowId ||
+            row.id === oldEntry.etbRowId ||
+            row.code === oldEntry.etbRowId
+        );
+
+        if (rowIndex !== -1) {
+          const row = etb.rows[rowIndex];
+          const oldNetReclassification = (oldEntry.dr || 0) - (oldEntry.cr || 0);
+
+          // Reverse old impact
+          row.reclassification = (row.reclassification || 0) - oldNetReclassification;
+          etb.rows[rowIndex] = row;
+        }
+      }
+
+      // 2. Apply NEW entries to ETB
+      for (const newEntry of entries) {
+        const rowIndex = etb.rows.findIndex(
+          (row) =>
+            row._id === newEntry.etbRowId ||
+            row.id === newEntry.etbRowId ||
+            row.code === newEntry.etbRowId
+        );
+
+        if (rowIndex === -1) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(404).json({
+            success: false,
+            message: `ETB row ${newEntry.code} (ID: ${newEntry.etbRowId}) not found`,
+          });
+        }
+
+        const row = etb.rows[rowIndex];
+        const newNetReclassification = (newEntry.dr || 0) - (newEntry.cr || 0);
+
+        // Apply new impact
+        row.reclassification = (row.reclassification || 0) + newNetReclassification;
+        row.finalBalance =
+          (row.currentYear || 0) + (row.adjustments || 0) + (row.reclassification || 0);
+
+        // Update refs (ensure this reclassification is tracked)
+        if (!row.reclassificationRefs) {
+          row.reclassificationRefs = [];
+        }
+        if (!row.reclassificationRefs.includes(reclassification._id.toString())) {
+          row.reclassificationRefs.push(reclassification._id.toString());
+        }
+
+        etb.rows[rowIndex] = row;
+      }
+
+      etb.markModified("rows");
+      await etb.save({ session });
+
+      console.log("ETB updated after editing posted reclassification");
+    }
+
     if (description !== undefined) reclassification.description = description;
     if (entries !== undefined) reclassification.entries = entries;
 
-    await reclassification.save();
+    await reclassification.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res.status(200).json({
       success: true,
       data: reclassification,
-      message: "Reclassification updated successfully",
+      message: reclassification.status === "posted"
+        ? "Reclassification updated and ETB recalculated"
+        : "Reclassification updated successfully",
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error updating reclassification:", error);
     return res.status(500).json({
       success: false,

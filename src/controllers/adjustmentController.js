@@ -136,37 +136,37 @@ exports.getAdjustmentById = async (req, res) => {
 };
 
 /**
- * Update an existing draft adjustment
+ * Update an existing adjustment
+ * If posted, reverses old ETB impact and applies new impact
  * PUT /api/adjustments/:id
  */
 exports.updateAdjustment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
     const { description, entries } = req.body;
 
-    const adjustment = await Adjustment.findById(id);
+    const adjustment = await Adjustment.findById(id).session(session);
 
     if (!adjustment) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({
         success: false,
         message: "Adjustment not found",
       });
     }
 
-    // TEMPORARY: Allow updating posted adjustments (will be removed later)
-    // if (adjustment.status !== "draft") {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Only draft adjustments can be edited",
-    //   });
-    // }
-    
     console.log(`Updating adjustment ${id} with status: ${adjustment.status}`);
 
     // Validate entries if provided
     if (entries && entries.length > 0) {
       for (const entry of entries) {
         if (entry.dr > 0 && entry.cr > 0) {
+          await session.abortTransaction();
+          session.endSession();
           return res.status(400).json({
             success: false,
             message: `Entry for ${entry.code} cannot have both Dr and Cr values`,
@@ -175,18 +175,100 @@ exports.updateAdjustment = async (req, res) => {
       }
     }
 
-    // Update fields
+    // If posted, need to update ETB
+    if (adjustment.status === "posted" && entries !== undefined) {
+      const etb = await ExtendedTrialBalance.findById(adjustment.etbId).session(session);
+
+      if (!etb) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({
+          success: false,
+          message: "Extended Trial Balance not found",
+        });
+      }
+
+      // 1. Reverse OLD entries from ETB
+      for (const oldEntry of adjustment.entries) {
+        const rowIndex = etb.rows.findIndex(
+          (row) =>
+            row._id === oldEntry.etbRowId ||
+            row.id === oldEntry.etbRowId ||
+            row.code === oldEntry.etbRowId
+        );
+
+        if (rowIndex !== -1) {
+          const row = etb.rows[rowIndex];
+          const oldNetAdjustment = (oldEntry.dr || 0) - (oldEntry.cr || 0);
+
+          // Reverse old impact
+          row.adjustments = (row.adjustments || 0) - oldNetAdjustment;
+          etb.rows[rowIndex] = row;
+        }
+      }
+
+      // 2. Apply NEW entries to ETB
+      for (const newEntry of entries) {
+        const rowIndex = etb.rows.findIndex(
+          (row) =>
+            row._id === newEntry.etbRowId ||
+            row.id === newEntry.etbRowId ||
+            row.code === newEntry.etbRowId
+        );
+
+        if (rowIndex === -1) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(404).json({
+            success: false,
+            message: `ETB row ${newEntry.code} (ID: ${newEntry.etbRowId}) not found`,
+          });
+        }
+
+        const row = etb.rows[rowIndex];
+        const newNetAdjustment = (newEntry.dr || 0) - (newEntry.cr || 0);
+
+        // Apply new impact
+        row.adjustments = (row.adjustments || 0) + newNetAdjustment;
+        row.finalBalance =
+          (row.currentYear || 0) + (row.adjustments || 0) + (row.reclassification || 0);
+
+        // Update refs (ensure this adjustment is tracked)
+        if (!row.adjustmentRefs) {
+          row.adjustmentRefs = [];
+        }
+        if (!row.adjustmentRefs.includes(adjustment._id.toString())) {
+          row.adjustmentRefs.push(adjustment._id.toString());
+        }
+
+        etb.rows[rowIndex] = row;
+      }
+
+      etb.markModified("rows");
+      await etb.save({ session });
+
+      console.log("ETB updated after editing posted adjustment");
+    }
+
+    // Update adjustment fields
     if (description !== undefined) adjustment.description = description;
     if (entries !== undefined) adjustment.entries = entries;
 
-    await adjustment.save();
+    await adjustment.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res.status(200).json({
       success: true,
       data: adjustment,
-      message: "Adjustment updated successfully",
+      message: adjustment.status === "posted" 
+        ? "Adjustment updated and ETB recalculated"
+        : "Adjustment updated successfully",
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error updating adjustment:", error);
     return res.status(500).json({
       success: false,
