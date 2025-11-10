@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
 
@@ -298,6 +299,33 @@ exports.deleteCompany = async (req, res) => {
       });
     }
 
+    const personIdsSet = new Set();
+    const extractId = (value) => {
+      if (!value) return null;
+      if (typeof value === "string") return value;
+      if (value._id) return value._id.toString();
+      if (value.id) return value.id.toString();
+      try {
+        return value.toString();
+      } catch (err) {
+        return null;
+      }
+    };
+
+    (company.shareHolders || []).forEach((shareholder) => {
+      const id = extractId(shareholder?.personId);
+      if (id) personIdsSet.add(id);
+    });
+
+    (company.representationalSchema || []).forEach((representative) => {
+      const id = extractId(representative?.personId);
+      if (id) personIdsSet.add(id);
+    });
+
+    const personObjectIds = Array.from(personIdsSet)
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
     // Remove this company from any shareholding relationships in other companies
     await Company.updateMany(
       {
@@ -311,8 +339,65 @@ exports.deleteCompany = async (req, res) => {
       }
     );
 
+    if (personObjectIds.length > 0) {
+      // Remove these persons from representational schemas in other companies
+      await Company.updateMany(
+        {
+          clientId,
+          _id: { $ne: companyId },
+        },
+        {
+          $pull: {
+            representationalSchema: {
+              personId: { $in: personObjectIds },
+            },
+          },
+        }
+      );
+
+      // Remove these persons from shareHolders in other companies
+      await Company.updateMany(
+        {
+          clientId,
+          _id: { $ne: companyId },
+        },
+        {
+          $pull: {
+            shareHolders: {
+              personId: { $in: personObjectIds },
+            },
+          },
+        }
+      );
+    }
+
     // Delete the company
     await Company.findByIdAndDelete(companyId);
+
+    if (personObjectIds.length > 0) {
+      const removablePersonIds = [];
+
+      for (const personObjectId of personObjectIds) {
+        const stillReferenced = await Company.exists({
+          clientId,
+          $or: [
+            { "shareHolders.personId": personObjectId },
+            { "representationalSchema.personId": personObjectId },
+          ],
+        });
+
+        if (!stillReferenced) {
+          removablePersonIds.push(personObjectId);
+        }
+      }
+
+      if (removablePersonIds.length > 0) {
+        await Person.deleteMany({
+          clientId,
+          _id: { $in: removablePersonIds },
+        });
+      }
+    }
 
     res.status(200).json({
       success: true,
