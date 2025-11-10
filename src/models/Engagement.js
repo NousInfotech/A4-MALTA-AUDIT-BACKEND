@@ -23,6 +23,23 @@ const EngagementSchema = new Schema(
       ref: "TrialBalance",
     },
 
+    assignedAuditors: [
+      {
+        auditorId: {
+          type: String,
+          required: true,
+        },
+        assignedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        assignedBy: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
+
     createdAt: { type: Date, default: Date.now },
     createdBy: { type: String, required: true },
   },

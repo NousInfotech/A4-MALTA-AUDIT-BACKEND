@@ -377,4 +377,38 @@ router.patch(
   arc.updateStatus
 );
 
+// ========================================
+// Assigned Auditors Routes
+// ========================================
+
+// Assign an auditor to an engagement
+router.post(
+  "/:id/auditors/assign",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  ec.assignAuditor
+);
+
+// Unassign an auditor from an engagement
+router.delete(
+  "/:id/auditors/unassign",
+  requireAuth,
+  requireRole(["employee", "admin"]),
+  ec.unassignAuditor
+);
+
+// Get all auditors assigned to an engagement
+router.get(
+  "/:id/auditors",
+  requireAuth,
+  ec.getAssignedAuditors
+);
+
+// Get all engagements for a specific auditor
+router.get(
+  "/auditors/:auditorId/engagements",
+  requireAuth,
+  ec.getAuditorEngagements
+);
+
 module.exports = router;
