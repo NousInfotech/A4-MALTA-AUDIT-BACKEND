@@ -19,6 +19,7 @@ const {
   getFileVersionHistory,
   restoreFileVersion,
 } = require("../services/microsoftExcelService");
+const { populatePriorYearData } = require("../services/engagement.service");
 
 const EXCEL_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -1146,10 +1147,166 @@ exports.saveTrialBalance = async (req, res, next) => {
 
     await Engagement.findByIdAndUpdate(engagementId, updateData);
 
+    // Attempt to populate prior year data from previous year's engagement
+    // This is a non-blocking operation - if it fails, we still return the uploaded trial balance
+    let priorYearResult = null;
+    try {
+      priorYearResult = await populatePriorYearData(engagementId);
+      console.log(`[saveTrialBalance] Prior year population result:`, priorYearResult);
+    } catch (priorYearError) {
+      console.error(`[saveTrialBalance] Error populating prior year data:`, priorYearError.message);
+      // Log the error but don't fail the request
+      priorYearResult = {
+        success: false,
+        message: `Error populating prior year data: ${priorYearError.message}`,
+        populated: false
+      };
+    }
+
+    // Create or update Extended Trial Balance from the (now updated) Trial Balance
+    // This ensures ETB has the populated prior year data
+    let etbCreated = false;
+    try {
+      // Fetch the updated trial balance (with prior year populated)
+      // Use lean() to bypass Mongoose cache
+      const updatedTB = await TrialBalance.findOne({ engagement: engagementId }).lean();
+      if (updatedTB && updatedTB.rows && updatedTB.rows.length > 0) {
+        const { headers: tbHeaders, rows: tbRows } = updatedTB;
+        
+        // Get isNewAccount status map and classification map from populatePriorYearData result
+        const accountCodeStatusMap = (priorYearResult && priorYearResult.accountCodeStatusMap) || {};
+        const accountCodeClassificationMap = (priorYearResult && priorYearResult.accountCodeClassificationMap) || {};
+        console.log(`[saveTrialBalance] Account code status map has ${Object.keys(accountCodeStatusMap).length} entries`);
+        console.log(`[saveTrialBalance] Classification map has ${Object.keys(accountCodeClassificationMap).length} entries`);
+        
+        // Find column indices
+        const codeIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("code"));
+        const nameIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("account name"));
+        const currentYearIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("current year"));
+        const priorYearIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("prior year"));
+        const grouping1Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 1");
+        const grouping2Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 2");
+        const grouping3Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 3");
+        const grouping4Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 4");
+
+        // Build ETB rows from TB data
+        const etbRows = tbRows.map((row, index) => {
+          const code = row[codeIndex] || "";
+          const accountName = row[nameIndex] || "";
+          const currentYear = parseAccountingNumber(row[currentYearIndex]);
+          const priorYear = parseAccountingNumber(row[priorYearIndex]);
+          
+          const g1 = grouping1Index !== -1 ? (row[grouping1Index] || "").trim() : "";
+          const g2 = grouping2Index !== -1 ? (row[grouping2Index] || "").trim() : "";
+          const g3 = grouping3Index !== -1 ? (row[grouping3Index] || "").trim() : "";
+          const g4 = grouping4Index !== -1 ? (row[grouping4Index] || "").trim() : "";
+
+          // Build classification from Trial Balance grouping columns (if they exist)
+          let classification = [g1, g2, g3, g4].filter(Boolean).join(" > ");
+          
+          // Get isNewAccount flag and classification data from the maps
+          const codeKey = String(code).trim();
+          const isNewAccount = accountCodeStatusMap[codeKey] === true;
+          const previousYearClassification = accountCodeClassificationMap[codeKey];
+          
+          // If current year doesn't have classification, use previous year's
+          let finalGrouping1 = g1;
+          let finalGrouping2 = g2;
+          let finalGrouping3 = g3;
+          let finalGrouping4 = g4;
+          let finalClassification = classification;
+          
+          if ((!classification || classification === "") && previousYearClassification) {
+            // Use previous year's classification and grouping
+            finalClassification = previousYearClassification.classification || "";
+            finalGrouping1 = previousYearClassification.grouping1 || "";
+            finalGrouping2 = previousYearClassification.grouping2 || "";
+            finalGrouping3 = previousYearClassification.grouping3 || "";
+            finalGrouping4 = previousYearClassification.grouping4 || "";
+            console.log(`[saveTrialBalance] Applied previous year classification to ${code}: ${finalClassification}`);
+          }
+          
+          if (isNewAccount) {
+            console.log(`[saveTrialBalance] Building ETB row with isNewAccount=true: Code=${code}`);
+          }
+          
+          return {
+            _id: code || `row-${index}`,
+            code,
+            accountName,
+            currentYear,
+            priorYear, // ✅ This now includes the populated prior year data
+            adjustments: 0,
+            reclassification: 0,
+            finalBalance: currentYear,
+            classification: finalClassification, // ✅ Use previous year's classification if current is empty
+            grouping1: finalGrouping1, // ✅ From previous year
+            grouping2: finalGrouping2, // ✅ From previous year
+            grouping3: finalGrouping3, // ✅ From previous year
+            grouping4: finalGrouping4, // ✅ From previous year
+            isNewAccount, // ✅ Use the flag from populatePriorYearData
+          };
+        });
+
+        console.log(`[saveTrialBalance] Built ${etbRows.length} ETB rows, ${etbRows.filter(r => r.isNewAccount).length} marked as NEW`);
+
+        // Create or update ETB
+        let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+        if (etb) {
+          // Update existing ETB, preserving adjustments, reclassifications, AND isNewAccount flag
+          etb.rows = etb.rows.map(existingRow => {
+            // Find matching row in new data
+            const newRow = etbRows.find(r => r.code === existingRow.code);
+            if (newRow) {
+              // Keep existing adjustments/reclassifications/flags, update other fields
+              return {
+                ...newRow,
+                adjustments: existingRow.adjustments || 0,
+                reclassification: existingRow.reclassification || 0,
+                finalBalance: newRow.currentYear + (existingRow.adjustments || 0) + (existingRow.reclassification || 0),
+                adjustmentRefs: existingRow.adjustmentRefs || [],
+                reclassificationRefs: existingRow.reclassificationRefs || [],
+                linkedExcelFiles: existingRow.linkedExcelFiles || [],
+                mappings: existingRow.mappings || [],
+                classification: existingRow.classification || newRow.classification,
+                isNewAccount: newRow.isNewAccount, // ✅ Use flag from new data (from populatePriorYearData)
+              };
+            }
+            return existingRow;
+          });
+          
+          // Add any new rows that don't exist in ETB yet
+          const existingCodes = new Set(etb.rows.map(r => r.code));
+          const newRows = etbRows.filter(r => !existingCodes.has(r.code));
+          etb.rows = [...etb.rows, ...newRows];
+          
+          await etb.save();
+          etbCreated = true;
+        } else {
+          // Create new ETB
+          etb = await ExtendedTrialBalance.create({
+            engagement: engagementId,
+            rows: etbRows,
+          });
+          etbCreated = true;
+        }
+      }
+    } catch (etbError) {
+      console.error(`[saveTrialBalance] Error creating/updating Extended Trial Balance:`, etbError.message);
+      // Don't fail the request, ETB can be created later
+    }
+
+    // Fetch the final updated TB (with populated prior year) to return to frontend
+    // Use lean() to ensure we get fresh data from database
+    const finalTB = await TrialBalance.findOne({ engagement: engagementId }).lean();
+    const finalData = finalTB ? [finalTB.headers, ...finalTB.rows] : data;
+
     res.json({
       ...tb.toObject(),
-      data,
+      data: finalData, // ✅ Return updated data with populated prior year
       fileName,
+      priorYearPopulation: priorYearResult,
+      etbCreated: etbCreated // ✅ Flag indicating ETB was created/updated
     });
   } catch (err) {
     next(err);
@@ -1237,9 +1394,163 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
       });
     }
 
+    // Attempt to populate prior year data from previous year's engagement
+    // This is a non-blocking operation - if it fails, we still return the uploaded trial balance
+    let priorYearResult = null;
+    try {
+      priorYearResult = await populatePriorYearData(engagementId);
+      console.log(`[importTrialBalanceFromSheets] Prior year population result:`, priorYearResult);
+    } catch (priorYearError) {
+      console.error(`[importTrialBalanceFromSheets] Error populating prior year data:`, priorYearError.message);
+      // Log the error but don't fail the request
+      priorYearResult = {
+        success: false,
+        message: `Error populating prior year data: ${priorYearError.message}`,
+        populated: false
+      };
+    }
+
+    // Create or update Extended Trial Balance from the (now updated) Trial Balance
+    // This ensures ETB has the populated prior year data
+    let etbCreated = false;
+    try {
+      // Fetch the updated trial balance (with prior year populated)
+      const updatedTB = await TrialBalance.findOne({ engagement: engagementId }).lean();
+      if (updatedTB && updatedTB.rows && updatedTB.rows.length > 0) {
+        const { headers: tbHeaders, rows: tbRows } = updatedTB;
+        
+        // Get isNewAccount status map and classification map from populatePriorYearData result
+        const accountCodeStatusMap = (priorYearResult && priorYearResult.accountCodeStatusMap) || {};
+        const accountCodeClassificationMap = (priorYearResult && priorYearResult.accountCodeClassificationMap) || {};
+        console.log(`[importTrialBalanceFromSheets] Account code status map has ${Object.keys(accountCodeStatusMap).length} entries`);
+        console.log(`[importTrialBalanceFromSheets] Classification map has ${Object.keys(accountCodeClassificationMap).length} entries`);
+        
+        // Find column indices
+        const codeIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("code"));
+        const nameIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("account name"));
+        const currentYearIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("current year"));
+        const priorYearIndex = tbHeaders.findIndex(h => h.toLowerCase().includes("prior year"));
+        const grouping1Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 1");
+        const grouping2Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 2");
+        const grouping3Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 3");
+        const grouping4Index = tbHeaders.findIndex(h => h.toLowerCase().trim() === "grouping 4");
+
+        // Build ETB rows from TB data
+        const etbRows = tbRows.map((row, index) => {
+          const code = row[codeIndex] || "";
+          const accountName = row[nameIndex] || "";
+          const currentYear = parseAccountingNumber(row[currentYearIndex]);
+          const priorYear = parseAccountingNumber(row[priorYearIndex]); // This now has populated data!
+          
+          const g1 = grouping1Index !== -1 ? (row[grouping1Index] || "").trim() : "";
+          const g2 = grouping2Index !== -1 ? (row[grouping2Index] || "").trim() : "";
+          const g3 = grouping3Index !== -1 ? (row[grouping3Index] || "").trim() : "";
+          const g4 = grouping4Index !== -1 ? (row[grouping4Index] || "").trim() : "";
+
+          // Build classification from Trial Balance grouping columns (if they exist)
+          let classification = [g1, g2, g3, g4].filter(Boolean).join(" > ");
+          
+          // Get isNewAccount flag and classification data from the maps
+          const codeKey = String(code).trim();
+          const isNewAccount = accountCodeStatusMap[codeKey] === true;
+          const previousYearClassification = accountCodeClassificationMap[codeKey];
+          
+          // If current year doesn't have classification, use previous year's
+          let finalGrouping1 = g1;
+          let finalGrouping2 = g2;
+          let finalGrouping3 = g3;
+          let finalGrouping4 = g4;
+          let finalClassification = classification;
+          
+          if ((!classification || classification === "") && previousYearClassification) {
+            // Use previous year's classification and grouping
+            finalClassification = previousYearClassification.classification || "";
+            finalGrouping1 = previousYearClassification.grouping1 || "";
+            finalGrouping2 = previousYearClassification.grouping2 || "";
+            finalGrouping3 = previousYearClassification.grouping3 || "";
+            finalGrouping4 = previousYearClassification.grouping4 || "";
+            console.log(`[importTrialBalanceFromSheets] Applied previous year classification to ${code}: ${finalClassification}`);
+          }
+          
+          if (isNewAccount) {
+            console.log(`[importTrialBalanceFromSheets] Building ETB row with isNewAccount=true: Code=${code}`);
+          }
+          
+          return {
+            _id: code || `row-${index}`,
+            code,
+            accountName,
+            currentYear,
+            priorYear, // ✅ This now includes the populated prior year data
+            adjustments: 0,
+            reclassification: 0,
+            finalBalance: currentYear,
+            classification: finalClassification, // ✅ Use previous year's classification if current is empty
+            grouping1: finalGrouping1, // ✅ From previous year
+            grouping2: finalGrouping2, // ✅ From previous year
+            grouping3: finalGrouping3, // ✅ From previous year
+            grouping4: finalGrouping4, // ✅ From previous year
+            isNewAccount, // ✅ Use the flag from populatePriorYearData
+          };
+        });
+
+        console.log(`[importTrialBalanceFromSheets] Built ${etbRows.length} ETB rows, ${etbRows.filter(r => r.isNewAccount).length} marked as NEW`);
+
+        // Create or update ETB
+        let etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+        if (etb) {
+          // Update existing ETB, preserving adjustments, reclassifications, AND isNewAccount flag
+          etb.rows = etb.rows.map(existingRow => {
+            // Find matching row in new data
+            const newRow = etbRows.find(r => r.code === existingRow.code);
+            if (newRow) {
+              // Keep existing adjustments/reclassifications/flags, update other fields
+              return {
+                ...newRow,
+                adjustments: existingRow.adjustments || 0,
+                reclassification: existingRow.reclassification || 0,
+                finalBalance: newRow.currentYear + (existingRow.adjustments || 0) + (existingRow.reclassification || 0),
+                adjustmentRefs: existingRow.adjustmentRefs || [],
+                reclassificationRefs: existingRow.reclassificationRefs || [],
+                linkedExcelFiles: existingRow.linkedExcelFiles || [],
+                mappings: existingRow.mappings || [],
+                classification: existingRow.classification || newRow.classification,
+                isNewAccount: newRow.isNewAccount, // ✅ Use flag from new data (from populatePriorYearData)
+              };
+            }
+            return existingRow;
+          });
+          
+          // Add any new rows that don't exist in ETB yet
+          const existingCodes = new Set(etb.rows.map(r => r.code));
+          const newRows = etbRows.filter(r => !existingCodes.has(r.code));
+          etb.rows = [...etb.rows, ...newRows];
+          
+          await etb.save();
+          etbCreated = true;
+        } else {
+          // Create new ETB
+          etb = await ExtendedTrialBalance.create({
+            engagement: engagementId,
+            rows: etbRows,
+          });
+          etbCreated = true;
+        }
+      }
+    } catch (etbError) {
+      console.error(`[importTrialBalanceFromSheets] Error creating/updating Extended Trial Balance:`, etbError.message);
+      // Don't fail the request, ETB can be created later
+    }
+
+    // Fetch the final updated TB (with populated prior year) to return to frontend
+    const finalTB = await TrialBalance.findOne({ engagement: engagementId }).lean();
+    const finalData = finalTB ? [finalTB.headers, ...finalTB.rows] : allRows;
+
     res.json({
       ...tb.toObject(),
-      data: allRows,
+      data: finalData, // ✅ Return updated data with populated prior year
+      priorYearPopulation: priorYearResult,
+      etbCreated: etbCreated // ✅ Flag indicating ETB was created/updated
     });
   } catch (err) {
     next(err);
@@ -1275,6 +1586,40 @@ exports.deleteTrialBalance = async (req, res, next) => {
     res.json({ message: "Trial balance removed successfully" });
   } catch (err) {
     next(err);
+  }
+};
+
+exports.manuallyPopulatePriorYear = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    // Call the populate prior year service
+    const result = await populatePriorYearData(engagementId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        populated: result.populated,
+        details: result.details,
+        updatedRows: result.updatedRows,
+        newAccounts: result.newAccounts,
+        matchPercentage: result.matchPercentage,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: result.message,
+        populated: false,
+      });
+    }
+  } catch (err) {
+    console.error("[manuallyPopulatePriorYear] Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to populate prior year data",
+      error: err.message,
+    });
   }
 };
 
@@ -1358,6 +1703,34 @@ exports.getETB = async (req, res, next) => {
       return res
         .status(404)
         .json({ message: "Extended Trial Balance not found" });
+    }
+
+    // Auto-populate prior year data if not already done
+    // Check if any row has isNewAccount field set (indicates prior year has been populated)
+    const hasBeenPopulated = etb.rows.some(row => 
+      row.isNewAccount === true || row.isNewAccount === false
+    );
+    
+    if (!hasBeenPopulated && etb.rows.length > 0) {
+      // Silently attempt to populate prior year data in the background
+      try {
+        await populatePriorYearData(engagementId);
+        // Re-fetch ETB after population
+        const updatedEtb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+        if (updatedEtb) {
+          const etbObject = updatedEtb.toObject();
+          etbObject.rows = etbObject.rows.map((row) => {
+            if (!row._id) {
+              row._id = row.id || row.code || `row_${Math.random().toString(36).slice(2)}`;
+            }
+            return row;
+          });
+          return res.json(etbObject);
+        }
+      } catch (populateError) {
+        console.log('[getETB] Auto-populate prior year failed (non-critical):', populateError.message);
+        // Continue with original ETB if population fails
+      }
     }
 
     // Ensure all rows have an _id field (for adjustments support)

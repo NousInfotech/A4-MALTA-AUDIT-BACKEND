@@ -7,7 +7,7 @@ const EngagementSchema = new Schema(
   {
     excelURL: { type: String },
     clientId: { type: String, required: true },
-    organizationId: { type: String, required: true },
+    organizationId: { type: String, default: null },
     title: { type: String, required: true },
     yearEndDate: { type: Date, required: true },
     status: {

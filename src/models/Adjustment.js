@@ -48,6 +48,49 @@ AdjustmentEntrySchema.pre("validate", function (next) {
 });
 
 /**
+ * History Entry Schema
+ * Records all changes made to an adjustment
+ */
+const AdjustmentHistorySchema = new Schema(
+  {
+    action: {
+      type: String,
+      enum: ["created", "updated", "posted", "unposted", "deleted", "reversed"],
+      required: true,
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
+    userId: {
+      type: String,
+      default: "system",
+    },
+    userName: {
+      type: String,
+      default: "System",
+    },
+    previousValues: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
+    newValues: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+    description: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: true }
+);
+
+/**
  * Main Adjustment Schema
  * One document represents a single adjustment journal (AA1, AA2, etc.)
  */
@@ -87,6 +130,10 @@ const AdjustmentSchema = new Schema(
     totalCr: {
       type: Number,
       default: 0,
+    },
+    history: {
+      type: [AdjustmentHistorySchema],
+      default: [],
     },
     createdAt: {
       type: Date,

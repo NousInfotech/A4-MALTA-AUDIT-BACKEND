@@ -3,6 +3,68 @@ const Adjustment = require("../models/Adjustment");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
 /**
+ * Helper function to add history entry to adjustment
+ * @param {Object} adjustment - The adjustment document
+ * @param {String} action - Action type (created, updated, posted, unposted, deleted, reversed)
+ * @param {Object} req - Express request object (optional, for user info)
+ * @param {Object} previousValues - Previous state before change (optional)
+ * @param {Object} newValues - New state after change (optional)
+ * @param {Object} metadata - Additional metadata (optional)
+ * @param {String} description - Human-readable description (optional)
+ */
+const addHistoryEntry = (adjustment, action, req = null, previousValues = null, newValues = null, metadata = {}, description = "") => {
+  // Extract user info from req.user (populated by requireAuth middleware)
+  let userId = "system";
+  let userName = "System";
+  
+  if (req && req.user) {
+    userId = req.user.id || req.user._id || "system";
+    // Prefer name, fallback to email, then "Unknown User"
+    userName = req.user.name || req.user.email || "Unknown User";
+  }
+
+  const historyEntry = {
+    action,
+    timestamp: new Date(),
+    userId,
+    userName,
+    previousValues,
+    newValues,
+    metadata: {
+      ...metadata,
+      totalDr: adjustment.totalDr,
+      totalCr: adjustment.totalCr,
+      entriesCount: adjustment.entries.length,
+    },
+    description: description || getDefaultDescription(action, adjustment),
+  };
+
+  if (!adjustment.history) {
+    adjustment.history = [];
+  }
+  
+  adjustment.history.push(historyEntry);
+  
+  // Log for debugging
+  console.log(`History entry added: ${action} by ${userName} (${userId})`);
+};
+
+/**
+ * Generate default description based on action
+ */
+const getDefaultDescription = (action, adjustment) => {
+  const actionDescriptions = {
+    created: `Adjustment ${adjustment.adjustmentNo} created with ${adjustment.entries.length} entries`,
+    updated: `Adjustment ${adjustment.adjustmentNo} updated`,
+    posted: `Adjustment ${adjustment.adjustmentNo} posted to ETB (Dr: ${adjustment.totalDr}, Cr: ${adjustment.totalCr})`,
+    unposted: `Adjustment ${adjustment.adjustmentNo} unposted from ETB`,
+    deleted: `Adjustment ${adjustment.adjustmentNo} deleted`,
+    reversed: `Adjustment ${adjustment.adjustmentNo} reversed`,
+  };
+  return actionDescriptions[action] || `Adjustment ${action}`;
+};
+
+/**
  * Create a new adjustment (draft status)
  * POST /api/adjustments
  */
@@ -61,6 +123,23 @@ exports.createAdjustment = async (req, res) => {
       status: "draft",
       entries: entries || [],
     });
+
+    // Add history entry for creation
+    addHistoryEntry(
+      adjustment,
+      "created",
+      req,
+      null,
+      {
+        adjustmentNo,
+        description,
+        entriesCount: (entries || []).length,
+        status: "draft",
+      },
+      {
+        createdBy: req?.user?.email || "system",
+      }
+    );
 
     await adjustment.save();
 
@@ -161,6 +240,15 @@ exports.updateAdjustment = async (req, res) => {
 
     console.log(`Updating adjustment ${id} with status: ${adjustment.status}`);
 
+    // Capture previous state for history
+    const previousState = {
+      description: adjustment.description,
+      entriesCount: adjustment.entries.length,
+      totalDr: adjustment.totalDr,
+      totalCr: adjustment.totalCr,
+      status: adjustment.status,
+    };
+
     // Validate entries if provided
     if (entries && entries.length > 0) {
       for (const entry of entries) {
@@ -253,6 +341,27 @@ exports.updateAdjustment = async (req, res) => {
     // Update adjustment fields
     if (description !== undefined) adjustment.description = description;
     if (entries !== undefined) adjustment.entries = entries;
+
+    // Add history entry for update
+    const newState = {
+      description: adjustment.description,
+      entriesCount: adjustment.entries.length,
+      totalDr: adjustment.entries.reduce((sum, e) => sum + (e.dr || 0), 0),
+      totalCr: adjustment.entries.reduce((sum, e) => sum + (e.cr || 0), 0),
+      status: adjustment.status,
+    };
+
+    addHistoryEntry(
+      adjustment,
+      "updated",
+      req,
+      previousState,
+      newState,
+      {
+        etbUpdated: adjustment.status === "posted",
+        updatedBy: req?.user?.email || "system",
+      }
+    );
 
     await adjustment.save({ session });
 
@@ -381,6 +490,21 @@ exports.postAdjustment = async (req, res) => {
 
     // Update adjustment status
     adjustment.status = "posted";
+
+    // Add history entry for posting
+    addHistoryEntry(
+      adjustment,
+      "posted",
+      req,
+      { status: "draft" },
+      { status: "posted" },
+      {
+        etbRowsUpdated: adjustment.entries.length,
+        totalRows: etb.rows.length,
+        postedBy: req?.user?.email || "system",
+      }
+    );
+
     await adjustment.save({ session });
 
     await session.commitTransaction();
@@ -498,6 +622,21 @@ exports.unpostAdjustment = async (req, res) => {
 
     // Update adjustment status back to draft
     adjustment.status = "draft";
+
+    // Add history entry for unposting
+    addHistoryEntry(
+      adjustment,
+      "unposted",
+      req,
+      { status: "posted" },
+      { status: "draft" },
+      {
+        etbRowsReverted: adjustment.entries.length,
+        totalRows: etb.rows.length,
+        unpostedBy: req?.user?.email || "system",
+      }
+    );
+
     await adjustment.save({ session });
 
     await session.commitTransaction();
@@ -606,6 +745,30 @@ exports.deleteAdjustment = async (req, res) => {
       console.log("ETB impact reversed successfully");
     }
 
+    // Add history entry for deletion (before deleting)
+    addHistoryEntry(
+      adjustment,
+      "deleted",
+      req,
+      {
+        adjustmentNo: adjustment.adjustmentNo,
+        description: adjustment.description,
+        status: adjustment.status,
+        entriesCount: adjustment.entries.length,
+        totalDr: adjustment.totalDr,
+        totalCr: adjustment.totalCr,
+      },
+      null,
+      {
+        wasPosted: adjustment.status === "posted",
+        etbImpactReversed: adjustment.status === "posted",
+        deletedBy: req?.user?.email || "system",
+      }
+    );
+
+    // Save the history before deletion
+    await adjustment.save({ session });
+
     // Delete the adjustment
     await Adjustment.findByIdAndDelete(id).session(session);
 
@@ -652,6 +815,45 @@ exports.getAdjustmentsByETB = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to fetch adjustments",
+    });
+  }
+};
+
+/**
+ * Get history for a specific adjustment
+ * GET /api/adjustments/:id/history
+ */
+exports.getAdjustmentHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const adjustment = await Adjustment.findById(id).select('history adjustmentNo');
+
+    if (!adjustment) {
+      return res.status(404).json({
+        success: false,
+        message: "Adjustment not found",
+      });
+    }
+
+    // Sort history by timestamp descending (newest first)
+    const sortedHistory = (adjustment.history || []).sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        adjustmentNo: adjustment.adjustmentNo,
+        history: sortedHistory,
+      },
+      message: "Adjustment history retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching adjustment history:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch adjustment history",
     });
   }
 };
