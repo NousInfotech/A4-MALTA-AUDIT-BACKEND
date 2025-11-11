@@ -3361,3 +3361,194 @@ exports.revertToPrevVersion = async (req, res, next) => {
     return res.status(500).json({ success: false, error: error.message });
   }
 };
+
+// ========================================
+// Assigned Auditors Functions
+// ========================================
+
+/**
+ * Assign an auditor to an engagement
+ * POST /:id/auditors/assign
+ * Body: { auditorId, assignedBy }
+ */
+exports.assignAuditor = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { auditorId, assignedBy } = req.body;
+
+    // Validation
+    if (!auditorId || !assignedBy) {
+      return res.status(400).json({
+        message: "auditorId and assignedBy are required",
+      });
+    }
+
+    const query = { _id: engagementId };
+    
+    // Organization scoping
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+
+    // Check if engagement exists
+    const engagement = await Engagement.findOne(query);
+    if (!engagement) {
+      return res.status(404).json({ message: "Engagement not found or access denied" });
+    }
+
+    // Check if auditor is already assigned
+    const alreadyAssigned = engagement.assignedAuditors.some(
+      (auditor) => auditor.auditorId === auditorId
+    );
+
+    if (alreadyAssigned) {
+      return res.status(400).json({
+        message: "Auditor is already assigned to this engagement",
+      });
+    }
+
+    // Add auditor to the array
+    const newAuditor = {
+      auditorId,
+      assignedBy,
+      assignedAt: new Date(),
+    };
+
+    engagement.assignedAuditors.push(newAuditor);
+    await engagement.save();
+
+    res.status(200).json({
+      message: "Auditor assigned successfully",
+      assignedAuditors: engagement.assignedAuditors,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Unassign an auditor from an engagement
+ * DELETE /:id/auditors/unassign
+ * Body: { auditorId }
+ */
+exports.unassignAuditor = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { auditorId } = req.body;
+
+    if (!auditorId) {
+      return res.status(400).json({
+        message: "auditorId is required",
+      });
+    }
+
+    const query = { _id: engagementId };
+    
+    // Organization scoping
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+
+    // Remove auditor from the array using $pull
+    const engagement = await Engagement.findOneAndUpdate(
+      query,
+      {
+        $pull: {
+          assignedAuditors: { auditorId: auditorId },
+        },
+      },
+      { new: true }
+    );
+
+    if (!engagement) {
+      return res.status(404).json({ message: "Engagement not found or access denied" });
+    }
+
+    res.status(200).json({
+      message: "Auditor unassigned successfully",
+      assignedAuditors: engagement.assignedAuditors,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get all auditors assigned to an engagement
+ * GET /:id/auditors
+ */
+exports.getAssignedAuditors = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    const query = { _id: engagementId };
+    
+    // Organization scoping
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+
+    const engagement = await Engagement.findOne(query).select("assignedAuditors title");
+    
+    if (!engagement) {
+      return res.status(404).json({ message: "Engagement not found or access denied" });
+    }
+
+    res.status(200).json({
+      engagementId: engagement._id,
+      title: engagement.title,
+      assignedAuditors: engagement.assignedAuditors || [],
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get all engagements assigned to a specific auditor
+ * GET /auditors/:auditorId/engagements
+ */
+exports.getAuditorEngagements = async (req, res, next) => {
+  try {
+    const { auditorId } = req.params;
+
+    const query = {
+      "assignedAuditors.auditorId": auditorId,
+    };
+
+    // Organization scoping
+    if (req.user.role !== 'super-admin' && req.user.organizationId) {
+      query.organizationId = req.user.organizationId;
+    }
+
+    const engagements = await Engagement.find(query).select(
+      "title yearEndDate status clientId organizationId assignedAuditors createdAt"
+    );
+
+    // Filter the assignedAuditors array to only show the specific auditor's info
+    const formattedEngagements = engagements.map((eng) => {
+      const auditorInfo = eng.assignedAuditors.find(
+        (a) => a.auditorId === auditorId
+      );
+      
+      return {
+        _id: eng._id,
+        title: eng.title,
+        yearEndDate: eng.yearEndDate,
+        status: eng.status,
+        clientId: eng.clientId,
+        organizationId: eng.organizationId,
+        createdAt: eng.createdAt,
+        auditorAssignment: auditorInfo,
+      };
+    });
+
+    res.status(200).json({
+      auditorId,
+      engagements: formattedEngagements,
+      totalEngagements: formattedEngagements.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+};

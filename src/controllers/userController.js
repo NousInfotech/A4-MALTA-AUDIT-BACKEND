@@ -420,3 +420,58 @@ exports.updateClientProfile = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 }
+
+exports.getClientById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log("Fetching client data for ID:", id);
+
+    // Get profile data from Supabase
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", id)
+      .single();
+
+    if (profileError || !profileData) {
+      console.error("Profile fetch error:", profileError);
+      return res.status(404).json({ error: "Client not found" });
+    }
+
+    // Get auth data (for email)
+    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(id);
+    
+    if (authError) {
+      console.warn("Could not fetch auth data for user:", authError);
+      // Still return profile data even if auth fetch fails
+      return res.status(200).json({
+        success: true,
+        client: {
+          ...profileData,
+          email: 'Email not available',
+        },
+      });
+    }
+
+    // Combine profile and auth data
+    const clientData = {
+      ...profileData,
+      email: authUser.user.email,
+      last_sign_in_at: authUser.user.last_sign_in_at,
+      email_confirmed_at: authUser.user.email_confirmed_at,
+    };
+
+    res.status(200).json({
+      success: true,
+      client: clientData,
+    });
+
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch client data",
+    });
+  }
+}
