@@ -21,7 +21,8 @@ const CompanySchema = new Schema(
     registrationNumber: { type: String },
     address: { type: String },
     supportingDocuments: [{ type: String }], // URLs or file keys
-
+    industry: { type: String },
+    description: { type: String },
     companyStartedAt: { type: Date },
     totalShares: { type: Number, default: 0 },
 

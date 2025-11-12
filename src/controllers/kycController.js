@@ -91,9 +91,9 @@ exports.getKYCByEngagement = async (req, res, next) => {
       .populate('engagement', 'title yearEndDate clientId')
       .populate('documentRequests', 'category description status documents');
     
-    if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found for this engagement' });
-    }
+    // if (!kyc) {
+    //   return res.status(404).json({ message: 'KYC workflow not found for this engagement' });
+    // }
 
     res.json(kyc);
   } catch (err) {

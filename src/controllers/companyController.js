@@ -2,6 +2,14 @@ const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
 
+const normalizeOptionalString = (value) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 /**
  * Get all companies for a client
  * GET /api/client/:clientId/company
@@ -119,6 +127,8 @@ exports.createCompany = async (req, res) => {
       shareHoldingCompanies,
       createdBy,
       totalShares,                 // ✅ <-- add
+      industry,
+      description,
     } = req.body;
 
     if (!name) {
@@ -155,6 +165,9 @@ exports.createCompany = async (req, res) => {
         })
       : [];
 
+    const normalizedIndustry = normalizeOptionalString(industry);
+    const trimmedDescription = normalizeOptionalString(description);
+
     const company = new Company({
       clientId,
       name,
@@ -163,6 +176,8 @@ exports.createCompany = async (req, res) => {
       supportingDocuments: supportingDocuments || [],
       companyStartedAt: timelineStart ? new Date(timelineStart) : undefined,
       totalShares: Number(totalShares) || 0,
+      industry: normalizedIndustry,
+      description: trimmedDescription,
       shareHoldingCompanies: formattedShareholdings,
       shareHolders: [], // Will be populated separately when persons are added
       representationalSchema: [], // Will be populated separately when persons are added
@@ -200,6 +215,24 @@ exports.updateCompany = async (req, res) => {
     delete updateData.createdBy;
     delete updateData.createdAt;
     updateData.updatedAt = new Date();
+
+    if (Object.prototype.hasOwnProperty.call(updateData, "industry")) {
+      const normalizedIndustry = normalizeOptionalString(updateData.industry);
+      if (normalizedIndustry === undefined) {
+        delete updateData.industry;
+      } else {
+        updateData.industry = normalizedIndustry;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updateData, "description")) {
+      const normalizedDescription = normalizeOptionalString(updateData.description);
+      if (normalizedDescription === undefined) {
+        delete updateData.description;
+      } else {
+        updateData.description = normalizedDescription;
+      }
+    }
 
     // Handle shareHoldingCompanies update if provided
     if (updateData.shareHoldingCompanies) {
