@@ -48,6 +48,49 @@ ReclassificationEntrySchema.pre("validate", function (next) {
 });
 
 /**
+ * History Entry Schema
+ * Records all changes made to a reclassification
+ */
+const ReclassificationHistorySchema = new Schema(
+  {
+    action: {
+      type: String,
+      enum: ["created", "updated", "posted", "unposted", "deleted", "reversed"],
+      required: true,
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
+    userId: {
+      type: String,
+      default: "system",
+    },
+    userName: {
+      type: String,
+      default: "System",
+    },
+    previousValues: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
+    newValues: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+    description: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: true }
+);
+
+/**
  * Main Reclassification Schema
  * One document represents a single reclassification journal (RC1, RC2, etc.)
  */
@@ -87,6 +130,10 @@ const ReclassificationSchema = new Schema(
     totalCr: {
       type: Number,
       default: 0,
+    },
+    history: {
+      type: [ReclassificationHistorySchema],
+      default: [],
     },
     createdAt: {
       type: Date,

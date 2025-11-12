@@ -3,6 +3,68 @@ const Reclassification = require("../models/Reclassification");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
 /**
+ * Helper function to add history entry to reclassification
+ * @param {Object} reclassification - The reclassification document
+ * @param {String} action - Action type (created, updated, posted, unposted, deleted, reversed)
+ * @param {Object} req - Express request object (optional, for user info)
+ * @param {Object} previousValues - Previous state before change (optional)
+ * @param {Object} newValues - New state after change (optional)
+ * @param {Object} metadata - Additional metadata (optional)
+ * @param {String} description - Human-readable description (optional)
+ */
+const addHistoryEntry = (reclassification, action, req = null, previousValues = null, newValues = null, metadata = {}, description = "") => {
+  // Extract user info from req.user (populated by requireAuth middleware)
+  let userId = "system";
+  let userName = "System";
+  
+  if (req && req.user) {
+    userId = req.user.id || req.user._id || "system";
+    // Prefer name, fallback to email, then "Unknown User"
+    userName = req.user.name || req.user.email || "Unknown User";
+  }
+
+  const historyEntry = {
+    action,
+    timestamp: new Date(),
+    userId,
+    userName,
+    previousValues,
+    newValues,
+    metadata: {
+      ...metadata,
+      totalDr: reclassification.totalDr,
+      totalCr: reclassification.totalCr,
+      entriesCount: reclassification.entries.length,
+    },
+    description: description || getDefaultDescription(action, reclassification),
+  };
+
+  if (!reclassification.history) {
+    reclassification.history = [];
+  }
+  
+  reclassification.history.push(historyEntry);
+  
+  // Log for debugging
+  console.log(`History entry added: ${action} by ${userName} (${userId})`);
+};
+
+/**
+ * Generate default description based on action
+ */
+const getDefaultDescription = (action, reclassification) => {
+  const actionDescriptions = {
+    created: `Reclassification ${reclassification.reclassificationNo} created with ${reclassification.entries.length} entries`,
+    updated: `Reclassification ${reclassification.reclassificationNo} updated`,
+    posted: `Reclassification ${reclassification.reclassificationNo} posted to ETB (Dr: ${reclassification.totalDr}, Cr: ${reclassification.totalCr})`,
+    unposted: `Reclassification ${reclassification.reclassificationNo} unposted from ETB`,
+    deleted: `Reclassification ${reclassification.reclassificationNo} deleted`,
+    reversed: `Reclassification ${reclassification.reclassificationNo} reversed`,
+  };
+  return actionDescriptions[action] || `Reclassification ${action}`;
+};
+
+/**
  * Create a new reclassification (draft status)
  * POST /api/reclassifications
  */
@@ -51,6 +113,23 @@ exports.createReclassification = async (req, res) => {
       status: "draft",
       entries: entries || [],
     });
+
+    // Add history entry for creation
+    addHistoryEntry(
+      reclassification,
+      "created",
+      req,
+      null,
+      {
+        reclassificationNo,
+        description,
+        entriesCount: (entries || []).length,
+        status: "draft",
+      },
+      {
+        createdBy: req?.user?.email || "system",
+      }
+    );
 
     await reclassification.save();
 
@@ -151,6 +230,15 @@ exports.updateReclassification = async (req, res) => {
 
     console.log(`Updating reclassification ${id} with status: ${reclassification.status}`);
 
+    // Capture previous state for history
+    const previousState = {
+      description: reclassification.description,
+      entriesCount: reclassification.entries.length,
+      totalDr: reclassification.totalDr,
+      totalCr: reclassification.totalCr,
+      status: reclassification.status,
+    };
+
     if (entries && entries.length > 0) {
       for (const entry of entries) {
         if (entry.dr > 0 && entry.cr > 0) {
@@ -241,6 +329,27 @@ exports.updateReclassification = async (req, res) => {
 
     if (description !== undefined) reclassification.description = description;
     if (entries !== undefined) reclassification.entries = entries;
+
+    // Add history entry for update
+    const newState = {
+      description: reclassification.description,
+      entriesCount: reclassification.entries.length,
+      totalDr: reclassification.entries.reduce((sum, e) => sum + (e.dr || 0), 0),
+      totalCr: reclassification.entries.reduce((sum, e) => sum + (e.cr || 0), 0),
+      status: reclassification.status,
+    };
+
+    addHistoryEntry(
+      reclassification,
+      "updated",
+      req,
+      previousState,
+      newState,
+      {
+        etbUpdated: reclassification.status === "posted",
+        updatedBy: req?.user?.email || "system",
+      }
+    );
 
     await reclassification.save({ session });
 
@@ -364,6 +473,21 @@ exports.postReclassification = async (req, res) => {
     await etb.save({ session });
 
     reclassification.status = "posted";
+
+    // Add history entry for posting
+    addHistoryEntry(
+      reclassification,
+      "posted",
+      req,
+      { status: "draft" },
+      { status: "posted" },
+      {
+        etbRowsUpdated: reclassification.entries.length,
+        totalRows: etb.rows.length,
+        postedBy: req?.user?.email || "system",
+      }
+    );
+
     await reclassification.save({ session });
 
     await session.commitTransaction();
@@ -477,6 +601,21 @@ exports.unpostReclassification = async (req, res) => {
     await etb.save({ session });
 
     reclassification.status = "draft";
+
+    // Add history entry for unposting
+    addHistoryEntry(
+      reclassification,
+      "unposted",
+      req,
+      { status: "posted" },
+      { status: "draft" },
+      {
+        etbRowsReverted: reclassification.entries.length,
+        totalRows: etb.rows.length,
+        unpostedBy: req?.user?.email || "system",
+      }
+    );
+
     await reclassification.save({ session });
 
     await session.commitTransaction();
@@ -580,6 +719,30 @@ exports.deleteReclassification = async (req, res) => {
       console.log("ETB impact reversed successfully for reclassification");
     }
 
+    // Add history entry for deletion (before deleting)
+    addHistoryEntry(
+      reclassification,
+      "deleted",
+      req,
+      {
+        reclassificationNo: reclassification.reclassificationNo,
+        description: reclassification.description,
+        status: reclassification.status,
+        entriesCount: reclassification.entries.length,
+        totalDr: reclassification.totalDr,
+        totalCr: reclassification.totalCr,
+      },
+      null,
+      {
+        wasPosted: reclassification.status === "posted",
+        etbImpactReversed: reclassification.status === "posted",
+        deletedBy: req?.user?.email || "system",
+      }
+    );
+
+    // Save the history before deletion
+    await reclassification.save({ session });
+
     await Reclassification.findByIdAndDelete(id).session(session);
 
     await session.commitTransaction();
@@ -626,6 +789,45 @@ exports.getReclassificationsByETB = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to fetch reclassifications",
+    });
+  }
+};
+
+/**
+ * Get history for a specific reclassification
+ * GET /api/reclassifications/:id/history
+ */
+exports.getReclassificationHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const reclassification = await Reclassification.findById(id).select('history reclassificationNo');
+
+    if (!reclassification) {
+      return res.status(404).json({
+        success: false,
+        message: "Reclassification not found",
+      });
+    }
+
+    // Sort history by timestamp descending (newest first)
+    const sortedHistory = (reclassification.history || []).sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        reclassificationNo: reclassification.reclassificationNo,
+        history: sortedHistory,
+      },
+      message: "Reclassification history retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching reclassification history:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch reclassification history",
     });
   }
 };

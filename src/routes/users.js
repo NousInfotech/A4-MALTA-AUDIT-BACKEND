@@ -9,6 +9,7 @@ router.post("/create", requireAuth, requireRole("employee"), uc.createUser);
 router.patch("/classification/:id/status", requireAuth,requireRole(["senior-employee","partner"]), uc.updateClassificationStatus);
 router.get("/", requireAuth, requireRole(["employee", "reviewer", "partner", "admin"]), uc.getAllUsers);
 router.get("/email/:id", requireAuth, uc.getEmail);
+router.get("/client/:id", requireAuth, uc.getClientById);
 router.delete("/:id", requireAuth, requireRole("admin"), uc.deleteUser);
 
 // ✅ NEW ROUTE — this fixes your 404 error

@@ -221,6 +221,9 @@ router.post("/:id/fetch-trial-balance", requireAuth, ec.fetchTrialBalance);
 
 router.get("/:id/trial-balance", requireAuth, ec.getTrialBalance);
 
+// Manually trigger prior year population for existing engagements
+router.post("/:id/trial-balance/populate-prior-year", requireAuth, ec.manuallyPopulatePriorYear);
+
 router.get(
   "/:id/sections/:classification/working-papers/db",
   requireAuth,

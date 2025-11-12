@@ -97,6 +97,11 @@ const ETBRowSchema = new Schema({
     type: [String],
     default: [],
   },
+  // Flag to indicate this account code is new (not present in previous year)
+  isNewAccount: {
+    type: Boolean,
+    default: false,
+  },
 }, { _id: false })
 
 const ExtendedTrialBalanceSchema = new Schema({
