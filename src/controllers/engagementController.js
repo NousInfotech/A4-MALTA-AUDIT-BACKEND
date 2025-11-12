@@ -707,12 +707,13 @@ exports.getLibraryFiles = async (req, res, next) => {
 
 exports.createEngagement = async (req, res, next) => {
   try {
-    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy } =
+    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy, organizationId, companyId } =
       req.body;
     const engagement = await Engagement.create({
       createdBy,
       clientId,
-      organizationId: req.user.organizationId,
+      organizationId: req.user.organizationId, 
+      companyId,
       title,
       yearEndDate,
       trialBalanceUrl,
