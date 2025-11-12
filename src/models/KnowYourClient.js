@@ -36,7 +36,12 @@ const KYCSchema = new Schema(
     engagement: { type: Types.ObjectId, ref: "Engagement", required: true },
     clientId: { type: String, required: true },
     auditorId: { type: String, required: true },
-    documentRequests: [{ type: Types.ObjectId, ref: "DocumentRequest",personId: { type: Types.ObjectId, ref: "Person"} }],
+    documentRequests: [
+      {
+        documentRequest: { type: Types.ObjectId, ref: "DocumentRequest" },
+        person: { type: Types.ObjectId, ref: "Person" },
+      },
+    ],
     discussions: [KYCDiscussionSchema],
     status: {
       type: String,
