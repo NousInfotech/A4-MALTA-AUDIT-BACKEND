@@ -23,7 +23,6 @@ async function requireAuth(req, res, next) {
     if (profErr || !profile) {
       return res.status(403).json({ message: 'No profile found for user' });
     }
-    console.log(profile);
     req.user = { 
       id: user.id, 
       email: user.email, 
