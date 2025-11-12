@@ -1,7 +1,7 @@
 const KYC = require('../models/KnowYourClient');
 const DocumentRequest = require('../models/DocumentRequest');
 const Engagement = require('../models/Engagement');
-const Person = require("../modles/Person")
+const Person = require("../models/Person");
 
 /**
  * KYC Controllers
