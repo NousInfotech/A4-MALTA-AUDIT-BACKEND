@@ -706,8 +706,10 @@ exports.getLibraryFiles = async (req, res, next) => {
 };
 
 exports.createEngagement = async (req, res, next) => {
+  console.log(req.user);
+  
   try {
-    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy, organizationId, companyId } =
+    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy, companyId } =
       req.body;
     const engagement = await Engagement.create({
       createdBy,
@@ -719,7 +721,7 @@ exports.createEngagement = async (req, res, next) => {
       trialBalanceUrl,
       status: trialBalanceUrl ? "active" : "draft",
     });
-
+    
     const placeholders = ENGAGEMENT_FOLDERS.map((category) => ({
       engagement: engagement._id,
       category,

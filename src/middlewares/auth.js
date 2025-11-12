@@ -16,19 +16,21 @@ async function requireAuth(req, res, next) {
 
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
-      .select('role, name')
+      .select('role, name, organization_id')
       .eq('user_id', user.id)
       .single();
 
     if (profErr || !profile) {
       return res.status(403).json({ message: 'No profile found for user' });
     }
-
+    console.log(profile);
     req.user = { 
       id: user.id, 
       email: user.email, 
       role: profile.role,
-      name: profile.name
+      name: profile.name,
+
+      organizationId: profile.organization_id,
     };
     next();
 
