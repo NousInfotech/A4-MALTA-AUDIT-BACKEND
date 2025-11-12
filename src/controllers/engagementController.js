@@ -1010,9 +1010,33 @@ exports.getEngagementById = async (req, res, next) => {
     }
     
     const engagement = await Engagement.findOne(query)
-      .populate("documentRequests")
-      .populate("procedures")
-      .populate("trialBalanceDoc");
+    .populate("documentRequests")
+    .populate("procedures")
+    .populate("trialBalanceDoc")
+    .populate({
+      path: "companyId",
+      populate: [
+        {
+          path: "shareHolders.personId",
+          model: "Person",
+          select: "name nationality email phoneNumber address"
+        },
+        {
+          path: "representationalSchema.personId",
+          model: "Person",
+          select: "name nationality email phoneNumber address"
+        },
+        {
+          path: "shareHoldingCompanies.companyId",
+          model: "Company",
+          populate: {
+            path: "shareHolders.personId",
+            model: "Person",
+            select: "name nationality address"
+          }
+        }
+      ]
+    });
     if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
