@@ -146,6 +146,7 @@ exports.createUser = async (req, res) => {
         status: "approved", 
         company_name: companyName,
         company_number: companyNumber,
+        organization_id: req.user.organizationId,
         industry: industry,
         company_summary: summary,
         updated_at: new Date().toISOString(),

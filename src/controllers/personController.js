@@ -198,7 +198,7 @@ exports.createPerson = async (req, res) => {
     if (companyId) {
       const company = await Company.findById(companyId);
       if (company) {
-        const { roles, sharePercentage } = req.body;
+        const { roles, sharePercentage, shareClass } = req.body;
 
         // Update representationalSchema if roles are provided
         if (roles && Array.isArray(roles) && roles.length > 0) {
@@ -225,16 +225,14 @@ exports.createPerson = async (req, res) => {
           const companyTotalShares = company.totalShares || 0;
           const actualShares = (sharePercentage / 100) * companyTotalShares;
           
-          // Calculate share class
-          const shareClass = company.getShareClass(sharePercentage);
-          
+            
           // Add new shareholding
           company.shareHolders.push({
             personId: person._id,
             sharesData: {
               percentage: sharePercentage,
               totalShares: Math.round(actualShares), // Round to nearest whole number
-              class: shareClass,
+              class: shareClass || "A",
             },
           });
         }
@@ -265,11 +263,11 @@ exports.createPerson = async (req, res) => {
  */
 exports.updatePerson = async (req, res) => {
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { clientId, companyId, personId, } = req.params;
     const updateData = { ...req.body };
 
     // Separate person fields from company relationship fields
-    const { roles, sharePercentage, ...personFields } = updateData;
+    const { roles, sharePercentage, shareClass, ...personFields } = updateData;
 
     // Remove fields that shouldn't be directly updated
     delete personFields.clientId;
@@ -336,13 +334,12 @@ exports.updatePerson = async (req, res) => {
             const companyTotalShares = company.totalShares || 0;
             const actualShares = (sharePercentage / 100) * companyTotalShares;
             
-            const shareClass = company.getShareClass(sharePercentage);
-            company.shareHolders.push({
+             company.shareHolders.push({
               personId: person._id,
               sharesData: {
                 percentage: sharePercentage,
                 totalShares: Math.round(actualShares), // Round to nearest whole number
-                class: shareClass,
+                class: shareClass || "A",
               },
             });
           }

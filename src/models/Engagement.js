@@ -7,7 +7,8 @@ const EngagementSchema = new Schema(
   {
     excelURL: { type: String },
     clientId: { type: String, required: true },
-    organizationId: { type: String, default: null },
+    organizationId: { type: String, required: true },
+    companyId:{type:Types.ObjectId, ref:"Company", required:true},
     title: { type: String, required: true },
     yearEndDate: { type: Date, required: true },
     status: {
@@ -79,6 +80,7 @@ EngagementSchema.virtual("kyc",{
   localField: "_id",
   foreignField: "engagement",
 })
+
 
 // Index for better query performance with organization scoping
 EngagementSchema.index({ organizationId: 1, status: 1 });

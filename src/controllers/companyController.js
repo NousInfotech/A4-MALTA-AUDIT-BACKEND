@@ -2,6 +2,14 @@ const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
 
+const normalizeOptionalString = (value) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 /**
  * Get all companies for a client
  * GET /api/client/:clientId/company
@@ -119,6 +127,8 @@ exports.createCompany = async (req, res) => {
       shareHoldingCompanies,
       createdBy,
       totalShares,                 // ✅ <-- add
+      industry,
+      description,
     } = req.body;
 
     if (!name) {
@@ -149,11 +159,14 @@ exports.createCompany = async (req, res) => {
             sharesData: {
               percentage: sharePercentage,
               totalShares: Math.round((sharePercentage / 100) * totalSharesValue),
-              class: shareClass,
+              class: shareHoldingCompanies.shareClass || "A",
             },
           };
         })
       : [];
+
+    const normalizedIndustry = normalizeOptionalString(industry);
+    const trimmedDescription = normalizeOptionalString(description);
 
     const company = new Company({
       clientId,
@@ -163,6 +176,8 @@ exports.createCompany = async (req, res) => {
       supportingDocuments: supportingDocuments || [],
       companyStartedAt: timelineStart ? new Date(timelineStart) : undefined,
       totalShares: Number(totalShares) || 0,
+      industry: normalizedIndustry,
+      description: trimmedDescription,
       shareHoldingCompanies: formattedShareholdings,
       shareHolders: [], // Will be populated separately when persons are added
       representationalSchema: [], // Will be populated separately when persons are added
@@ -201,9 +216,30 @@ exports.updateCompany = async (req, res) => {
     delete updateData.createdAt;
     updateData.updatedAt = new Date();
 
+    if (Object.prototype.hasOwnProperty.call(updateData, "industry")) {
+      const normalizedIndustry = normalizeOptionalString(updateData.industry);
+      if (normalizedIndustry === undefined) {
+        delete updateData.industry;
+      } else {
+        updateData.industry = normalizedIndustry;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updateData, "description")) {
+      const normalizedDescription = normalizeOptionalString(updateData.description);
+      if (normalizedDescription === undefined) {
+        delete updateData.description;
+      } else {
+        updateData.description = normalizedDescription;
+      }
+    }
+
     // Handle shareHoldingCompanies update if provided
     if (updateData.shareHoldingCompanies) {
-      const totalSharesValue = Number(updateData.totalShares) || 0;
+      // Get existing company to preserve class values and totalShares if not changing
+      const existingCompany = await Company.findOne({ _id: companyId, clientId });
+      const totalSharesValue = Number(updateData.totalShares) || Number(existingCompany?.totalShares) || 0;
+      
       updateData.shareHoldingCompanies = Array.isArray(updateData.shareHoldingCompanies)
         ? updateData.shareHoldingCompanies.map((s) => {
             const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
@@ -212,12 +248,23 @@ exports.updateCompany = async (req, res) => {
                 ? Number(s.sharePercentage)
                 : Number(s?.sharesData?.percentage) || 0;
             
-            // Calculate share class
-            let shareClass = "General";
-            if (sharePercentage >= 50) shareClass = "A";
-            else if (sharePercentage >= 30) shareClass = "B";
-            else if (sharePercentage >= 20) shareClass = "Ordinary";
-
+            // Preserve existing class if available, otherwise calculate
+            let shareClass = s?.sharesData?.class;
+            if (!shareClass && existingCompany) {
+              const existingShare = existingCompany.shareHoldingCompanies?.find(
+                (sh) => (typeof sh.companyId === 'object' ? sh.companyId?._id?.toString() : sh.companyId?.toString()) === companyId?.toString()
+              );
+              shareClass = existingShare?.sharesData?.class;
+            }
+            
+            // Calculate share class if still not set
+            if (!shareClass) {
+              if (sharePercentage >= 50) shareClass = "A";
+              else if (sharePercentage >= 30) shareClass = "B";
+              else if (sharePercentage >= 20) shareClass = "Ordinary";
+              else shareClass = "General";
+            }
+            
             return {
               companyId: companyId,
               sharesData: {

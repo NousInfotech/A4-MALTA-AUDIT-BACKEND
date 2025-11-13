@@ -1,6 +1,7 @@
-const KYC = require('../models/KnowYourClient');
-const DocumentRequest = require('../models/DocumentRequest');
-const Engagement = require('../models/Engagement');
+const KYC = require("../models/KnowYourClient");
+const DocumentRequest = require("../models/DocumentRequest");
+const Engagement = require("../models/Engagement");
+const Person = require("../models/Person");
 
 /**
  * KYC Controllers
@@ -9,73 +10,130 @@ const Engagement = require('../models/Engagement');
 // Create a new KYC workflow
 exports.createKYC = async (req, res, next) => {
   try {
-    const { engagementId, clientId, auditorId, documentRequest } = req.body;
-    
-    // Validate required fields
-    if (!engagementId || engagementId.trim() === '') {
-      return res.status(400).json({ message: 'Engagement ID is required' });
-    }
-    
-    if (!clientId || clientId.trim() === '') {
-      return res.status(400).json({ message: 'Client ID is required' });
-    }
-    
+    const { engagementId, clientId, auditorId, documentRequests } = req.body;
+
+
     // Verify engagement exists
     const engagement = await Engagement.findById(engagementId);
     if (!engagement) {
-      return res.status(404).json({ message: 'Engagement not found' });
+      return res.status(404).json({ message: "Engagement not found" });
     }
 
     // Check if KYC already exists for this engagement
     const existingKYC = await KYC.findOne({ engagement: engagementId });
     if (existingKYC) {
-      return res.status(400).json({ message: 'KYC workflow already exists for this engagement' });
+      return res
+        .status(400)
+        .json({ message: "KYC workflow already exists for this engagement" });
     }
 
-    let createdDocumentRequest = null;
+    // Process document requests array
+    // documentRequests: [{ documentRequest: {...data}, person: personId }]
+    const processedDocRequests = [];
 
-    // Create document request if provided
-    if (documentRequest) {
-      // Validate that all documents have required fields
-      if (documentRequest.documents && Array.isArray(documentRequest.documents)) {
-        for (let i = 0; i < documentRequest.documents.length; i++) {
-          const doc = documentRequest.documents[i];
+    if (documentRequests && Array.isArray(documentRequests)) {
+      for (let i = 0; i < documentRequests.length; i++) {
+        const { documentRequest, person } = documentRequests[i];
+      
+        
+        // Validate person exists
+        if (!person) {
+          return res.status(400).json({
+            message: `Document request at index ${i} is missing person ID`,
+          });
+        }
+
+        const personExists = await Person.findById(person);
+        if (!personExists) {
+          return res.status(404).json({
+            message: `Person with ID ${person} not found for document request ${i}`,
+          });
+        }
+
+        // documentRequest is an ARRAY of documents, not an object with documents property
+        // Validate documents array
+        if (!Array.isArray(documentRequest)) {
+          return res.status(400).json({
+            message: `Document request at index ${i} must be an array of documents`,
+          });
+        }
+
+        // Validate each document in the array
+        for (let j = 0; j < documentRequest.length; j++) {
+          const doc = documentRequest[j];
           if (!doc.name) {
-            return res.status(400).json({ 
-              message: `Document at index ${i} is missing required 'name' field` 
+            return res.status(400).json({
+              message: `Document at index ${j} in request ${i} is missing required 'name' field`,
             });
           }
         }
+
+        // Convert the documents array to the format expected by DocumentRequest model
+        const documentsWithStatus = documentRequest.map(doc => ({
+          name: doc.name,
+          type: doc.templateUrl ? 'template' : 'direct',
+          description: doc.description || '',
+          template: doc.templateUrl ? {
+            url: doc.templateUrl,
+            instruction: doc.description || ''
+          } : undefined,
+          status: 'pending'
+        }));
+
+
+        // Set category to 'kyc' and add engagement info
+        const documentRequestData = {
+          description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagement.title}`,
+          engagement: engagementId,
+          clientId: clientId || req.user.id,
+          category: "kyc",
+          documents: documentsWithStatus, // Add the documents array here!
+          status: 'pending'
+        };
+
+        console.log('💾 Creating DocumentRequest with data:', JSON.stringify(documentRequestData, null, 2));
+
+        // Create document request
+        const createdDocRequest = await DocumentRequest.create(
+          documentRequestData
+        );
+
+        console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents');
+
+        // Add to processed array
+        processedDocRequests.push({
+          documentRequest: createdDocRequest._id,
+          person: person,
+        });
       }
-
-      // Set category to 'kyc' and add engagement info
-      const documentRequestData = {
-        ...documentRequest,
-        engagement: engagementId,
-        clientId: clientId || req.user.id,
-        category: 'kyc'
-      };
-
-      createdDocumentRequest = await DocumentRequest.create(documentRequestData);
     }
 
+    // Create KYC with all document requests
     const kyc = await KYC.create({
       engagement: engagementId,
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
-      documentRequests: createdDocumentRequest ? [createdDocumentRequest._id] : [],
-      status: 'active' // Start with active state when KYC is created
+      documentRequests: processedDocRequests,
+      status: "active", // Start with active state when KYC is created
     });
 
-    // Populate the document request to return as object
+    // Populate the document requests and persons to return
     const populatedKYC = await KYC.findById(kyc._id)
-      .populate('engagement', 'entityName status yearEndDate')
-      .populate('documentRequests');
+      .populate("engagement", "title status yearEndDate")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
 
     res.status(201).json({
       success: true,
-      message: 'KYC workflow created successfully',
-      kyc: populatedKYC
+      message: "KYC workflow created successfully",
+      kyc: populatedKYC,
     });
   } catch (err) {
     next(err);
@@ -86,14 +144,23 @@ exports.createKYC = async (req, res, next) => {
 exports.getKYCByEngagement = async (req, res, next) => {
   try {
     const { engagementId } = req.params;
-    
+
     const kyc = await KYC.findOne({ engagement: engagementId })
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents');
-    
-    if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found for this engagement' });
-    }
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
+
+    // if (!kyc) {
+    //   return res.status(404).json({ message: 'KYC workflow not found for this engagement' });
+    // }
 
     res.json(kyc);
   } catch (err) {
@@ -105,13 +172,22 @@ exports.getKYCByEngagement = async (req, res, next) => {
 exports.getKYCById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const kyc = await KYC.findById(id)
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents');
-    
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
+
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     res.json(kyc);
@@ -125,7 +201,7 @@ exports.updateKYC = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    
+
     // Remove fields that shouldn't be updated directly
     delete updates.engagement;
     delete updates.clientId;
@@ -133,11 +209,20 @@ exports.updateKYC = async (req, res, next) => {
     delete updates.createdAt;
 
     const kyc = await KYC.findByIdAndUpdate(id, updates, { new: true })
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents');
-    
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
+
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     res.json(kyc);
@@ -150,15 +235,15 @@ exports.updateKYC = async (req, res, next) => {
 exports.deleteKYC = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     await KYC.findByIdAndDelete(id);
 
-    res.json({ message: 'KYC workflow deleted successfully' });
+    res.json({ message: "KYC workflow deleted successfully" });
   } catch (err) {
     next(err);
   }
@@ -168,15 +253,24 @@ exports.deleteKYC = async (req, res, next) => {
 exports.getAllKYCs = async (req, res, next) => {
   try {
     const { status, clientId, auditorId } = req.query;
-    
+
     let filter = {};
     if (status) filter.status = status;
     if (clientId) filter.clientId = clientId;
     if (auditorId) filter.auditorId = auditorId;
-    
+
     const kycs = await KYC.find(filter)
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents')
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      })
       .sort({ createdAt: -1 });
 
     res.json(kycs);
@@ -194,33 +288,36 @@ exports.addDiscussion = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { message, replyTo, documentRef } = req.body;
-    
+
     // Verify KYC exists
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     // Verify document reference if provided
     if (documentRef) {
       const { documentRequestId, documentIndex } = documentRef;
-      
+
       const documentRequest = await DocumentRequest.findById(documentRequestId);
       if (!documentRequest) {
-        return res.status(400).json({ message: 'Document request not found' });
+        return res.status(400).json({ message: "Document request not found" });
       }
-      
-      if (documentIndex < 0 || documentIndex >= documentRequest.documents.length) {
-        return res.status(400).json({ message: 'Invalid document index' });
+
+      if (
+        documentIndex < 0 ||
+        documentIndex >= documentRequest.documents.length
+      ) {
+        return res.status(400).json({ message: "Invalid document index" });
       }
     }
 
     // Add discussion
     const discussion = {
-      role: req.user.role === 'employee' ? 'auditor' : 'client',
+      role: req.user.role === "employee" ? "auditor" : "client",
       message,
       replyTo: replyTo || null,
-      documentRef: documentRef || null
+      documentRef: documentRef || null,
     };
 
     kyc.discussions.push(discussion);
@@ -237,23 +334,25 @@ exports.updateDiscussion = async (req, res, next) => {
   try {
     const { id, discussionId } = req.params;
     const { message } = req.body;
-    
+
     // Verify KYC exists
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     // Find the discussion
     const discussion = kyc.discussions.id(discussionId);
     if (!discussion) {
-      return res.status(404).json({ message: 'Discussion not found' });
+      return res.status(404).json({ message: "Discussion not found" });
     }
 
     // Check if user can edit this discussion
-    const userRole = req.user.role === 'employee' ? 'auditor' : 'client';
+    const userRole = req.user.role === "employee" ? "auditor" : "client";
     if (discussion.role !== userRole) {
-      return res.status(403).json({ message: 'You can only edit your own discussions' });
+      return res
+        .status(403)
+        .json({ message: "You can only edit your own discussions" });
     }
 
     // Update discussion
@@ -270,23 +369,25 @@ exports.updateDiscussion = async (req, res, next) => {
 exports.deleteDiscussion = async (req, res, next) => {
   try {
     const { id, discussionId } = req.params;
-    
+
     // Verify KYC exists
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     // Find the discussion
     const discussion = kyc.discussions.id(discussionId);
     if (!discussion) {
-      return res.status(404).json({ message: 'Discussion not found' });
+      return res.status(404).json({ message: "Discussion not found" });
     }
 
     // Check if user can delete this discussion
-    const userRole = req.user.role === 'employee' ? 'auditor' : 'client';
+    const userRole = req.user.role === "employee" ? "auditor" : "client";
     if (discussion.role !== userRole) {
-      return res.status(403).json({ message: 'You can only delete your own discussions' });
+      return res
+        .status(403)
+        .json({ message: "You can only delete your own discussions" });
     }
 
     // Delete discussion
@@ -303,25 +404,28 @@ exports.deleteDiscussion = async (req, res, next) => {
 exports.getDiscussionsByDocument = async (req, res, next) => {
   try {
     const { documentRequestId, documentIndex } = req.params;
-    
+
     const kycs = await KYC.find({
-      'discussions.documentRef.documentRequestId': documentRequestId,
-      'discussions.documentRef.documentIndex': parseInt(documentIndex)
+      "discussions.documentRef.documentRequestId": documentRequestId,
+      "discussions.documentRef.documentIndex": parseInt(documentIndex),
     })
-    .populate('engagement', 'title yearEndDate')
-    .select('discussions engagement');
+      .populate("engagement", "title yearEndDate")
+      .select("discussions engagement");
 
     // Filter discussions for the specific document
     const relevantDiscussions = [];
-    kycs.forEach(kyc => {
-      kyc.discussions.forEach(discussion => {
-        if (discussion.documentRef && 
-            discussion.documentRef.documentRequestId.toString() === documentRequestId &&
-            discussion.documentRef.documentIndex === parseInt(documentIndex)) {
+    kycs.forEach((kyc) => {
+      kyc.discussions.forEach((discussion) => {
+        if (
+          discussion.documentRef &&
+          discussion.documentRef.documentRequestId.toString() ===
+            documentRequestId &&
+          discussion.documentRef.documentIndex === parseInt(documentIndex)
+        ) {
           relevantDiscussions.push({
             ...discussion.toObject(),
             kycId: kyc._id,
-            engagement: kyc.engagement
+            engagement: kyc.engagement,
           });
         }
       });
@@ -338,17 +442,29 @@ exports.updateKYCStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     // Verify KYC exists
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     // Validate status
-    const validStatuses = ['active', 'pending', 'submitted', 'in-review', 'completed', 'reopened'];
+    const validStatuses = [
+      "active",
+      "pending",
+      "submitted",
+      "in-review",
+      "completed",
+      "reopened",
+    ];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be one of: active, pending, submitted, in-review, completed, reopened' });
+      return res
+        .status(400)
+        .json({
+          message:
+            "Invalid status. Must be one of: active, pending, submitted, in-review, completed, reopened",
+        });
     }
 
     // Update status
@@ -361,47 +477,134 @@ exports.updateKYCStatus = async (req, res, next) => {
   }
 };
 
-// Add DocumentRequest to KYC
+// Add DocumentRequest to KYC (supports multiple document requests with persons)
 exports.addDocumentRequestToKYC = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { documentRequestId } = req.body;
-    
+    const { documentRequests } = req.body;
+
     // Verify KYC exists
     const kyc = await KYC.findById(id);
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
-    // Verify document request exists and is associated with the same engagement
-    const documentRequest = await DocumentRequest.findOne({ 
-      _id: documentRequestId,
-      engagement: kyc.engagement 
-    });
-    
-    if (!documentRequest) {
-      return res.status(400).json({ 
-        message: 'Document request not found or not associated with this engagement' 
+    // Validate documentRequests array
+    if (!documentRequests || !Array.isArray(documentRequests)) {
+      return res
+        .status(400)
+        .json({ message: "documentRequests must be an array" });
+    }
+
+    // Process each document request
+    const newDocRequests = [];
+
+    for (let i = 0; i < documentRequests.length; i++) {
+      const { documentRequest, person } = documentRequests[i];
+
+      console.log(`\n📋 Adding Document Request ${i + 1}:`);
+      console.log('Document Request: ', documentRequest);
+      console.log('Person: ', person);
+
+      // Validate person exists
+      if (!person) {
+        return res.status(400).json({
+          message: `Document request at index ${i} is missing person ID`,
+        });
+      }
+
+      const personExists = await Person.findById(person);
+      if (!personExists) {
+        return res.status(404).json({
+          message: `Person with ID ${person} not found for document request ${i}`,
+        });
+      }
+
+      // documentRequest is an ARRAY of documents, not an object with documents property
+      // Validate documents array
+      if (!Array.isArray(documentRequest)) {
+        return res.status(400).json({
+          message: `Document request at index ${i} must be an array of documents`,
+        });
+      }
+
+      // Validate each document in the array
+      for (let j = 0; j < documentRequest.length; j++) {
+        const doc = documentRequest[j];
+        if (!doc.name) {
+          return res.status(400).json({
+            message: `Document at index ${j} in request ${i} is missing required 'name' field`,
+          });
+        }
+      }
+
+      // Convert the documents array to the format expected by DocumentRequest model
+      const documentsWithStatus = documentRequest.map(doc => ({
+        name: doc.name,
+        type: doc.templateUrl ? 'template' : 'direct',
+        description: doc.description || '',
+        template: doc.templateUrl ? {
+          url: doc.templateUrl,
+          instruction: doc.description || ''
+        } : undefined,
+        status: 'pending'
+      }));
+
+      console.log('📝 Documents with status:', documentsWithStatus);
+
+      // Get engagement details for description
+      const engagement = await Engagement.findById(kyc.engagement);
+      const engagementTitle = engagement ? engagement.title : 'this engagement';
+
+      // Set category to 'kyc' and add engagement info
+      const documentRequestData = {
+        description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagementTitle}`,
+        engagement: kyc.engagement,
+        clientId: kyc.clientId,
+        category: "kyc",
+        documents: documentsWithStatus, // Add the documents array here!
+        status: 'pending'
+      };
+
+      console.log('💾 Creating DocumentRequest with data:', JSON.stringify(documentRequestData, null, 2));
+
+      // Create document request
+      const createdDocRequest = await DocumentRequest.create(
+        documentRequestData
+      );
+
+      console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents');
+
+      // Add to array
+      newDocRequests.push({
+        documentRequest: createdDocRequest._id,
+        person: person,
       });
     }
 
-    // Check if document request is already attached
-    if (kyc.documentRequests && kyc.documentRequests.some(id => id.toString() === documentRequestId)) {
-      return res.status(400).json({ 
-        message: 'Document request is already attached to this KYC workflow' 
-      });
-    }
-
-    // Add document request to KYC array
-    kyc.documentRequests.push(documentRequestId);
+    // Add new document requests to existing KYC
+    kyc.documentRequests.push(...newDocRequests);
     await kyc.save();
 
-    // Populate the response
+    // Populate and return
     const updatedKYC = await KYC.findById(id)
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents');
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
 
-    res.json(updatedKYC);
+    res.status(200).json({
+      success: true,
+      message: `${newDocRequests.length} document request(s) added successfully`,
+      kyc: updatedKYC,
+    });
   } catch (err) {
     next(err);
   }
@@ -411,28 +614,39 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
 exports.getAllDiscussions = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     // Verify KYC exists
     const kyc = await KYC.findById(id)
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status documents');
-    
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
+
     if (!kyc) {
-      return res.status(404).json({ message: 'KYC workflow not found' });
+      return res.status(404).json({ message: "KYC workflow not found" });
     }
 
     // Return discussions with engagement and document request info
-    const discussions = kyc.discussions.map(discussion => ({
+    const discussions = kyc.discussions.map((discussion) => ({
       ...discussion.toObject(),
       engagement: kyc.engagement,
-      documentRequest: kyc.documentRequests
+      documentRequests: kyc.documentRequests,
     }));
 
     res.json({
       kycId: kyc._id,
       engagement: kyc.engagement,
-      documentRequest: kyc.documentRequests,
-      discussions: discussions.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      documentRequests: kyc.documentRequests,
+      discussions: discussions.sort(
+        (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+      ),
     });
   } catch (err) {
     next(err);
@@ -443,10 +657,19 @@ exports.getAllDiscussions = async (req, res, next) => {
 exports.getMyKYCs = async (req, res, next) => {
   try {
     const clientId = req.user.id;
-    
+
     const kycs = await KYC.find({ clientId })
-      .populate('engagement', 'title yearEndDate clientId')
-      .populate('documentRequests', 'category description status')
+      .populate("engagement", "title yearEndDate clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      })
       .sort({ createdAt: -1 });
 
     res.json(kycs);

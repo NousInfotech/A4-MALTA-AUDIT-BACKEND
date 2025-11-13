@@ -706,19 +706,22 @@ exports.getLibraryFiles = async (req, res, next) => {
 };
 
 exports.createEngagement = async (req, res, next) => {
+  console.log(req.user);
+  
   try {
-    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy } =
+    const { clientId, title, yearEndDate, trialBalanceUrl, createdBy, companyId } =
       req.body;
     const engagement = await Engagement.create({
       createdBy,
       clientId,
-      organizationId: req.user.organizationId,
+      organizationId: req.user.organizationId, 
+      companyId,
       title,
       yearEndDate,
       trialBalanceUrl,
       status: trialBalanceUrl ? "active" : "draft",
     });
-
+    
     const placeholders = ENGAGEMENT_FOLDERS.map((category) => ({
       engagement: engagement._id,
       category,
@@ -1007,9 +1010,33 @@ exports.getEngagementById = async (req, res, next) => {
     }
     
     const engagement = await Engagement.findOne(query)
-      .populate("documentRequests")
-      .populate("procedures")
-      .populate("trialBalanceDoc");
+    .populate("documentRequests")
+    .populate("procedures")
+    .populate("trialBalanceDoc")
+    .populate({
+      path: "companyId",
+      populate: [
+        {
+          path: "shareHolders.personId",
+          model: "Person",
+          select: "name nationality email phoneNumber address"
+        },
+        {
+          path: "representationalSchema.personId",
+          model: "Person",
+          select: "name nationality email phoneNumber address"
+        },
+        {
+          path: "shareHoldingCompanies.companyId",
+          model: "Company",
+          populate: {
+            path: "shareHolders.personId",
+            model: "Person",
+            select: "name nationality address"
+          }
+        }
+      ]
+    });
     if (!engagement) return res.status(404).json({ message: "Not found or access denied" });
     res.json(engagement);
   } catch (err) {
