@@ -150,7 +150,7 @@ exports.getKYCByEngagement = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -178,7 +178,7 @@ exports.getKYCById = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -213,7 +213,7 @@ exports.updateKYC = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -264,7 +264,7 @@ exports.getAllKYCs = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -592,7 +592,7 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -621,7 +621,7 @@ exports.getAllDiscussions = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
@@ -663,7 +663,7 @@ exports.getMyKYCs = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "category description status documents",
+        select: "name category description status documents",
       })
       .populate({
         path: "documentRequests.person",
