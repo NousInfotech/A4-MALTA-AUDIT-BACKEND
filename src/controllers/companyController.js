@@ -159,7 +159,7 @@ exports.createCompany = async (req, res) => {
             sharesData: {
               percentage: sharePercentage,
               totalShares: Math.round((sharePercentage / 100) * totalSharesValue),
-              class: shareClass,
+              class: shareHoldingCompanies.shareClass || "A",
             },
           };
         })
@@ -236,7 +236,10 @@ exports.updateCompany = async (req, res) => {
 
     // Handle shareHoldingCompanies update if provided
     if (updateData.shareHoldingCompanies) {
-      const totalSharesValue = Number(updateData.totalShares) || 0;
+      // Get existing company to preserve class values and totalShares if not changing
+      const existingCompany = await Company.findOne({ _id: companyId, clientId });
+      const totalSharesValue = Number(updateData.totalShares) || Number(existingCompany?.totalShares) || 0;
+      
       updateData.shareHoldingCompanies = Array.isArray(updateData.shareHoldingCompanies)
         ? updateData.shareHoldingCompanies.map((s) => {
             const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
@@ -245,12 +248,23 @@ exports.updateCompany = async (req, res) => {
                 ? Number(s.sharePercentage)
                 : Number(s?.sharesData?.percentage) || 0;
             
-            // Calculate share class
-            let shareClass = "General";
-            if (sharePercentage >= 50) shareClass = "A";
-            else if (sharePercentage >= 30) shareClass = "B";
-            else if (sharePercentage >= 20) shareClass = "Ordinary";
-
+            // Preserve existing class if available, otherwise calculate
+            let shareClass = s?.sharesData?.class;
+            if (!shareClass && existingCompany) {
+              const existingShare = existingCompany.shareHoldingCompanies?.find(
+                (sh) => (typeof sh.companyId === 'object' ? sh.companyId?._id?.toString() : sh.companyId?.toString()) === companyId?.toString()
+              );
+              shareClass = existingShare?.sharesData?.class;
+            }
+            
+            // Calculate share class if still not set
+            if (!shareClass) {
+              if (sharePercentage >= 50) shareClass = "A";
+              else if (sharePercentage >= 30) shareClass = "B";
+              else if (sharePercentage >= 20) shareClass = "Ordinary";
+              else shareClass = "General";
+            }
+            
             return {
               companyId: companyId,
               sharesData: {

@@ -18,13 +18,13 @@ const CompanySchema = new Schema(
   {
     clientId: { type: String, required: true },
     name: { type: String, required: true },
-    registrationNumber: { type: String },
-    address: { type: String },
+    registrationNumber: { type: String, required: true},
+    address: { type: String, required: true},
     supportingDocuments: [{ type: String }], // URLs or file keys
     industry: { type: String },
     description: { type: String },
     companyStartedAt: { type: Date },
-    totalShares: { type: Number, default: 0 },
+    totalShares: { type: Number, min: 100 },
 
     // Shareholding by other companies
     shareHoldingCompanies: [
