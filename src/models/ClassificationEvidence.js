@@ -1,5 +1,33 @@
 const mongoose = require("mongoose");
 
+// Schema for storing mappings from ExcelWorkbook to ClassificationEvidence (same as ETB)
+const EvidenceMappingSchema = new mongoose.Schema({
+  workbookId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Workbook",
+    required: true
+  },
+  color: {
+    type: String,
+    required: true
+  },
+  details: {
+    sheet: { type: String, required: true },
+    start: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+    end: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, { _id: true });
+
 const classificationEvidenceSchema = new mongoose.Schema(
   {
     engagementId: {
@@ -60,6 +88,14 @@ const classificationEvidenceSchema = new mongoose.Schema(
         },
       },
     ],
+    linkedWorkbooks: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }],
+      default: []
+    }, // NEW: Add linked workbooks like ETB
+    mappings: {
+      type: [EvidenceMappingSchema],
+      default: []
+    }, // NEW: Add mappings like ETB
   },
   {
     timestamps: true,
