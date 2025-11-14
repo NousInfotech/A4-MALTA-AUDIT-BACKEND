@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const companyController = require("../controllers/companyController");
-const { requireAuth } = require("../middlewares/auth");
+const { requireAuth, requireRole } = require("../middlewares/auth");
 
 // Apply auth middleware to all routes
 router.use(requireAuth);
-
+router.use(requireRole("employee"));
 // GET /api/client/:clientId/company - Get all companies for a client
 router.get("/:clientId/company", companyController.getAllCompanies);
 

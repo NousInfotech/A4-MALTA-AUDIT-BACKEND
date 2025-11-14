@@ -17,6 +17,7 @@ const ShareDataSchema = new Schema(
 const CompanySchema = new Schema(
   {
     clientId: { type: String, required: true },
+    organizationId: { type: Types.ObjectId, ref: "Organization", required: true },
     name: { type: String, required: true },
     registrationNumber: { type: String, required: true},
     address: { type: String, required: true},
