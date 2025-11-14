@@ -13,6 +13,11 @@ const documentRequestTemplateSchema = new Schema(
       required: true
     },
 
+    organizationId :{
+      type: Types.ObjectId,
+      ref: "OrganizationId",
+      required: true
+    },
     type: {
       type: String,
       enum: ["template", "direct"],

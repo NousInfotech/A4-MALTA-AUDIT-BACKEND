@@ -7,7 +7,8 @@ exports.createSingle = async (req, res) => {
   try {
     const payload = {
       ...req.body,
-      category: "kyc"
+      category: "kyc",
+      organizationId: req.user.organizationId
     };
 
     const newTemplate = await DocumentRequestTemplate.create(payload);
@@ -108,6 +109,9 @@ exports.getAllBulk = async (req, res) => {
     if (req.query.category) {
       filters.category = req.query.category;
     }
+    if (req.query.organizationId) {
+      filters.organizationId = req.query.organizationId;
+    }
 
     const templates = await DocumentRequestTemplate.find(filters);
 
@@ -130,7 +134,8 @@ exports.bulkCreate = async (req, res) => {
   try {
     const payload = req.body.map((item) => ({
       ...item,
-      category: "kyc"
+      category: "kyc",
+      organizationId: req.user.organizationId
     }));
 
     const created = await DocumentRequestTemplate.insertMany(payload);
