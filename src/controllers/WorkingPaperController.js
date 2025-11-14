@@ -219,7 +219,8 @@ const createOrUpdateWorkingPaper = async (req, res) => {
 // Add mapping to a specific Working Paper row
 const addMappingToRow = async (req, res) => {
   try {
-    const { id: engagementId, classification, rowId } = req.params;
+    const { engagementId, classification, rowCode } = req.params;
+    const rowId = rowCode;
     const { workbookId, color, details } = req.body;
 
     // Debug: Log the received data
@@ -273,47 +274,49 @@ const addMappingToRow = async (req, res) => {
       }
     }
 
-    const workingPaper = await WorkingPaper.findOneAndUpdate(
-      { 
-        engagement: engagementId,
-        classification: classification,
-        $or: [
-          { "rows.id": rowId },
-          { "rows.code": rowId }
-        ]
-      },
-      { 
-        $push: { "rows.$.mappings": newMapping },
-        $set: { updatedAt: new Date() }
-      },
-      { new: true }
-    ).populate({
+    const workingPaper = await WorkingPaper.findOne({ 
+      engagement: engagementId,
+      classification: classification
+    });
+
+    if (!workingPaper) {
+      console.log('Backend: WorkingPaper not found for engagement/classification');
+      return res.status(404).json({
+        success: false,
+        message: "Working Paper not found"
+      });
+    }
+
+    const targetRow = workingPaper.rows.find(
+      (r) => r.id === rowId || r.code === rowId || r.code === rowId?.toString()
+    );
+
+    if (!targetRow) {
+      console.log('Backend: Target row not found when attempting to add mapping');
+      return res.status(404).json({
+        success: false,
+        message: "Row not found"
+      });
+    }
+
+    targetRow.mappings = targetRow.mappings || [];
+    targetRow.mappings.push(newMapping);
+    workingPaper.updatedAt = new Date();
+
+    await workingPaper.save();
+
+    const populatedWorkingPaper = await WorkingPaper.findById(workingPaper._id).populate({
       path: "rows.mappings.workbookId",
       model: "Workbook",
       select: "name cloudFileId webUrl classification category"
     });
 
-    console.log('Backend: Update result:', !!workingPaper);
-    if (workingPaper) {
-      console.log('Backend: Updated WorkingPaper rows count:', workingPaper.rows.length);
-      const updatedRow = workingPaper.rows.find(r => r.id === rowId || r.code === rowId);
-      if (updatedRow) {
-        console.log('Backend: Updated row mappings count:', updatedRow.mappings?.length || 0);
-      }
-    }
-
-    if (!workingPaper) {
-      console.log('Backend: WorkingPaper or row not found after update attempt');
-      return res.status(404).json({
-        success: false,
-        message: "Working Paper or row not found"
-      });
-    }
+    console.log('Backend: Mapping added successfully to row:', rowId);
 
     res.status(200).json({
       success: true,
       message: "Mapping added successfully",
-      data: workingPaper
+      data: populatedWorkingPaper
     });
   } catch (error) {
     console.error("Error adding mapping:", error);
@@ -328,7 +331,8 @@ const addMappingToRow = async (req, res) => {
 // Update a specific mapping
 const updateMapping = async (req, res) => {
   try {
-    const { id: engagementId, classification, rowId, mappingId } = req.params;
+    const { engagementId, classification, rowCode, mappingId } = req.params;
+    const rowId = rowCode;
     const updateData = req.body;
 
     // Remove fields that shouldn't be updated directly
@@ -403,7 +407,8 @@ const updateMapping = async (req, res) => {
 // Remove a mapping from a specific Working Paper row
 const removeMappingFromRow = async (req, res) => {
   try {
-    const { id: engagementId, classification, rowId, mappingId } = req.params;
+    const { engagementId, classification, rowCode, mappingId } = req.params;
+    const rowId = rowCode;
 
     const workingPaper = await WorkingPaper.findOneAndUpdate(
       { 
@@ -500,7 +505,8 @@ const getMappingsByWorkbook = async (req, res) => {
 // Toggle mapping active status
 const toggleMappingStatus = async (req, res) => {
   try {
-    const { id: engagementId, classification, rowId, mappingId } = req.params;
+    const { engagementId, classification, rowCode, mappingId } = req.params;
+    const rowId = rowCode;
     const { isActive } = req.body;
 
     if (typeof isActive !== 'boolean') {

@@ -204,36 +204,48 @@ exports.deleteEvidence = async (req, res) => {
 // Get evidence with linked workbooks and mappings
 exports.getEvidenceWithMappings = async (req, res) => {
   try {
-    const { classificationId } = req.params;
+    const { evidenceId, classificationId } = req.params;
 
-    console.log('Backend: getEvidenceWithMappings called for classificationId:', classificationId);
+    console.log('Backend: getEvidenceWithMappings called for identifiers:', {
+      evidenceId,
+      classificationId,
+    });
 
-    const evidence = await ClassificationEvidence.find({ classificationId })
+    let filter = {};
+    if (evidenceId) {
+      filter = { _id: evidenceId };
+    } else if (classificationId) {
+      filter = { classificationId };
+    }
+
+    const evidenceQuery = ClassificationEvidence.find(filter)
       .populate({
-        path: "linkedWorkbooks",
-        model: "Workbook",
-        select: "name cloudFileId webUrl classification category"
+        path: 'linkedWorkbooks',
+        model: 'Workbook',
+        select: 'name cloudFileId webUrl classification category',
       })
       .populate({
-        path: "mappings.workbookId",
-        model: "Workbook",
-        select: "name cloudFileId webUrl classification category"
+        path: 'mappings.workbookId',
+        model: 'Workbook',
+        select: 'name cloudFileId webUrl classification category',
       })
       .populate('classificationId', 'classification status')
       .sort({ createdAt: -1 });
+
+    const evidence = await evidenceQuery.exec();
 
     console.log('Backend: Found', evidence.length, 'evidence files');
 
     res.status(200).json({
       success: true,
-      message: "Evidence retrieved successfully",
-      evidence: evidence,
+      message: 'Evidence retrieved successfully',
+      evidence,
     });
   } catch (error) {
-    console.error("Error getting evidence with mappings:", error);
+    console.error('Error getting evidence with mappings:', error);
     res.status(500).json({
       success: false,
-      error: error.message || "Failed to get evidence",
+      error: error.message || 'Failed to get evidence',
     });
   }
 };
@@ -241,8 +253,8 @@ exports.getEvidenceWithMappings = async (req, res) => {
 // Link workbook to evidence
 exports.linkWorkbookToEvidence = async (req, res) => {
   try {
-    const { evidenceId } = req.params;
-    const { workbookId } = req.body;
+    const { evidenceId, workbookId: workbookIdParam } = req.params;
+    const workbookId = req.body?.workbookId || workbookIdParam;
 
     console.log('Backend: Linking workbook to evidence:', { evidenceId, workbookId });
 
@@ -272,15 +284,16 @@ exports.linkWorkbookToEvidence = async (req, res) => {
     }
 
     // Check if already linked
-    if (evidence.linkedWorkbooks.includes(workbookId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Workbook is already linked to this evidence"
-      });
-    }
+    const alreadyLinked = evidence.linkedWorkbooks.some(
+      (linkedId) => linkedId.toString() === workbookId.toString()
+    );
 
-    evidence.linkedWorkbooks.push(workbookId);
-    await evidence.save();
+    if (!alreadyLinked) {
+      evidence.linkedWorkbooks.push(workbookId);
+      await evidence.save();
+    } else {
+      console.log('Backend: Workbook already linked to evidence, returning existing state');
+    }
 
     // Populate and return
     const populatedEvidence = await ClassificationEvidence.findById(evidenceId)
@@ -297,7 +310,9 @@ exports.linkWorkbookToEvidence = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Workbook linked successfully",
+      message: alreadyLinked
+        ? "Workbook already linked to this evidence"
+        : "Workbook linked successfully",
       evidence: populatedEvidence,
     });
   } catch (error) {
@@ -621,6 +636,8 @@ exports.getMappingsByWorkbook = async (req, res) => {
     const workbookMappings = [];
     evidenceList.forEach(evidence => {
       const relevantMappings = evidence.mappings.filter(mapping => 
+        mapping.workbookId &&
+        mapping.workbookId._id &&
         mapping.workbookId._id.toString() === workbookId
       );
       relevantMappings.forEach(mapping => {
