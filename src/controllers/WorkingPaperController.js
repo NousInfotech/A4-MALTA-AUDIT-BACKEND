@@ -410,37 +410,71 @@ const removeMappingFromRow = async (req, res) => {
     const { engagementId, classification, rowCode, mappingId } = req.params;
     const rowId = rowCode;
 
-    const workingPaper = await WorkingPaper.findOneAndUpdate(
-      { 
-        engagement: engagementId,
-        classification: classification,
-        $or: [
-          { "rows.id": rowId },
-          { "rows.code": rowId }
-        ]
-      },
-      { 
-        $pull: { "rows.$.mappings": { _id: mappingId } },
-        $set: { updatedAt: new Date() }
-      },
-      { new: true }
-    ).populate({
-      path: "rows.mappings.workbookId",
-      model: "Workbook",
-      select: "name cloudFileId webUrl classification category"
+    // Find the Working Paper document
+    const workingPaper = await WorkingPaper.findOne({ 
+      engagement: engagementId,
+      classification: classification
     });
 
     if (!workingPaper) {
       return res.status(404).json({
         success: false,
-        message: "Working Paper or row not found"
+        message: "Working Paper not found"
       });
     }
+
+    // Find the target row
+    const targetRow = workingPaper.rows.find(
+      (r) => r.id === rowId || r.code === rowId || r.code === rowId?.toString()
+    );
+
+    if (!targetRow) {
+      return res.status(404).json({
+        success: false,
+        message: "Row not found"
+      });
+    }
+
+    // Ensure mappings array exists
+    if (!targetRow.mappings || !Array.isArray(targetRow.mappings)) {
+      return res.status(404).json({
+        success: false,
+        message: "No mappings found for this row"
+      });
+    }
+
+    // Find the mapping index
+    const mappingIndex = targetRow.mappings.findIndex(
+      (m) => m._id.toString() === mappingId
+    );
+
+    if (mappingIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Mapping not found"
+      });
+    }
+
+    // Remove the mapping from the array
+    targetRow.mappings.splice(mappingIndex, 1);
+    workingPaper.updatedAt = new Date();
+
+    // Save the document
+    await workingPaper.save();
+
+    // Populate the workbook reference and return
+    const populatedWorkingPaper = await WorkingPaper.findById(workingPaper._id).populate({
+      path: "rows.mappings.workbookId",
+      model: "Workbook",
+      select: "name cloudFileId webUrl classification category"
+    });
+
+    console.log('Backend: Mapping removed successfully from row:', rowId);
 
     res.status(200).json({
       success: true,
       message: "Mapping removed successfully",
-      data: workingPaper
+      data: populatedWorkingPaper
     });
   } catch (error) {
     console.error("Error removing mapping:", error);
