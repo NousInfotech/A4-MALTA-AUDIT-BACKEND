@@ -28,11 +28,9 @@ const documentRequestTemplateSchema = new Schema(
     template: {
       url: {
         type: String,
-        required: true
       },
       instructions: {
         type: String,
-        required: true
       }
     },
 
