@@ -36,6 +36,7 @@ const workingPaperRoutes = require("./routes/workingPaperRoutes");
 const organizationRoutes = require("./routes/organizations");
 const notificationRoutes = require("./routes/notifications");
 const documentRequestTemplateRoutes = require("./routes/documentRequestTemplateRoutes");
+const wordPluginRoutes = require("./routes/wordPlugin");
 const app = express();
 
 app.use(
@@ -92,6 +93,7 @@ app.use("/api/working-papers", workingPaperRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/document-request-templates", documentRequestTemplateRoutes);
+app.use("/api/word-plugin", wordPluginRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
