@@ -36,7 +36,7 @@ exports.getAllCompanies = async (req, res) => {
       })
       .populate({
         path: "shareHoldingCompanies.companyId",
-        select: "name registrationNumber status",
+        select: "name registrationNumber status clientId",
         model: "Company",
       })
       .sort({ createdAt: -1 });
@@ -84,7 +84,7 @@ exports.getCompanyById = async (req, res) => {
       })
       .populate({
         path: "shareHoldingCompanies.companyId",
-        select: "name registrationNumber status",
+        select: "name registrationNumber status clientId",
         model: "Company",
       });
 
@@ -172,6 +172,7 @@ exports.createCompany = async (req, res) => {
       clientId,
       name,
       registrationNumber,
+      organizationId: req.user.organizationId,
       address,
       supportingDocuments: supportingDocuments || [],
       companyStartedAt: timelineStart ? new Date(timelineStart) : undefined,
