@@ -1,5 +1,33 @@
 const mongoose = require("mongoose");
 
+// Schema for storing mappings from ExcelWorkbook to WorkingPaper fields (same as ETB)
+const WorkingPaperMappingSchema = new mongoose.Schema({
+  workbookId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Workbook",
+    required: true
+  },
+  color: {
+    type: String,
+    required: true
+  },
+  details: {
+    sheet: { type: String, required: true },
+    start: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+    end: {
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    },
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, { _id: true });
+
 const WorkingPaperRowSchema = new mongoose.Schema(
   {
     id: { type: String, default: "" },
@@ -13,6 +41,7 @@ const WorkingPaperRowSchema = new mongoose.Schema(
     reference: { type: mongoose.Schema.Types.Mixed, default: "" },
     referenceData: { type: mongoose.Schema.Types.Mixed, default: "" },
     linkedExcelFiles: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workbook" }], default: [] },
+    mappings: { type: [WorkingPaperMappingSchema], default: [] }, // NEW: Add mappings like ETB
     grouping1: { type: String, default: "" },
     grouping2: { type: String, default: "" },
     grouping3: { type: String, default: "" },
