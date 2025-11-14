@@ -195,6 +195,7 @@ const getSpecificSheetData = async (req, res) => {
 const listWorkbooks = async (req, res) => {
   try {
     const { engagementId, classification } = req.params;
+    const { category } = req.query; // ✅ Get category from query params
 
     if (!engagementId) {
       return res
@@ -202,16 +203,33 @@ const listWorkbooks = async (req, res) => {
         .json({ success: false, error: "engagementId is required" });
     }
 
+    // ✅ STRICT MODE: Only show workbooks matching the category (tab-specific)
     const query = { engagementId };
     if (classification) {
       query.classification = classification;
+    }
+    
+    if (category) {
+      // ✅ STRICT FILTERING: Only show workbooks with exact category match
+      // Workbooks without category will NOT be shown (need to be re-uploaded or manually tagged)
+      query.category = category;
+      console.log('Backend: listWorkbooks STRICT query (category-filtered):', JSON.stringify(query, null, 2));
+    } else {
+      // If no category provided, show all workbooks for this engagement/classification
+      console.log('Backend: listWorkbooks query (no category filter):', JSON.stringify(query, null, 2));
     }
 
     const workbooks = await Workbook.find(query).select(
       "-mappings -namedRanges"
     );
+    console.log('Backend: listWorkbooks result:', {
+      count: workbooks.length,
+      requestedCategory: category || 'NONE',
+      workbooks: workbooks.map(wb => ({ id: wb._id, name: wb.name, category: wb.category || 'NONE' }))
+    });
     res.status(200).json({ success: true, data: workbooks });
   } catch (error) {
+    console.error('Backend: listWorkbooks error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
@@ -1146,6 +1164,7 @@ const listTrialBalanceWorkbooks = async (req, res) => {
 
     res.status(200).json({ success: true, data: workbooks });
   } catch (error) {
+    console.error('Backend: listWorkbooks error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };

@@ -13,6 +13,7 @@
     "@apideck/node": "^3.8.0",
     "@apideck/unify": "^0.29.7",
     "@supabase/supabase-js": "^2.53.1",
+    "archiver": "^7.0.1",
     "axios": "^1.11.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -30,8 +31,10 @@
     "papaparse": "^5.5.3",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.17.2",
+    "qrcode": "^1.5.4",
     "sharp": "^0.34.4",
     "socket.io": "^4.8.1",
+    "speakeasy": "^2.0.0",
     "strip-json-comments": "^5.0.3",
     "supabase": "^2.33.9",
     "xlsx": "^0.18.5"
