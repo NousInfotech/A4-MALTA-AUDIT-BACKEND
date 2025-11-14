@@ -1,16 +1,18 @@
 const DocumentRequestTemplate = require("../models/DocumentRequestTemplate");
-
+const { supabase } = require("../config/supabase");
 // Single CRUD
 
 // CREATE SINGLE
 exports.createSingle = async (req, res) => {
+  console.log(req.user);
   try {
     const payload = {
       ...req.body,
       category: "kyc",
+      uploadedBy: req.user.id,
       organizationId: req.user.organizationId
     };
-
+    
     const newTemplate = await DocumentRequestTemplate.create(payload);
 
     return res.status(201).json({
@@ -28,9 +30,15 @@ exports.createSingle = async (req, res) => {
 // READ SINGLE
 exports.getSingle = async (req, res) => {
   try {
-    const { _id } = req.body;
+    const id = req.params.id || req.body._id;
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Document id is required",
+      });
+    }
 
-    const template = await DocumentRequestTemplate.findById(_id);
+    const template = await DocumentRequestTemplate.findById(id);
 
     return res.status(200).json({
       success: true,
@@ -47,10 +55,17 @@ exports.getSingle = async (req, res) => {
 // UPDATE SINGLE
 exports.updateSingle = async (req, res) => {
   try {
-    const { _id, ...rest } = req.body;
+    const id = req.params.id || req.body._id;
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Document id is required",
+      });
+    }
 
+    const { _id: _ignored, ...rest } = req.body;
     const updated = await DocumentRequestTemplate.findByIdAndUpdate(
-      _id,
+      id,
       {
         ...rest,
         category: "kyc"
@@ -73,17 +88,27 @@ exports.updateSingle = async (req, res) => {
 // DELETE SINGLE (soft delete)
 exports.deleteSingle = async (req, res) => {
   try {
-    const { _id } = req.body;
+    const id = req.params.id || req.body._id;
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Document id is required",
+      });
+    }
 
-    const deleted = await DocumentRequestTemplate.findByIdAndUpdate(
-      _id,
-      { isActive: false },
-      { new: true }
+    const deleted = await DocumentRequestTemplate.findByIdAndDelete(
+      id,
     );
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: "Template deactivated",
+      message: "Document deleted",
       data: deleted
     });
   } catch (error) {
@@ -187,14 +212,20 @@ exports.bulkDelete = async (req, res) => {
   try {
     const ids = req.body; // array of _id
 
-    const result = await DocumentRequestTemplate.deleteMany(
+    const deleted = await DocumentRequestTemplate.deleteMany(
       { _id: { $in: ids } },
     );
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Documents not found",
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: "Bulk templates deactivated",
-      modified: result.modifiedCount
+      message: "Bulk documents deleted",
+      modified: deleted.length
     });
   } catch (error) {
     return res.status(400).json({
@@ -203,3 +234,53 @@ exports.bulkDelete = async (req, res) => {
     });
   }
 };
+
+// DOWNLOAD TEMPLATE
+
+exports.uploadTemplate = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const bucket = "global-documents";
+    const category = "kyc";
+    const originalFilename = req.file.originalname;
+    const ext = originalFilename.split(".").pop();
+    const uniqueFilename = `template_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 5)}.${ext}`;
+    
+    // Store templates in a templates folder
+    const path = `document-request-templates/${category}/${uniqueFilename}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, req.file.buffer, { 
+        cacheControl: "3600", 
+        upsert: false,
+        contentType: req.file.mimetype 
+      });
+    
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      return res.status(500).json({ message: "Failed to upload template file" });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(uploadData.path);
+
+    res.json({
+      success: true,
+      url: urlData.publicUrl,
+      filename: uniqueFilename,
+      originalName: originalFilename
+    });
+  } catch (error) {
+    console.error('Template upload error:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
