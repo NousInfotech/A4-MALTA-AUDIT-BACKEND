@@ -26,11 +26,12 @@ const EXCEL_MIME =
 
 // Parse accounting number formats: (55,662) → 55662, 42,127 → 42127
 // Removes parentheses and special characters, preserves any existing minus sign
+// Returns rounded integer value
 function parseAccountingNumber(value) {
   if (value === null || value === undefined || value === "") return 0;
 
-  // If already a number, return it
-  if (typeof value === "number") return value;
+  // If already a number, round and return it
+  if (typeof value === "number") return Math.round(value);
 
   // Convert to string and clean
   let str = String(value).trim();
@@ -41,8 +42,8 @@ function parseAccountingNumber(value) {
   // Parse to number
   const num = Number(str);
 
-  // Return the number (no negative conversion for parentheses)
-  return isNaN(num) ? 0 : num;
+  // Return rounded number (no negative conversion for parentheses)
+  return isNaN(num) ? 0 : Math.round(num);
 }
 
 // utils/referenceHelpers.js
@@ -1079,17 +1080,33 @@ exports.fetchTrialBalance = async (req, res, next) => {
 
     const [headers, ...rows] = allRows;
 
+    // Find column indices for numeric fields
+    const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
+    const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
+
+    // Round numeric values in raw rows before saving to TrialBalance
+    const roundedRows = rows.map((row) => {
+      const roundedRow = [...row];
+      if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
+        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+      }
+      if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
+        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+      }
+      return roundedRow;
+    });
+
     let tb = await TrialBalance.findOne({ engagement: engagement._id });
     if (tb) {
       tb.headers = headers;
-      tb.rows = rows;
+      tb.rows = roundedRows; // Use rounded rows
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagement._id,
         headers,
-        rows,
+        rows: roundedRows, // Use rounded rows
       });
     }
 
@@ -1148,17 +1165,33 @@ exports.saveTrialBalance = async (req, res, next) => {
       url: { $ne: "" },
     }).sort({ createdAt: -1 });
 
+    // Find column indices for numeric fields
+    const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
+    const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
+
+    // Round numeric values in raw rows before saving to TrialBalance
+    const roundedRows = data.slice(1).map((row) => {
+      const roundedRow = [...row];
+      if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
+        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+      }
+      if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
+        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+      }
+      return roundedRow;
+    });
+
     let tb = await TrialBalance.findOne({ engagement: engagementId });
     if (tb) {
       tb.headers = headers;
-      tb.rows = data.slice(1);
+      tb.rows = roundedRows; // Use rounded rows
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagementId,
         headers,
-        rows: data.slice(1),
+        rows: roundedRows, // Use rounded rows
       });
     }
 
@@ -1220,8 +1253,8 @@ exports.saveTrialBalance = async (req, res, next) => {
         const etbRows = tbRows.map((row, index) => {
           const code = row[codeIndex] || "";
           const accountName = row[nameIndex] || "";
-          const currentYear = parseAccountingNumber(row[currentYearIndex]);
-          const priorYear = parseAccountingNumber(row[priorYearIndex]);
+          const currentYear = parseAccountingNumber(row[currentYearIndex]); // Already rounded
+          const priorYear = parseAccountingNumber(row[priorYearIndex]); // Already rounded
           
           const g1 = grouping1Index !== -1 ? (row[grouping1Index] || "").trim() : "";
           const g2 = grouping2Index !== -1 ? (row[grouping2Index] || "").trim() : "";
@@ -1261,11 +1294,11 @@ exports.saveTrialBalance = async (req, res, next) => {
             _id: code || `row-${index}`,
             code,
             accountName,
-            currentYear,
-            priorYear, // ✅ This now includes the populated prior year data
+            currentYear, // Already rounded via parseAccountingNumber
+            priorYear, // Already rounded via parseAccountingNumber
             adjustments: 0,
             reclassification: 0,
-            finalBalance: currentYear,
+            finalBalance: currentYear, // Already rounded
             classification: finalClassification, // ✅ Use previous year's classification if current is empty
             grouping1: finalGrouping1, // ✅ From previous year
             grouping2: finalGrouping2, // ✅ From previous year
@@ -1375,17 +1408,33 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
       });
     }
 
+    // Find column indices for numeric fields
+    const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
+    const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
+
+    // Round numeric values in raw rows before saving to TrialBalance
+    const roundedRows = rows.map((row) => {
+      const roundedRow = [...row];
+      if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
+        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+      }
+      if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
+        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+      }
+      return roundedRow;
+    });
+
     let tb = await TrialBalance.findOne({ engagement: engagementId });
     if (tb) {
       tb.headers = headers;
-      tb.rows = rows;
+      tb.rows = roundedRows; // Use rounded rows
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagementId,
         headers,
-        rows,
+        rows: roundedRows, // Use rounded rows
       });
     }
 
@@ -1466,8 +1515,8 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
         const etbRows = tbRows.map((row, index) => {
           const code = row[codeIndex] || "";
           const accountName = row[nameIndex] || "";
-          const currentYear = parseAccountingNumber(row[currentYearIndex]);
-          const priorYear = parseAccountingNumber(row[priorYearIndex]); // This now has populated data!
+          const currentYear = parseAccountingNumber(row[currentYearIndex]); // Already rounded
+          const priorYear = parseAccountingNumber(row[priorYearIndex]); // Already rounded
           
           const g1 = grouping1Index !== -1 ? (row[grouping1Index] || "").trim() : "";
           const g2 = grouping2Index !== -1 ? (row[grouping2Index] || "").trim() : "";
@@ -1507,11 +1556,11 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
             _id: code || `row-${index}`,
             code,
             accountName,
-            currentYear,
-            priorYear, // ✅ This now includes the populated prior year data
+            currentYear, // Already rounded via parseAccountingNumber
+            priorYear, // Already rounded via parseAccountingNumber
             adjustments: 0,
             reclassification: 0,
-            finalBalance: currentYear,
+            finalBalance: currentYear, // Already rounded
             classification: finalClassification, // ✅ Use previous year's classification if current is empty
             grouping1: finalGrouping1, // ✅ From previous year
             grouping2: finalGrouping2, // ✅ From previous year
@@ -1677,27 +1726,27 @@ exports.saveETB = async (req, res, next) => {
       // Use existing _id or id, or generate one from code
       const rowId = _id || id || String(code).trim();
 
-      const current = parseAccountingNumber(currentYear);
-      const prior = parseAccountingNumber(priorYear);
-      const adjValue = parseAccountingNumber(adjustments);
-      const reclassValue = parseAccountingNumber(reclassification);
+      const current = parseAccountingNumber(currentYear); // Already rounded
+      const prior = parseAccountingNumber(priorYear); // Already rounded
+      const adjValue = parseAccountingNumber(adjustments); // Already rounded
+      const reclassValue = parseAccountingNumber(reclassification); // Already rounded
       const providedFinal =
         finalBalance !== undefined && finalBalance !== null && finalBalance !== ""
-          ? parseAccountingNumber(finalBalance)
+          ? parseAccountingNumber(finalBalance) // Already rounded
           : undefined;
-      const computedFinal = current + adjValue + reclassValue;
+      const computedFinal = current + adjValue + reclassValue; // All values already rounded
 
       return {
         _id: rowId,
         code: code != null ? String(code).trim() : "",
         accountName: accountName != null ? String(accountName) : "",
-        currentYear: current,
-        priorYear: prior,
-        adjustments: adjValue,
-        finalBalance: Number.isFinite(providedFinal) ? providedFinal : computedFinal,
+        currentYear: current, // Rounded
+        priorYear: prior, // Rounded
+        adjustments: adjValue, // Rounded
+        finalBalance: Number.isFinite(providedFinal) ? providedFinal : computedFinal, // Rounded
         classification:
           classification != null ? String(classification).trim() : "",
-        reclassification: reclassValue,
+        reclassification: reclassValue, // Rounded
         ...rest,
       };
     });
