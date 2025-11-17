@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 const Person = require("../models/Person");
 const Company = require("../models/Company");
+const DocumentRequest = require("../models/DocumentRequest");
+const KnowYourClient = require("../models/KnowYourClient");
 
 /**
  * Get all persons for a client (optionally filtered by companyId)
@@ -410,6 +412,11 @@ exports.deletePerson = async (req, res) => {
         }
       );
     }
+
+    await KnowYourClient.updateMany(
+      { "documentRequests.person": person._id },
+      { $pull: { documentRequests: { person: person._id } } }
+    );
 
     res.status(200).json({
       success: true,
