@@ -561,6 +561,17 @@ exports.getCompanyHierarchy = async (req, res) => {
       // Direct persons
       for (const sh of company.shareHolders || []) {
         if (!sh?.personId?._id) continue;
+        
+        // Get roles from representationalSchema for this person
+        const personIdStr = sh.personId._id.toString();
+        const roleEntries = (company.representationalSchema || []).filter(
+          rs => rs.personId?.toString() === personIdStr
+        );
+        const roles = roleEntries.reduce((acc, rs) => {
+          const roleArray = Array.isArray(rs.role) ? rs.role : (rs.role ? [rs.role] : []);
+          return [...acc, ...roleArray];
+        }, []);
+        
         node.shareholders.push({
           id: sh.personId._id,
           name: sh.personId.name,
@@ -569,6 +580,8 @@ exports.getCompanyHierarchy = async (req, res) => {
           class: sh?.sharesData?.class,
           totalShares: sh?.sharesData?.totalShares,
           address: sh.personId.address,
+          nationality: sh.personId.nationality,
+          roles: roles.length > 0 ? roles : undefined,
         });
       }
 
@@ -576,7 +589,12 @@ exports.getCompanyHierarchy = async (req, res) => {
       for (const sh of company.shareHoldingCompanies || []) {
         if (!sh?.companyId?._id) continue;
         const subCompany = await getHierarchy(sh.companyId._id, depth + 1);
-        node.shareholders.push({
+        
+        // Companies that hold shares have "Shareholder" role
+        const hasShares = (sh?.sharesData?.percentage ?? sh?.sharePercentage ?? 0) > 0;
+        const companyRoles = hasShares ? ["Shareholder"] : null;
+        
+        const companyNode = {
           id: sh.companyId._id,
           name: sh.companyId.name,
           type: "company",
@@ -585,7 +603,14 @@ exports.getCompanyHierarchy = async (req, res) => {
           totalShares: sh?.sharesData?.totalShares,
           address: subCompany?.address ?? sh.companyId.address,
           children: subCompany?.shareholders || [],
-        });
+        };
+        
+        // Always set roles if company has shares
+        if (companyRoles && companyRoles.length > 0) {
+          companyNode.roles = companyRoles;
+        }
+        
+        node.shareholders.push(companyNode);
       }
 
       return node;
