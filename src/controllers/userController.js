@@ -11,7 +11,9 @@ const WorkingPaper = require("../models/WorkingPaper")
 const TrialBalance = require("../models/TrialBalance")
 const EngagementLibrary = require("../models/EngagementLibrary")
 const ChecklistItem = require("../models/ChecklistItem")
-const ClassificationSection = require("../models/ClassificationSection")
+const ClassificationSection = require("../models/ClassificationSection");
+const Company = require("../models/Company");
+const Person = require("../models/Person");
 
 exports.deleteUser = async (req, res) => {
   const session = await mongoose.startSession()
@@ -118,7 +120,7 @@ exports.deleteUser = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { email, password, name, companyName, companyNumber, industry, summary } = req.body
+    const { email, password, name, companyName, companyNumber, industry, summary, companyId, nationality, address } = req.body
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password, and name are required" })
     }
@@ -157,6 +159,35 @@ exports.createUser = async (req, res) => {
     if (dbError) {
       await supabase.auth.admin.deleteUser(authUser.user.id)
       throw dbError
+    }
+
+    if(!companyId){
+      // create company
+      const newCompany = await Company.create({
+        name: companyName,
+        registrationNumber: companyNumber,
+        industry: industry,
+        address:address,
+        description: summary,
+        createdBy: authUser.user.id,
+        organizationId: req.user.organizationId,
+      });
+
+      // create person 
+
+      const newPerson = await Person.create({
+        name: name,
+        email: email,
+        phoneNumber: phoneNumber,
+        nationality: nationality,
+        address: address,
+        clientId: authUser.user.id,
+      });
+
+      // add person as default shareHolder and all representative roles
+
+      await Company.updateOne({ _id: newCompany._id }, { $push: { shareHolders: newPerson._id } });
+      await Company.updateOne({ _id: newCompany._id }, { $push: { representationalSchema: [{personId: newPerson._id,roles:["Shareholder","Director","Judicial Representative","Legal Representative","Secretary"] }] } });
     }
 
     res.status(201).json({
