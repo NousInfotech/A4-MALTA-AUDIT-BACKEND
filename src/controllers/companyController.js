@@ -1719,13 +1719,6 @@ exports.searchCompaniesGlobal = async (req, res) => {
   try {
     const { search = "", page = 1, limit = 10 } = req.query;
 
-    if (!organizationId) {
-      return res.status(400).json({
-        success: false,
-        message: "Organization ID is required",
-      });
-    }
-
     const pageNumber = parseInt(page, 10);
     const limitNumber = parseInt(limit, 10);
     const skip = (pageNumber - 1) * limitNumber;

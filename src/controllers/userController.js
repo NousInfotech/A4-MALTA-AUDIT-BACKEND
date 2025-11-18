@@ -120,7 +120,7 @@ exports.deleteUser = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { email, password, name, companyName, companyNumber, industry, summary, companyId, nationality, address } = req.body
+    const { email, password, name, companyName, companyNumber, industry, summary, companyId, nationality, address, phoneNumber } = req.body
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password, and name are required" })
     }
@@ -161,33 +161,102 @@ exports.createUser = async (req, res) => {
       throw dbError
     }
 
-    if(!companyId){
-      // create company
-      const newCompany = await Company.create({
-        name: companyName,
-        registrationNumber: companyNumber,
-        industry: industry,
-        address:address,
-        description: summary,
-        createdBy: authUser.user.id,
-        organizationId: req.user.organizationId,
-      });
+    // Only create company/person if role is "client" (defaults to "client" if not specified)
+    const userRole = req.body.role || "client";
+    if (userRole === "client") {
+      if(!companyId){
+        // 1. Create new company
+        const newCompany = await Company.create({
+          name: companyName,
+          registrationNumber: companyNumber,
+          industry: industry,
+          address: address,
+          description: summary,
+          clientId: authUser.user.id,
+          organizationId: req.user.organizationId,
+        });
 
-      // create person 
+        // Create person 
+        const newPerson = await Person.create({
+          name: name,
+          email: email,
+          phoneNumber: phoneNumber,
+          nationality: nationality,
+          address: address,
+          clientId: authUser.user.id,
+        });
 
-      const newPerson = await Person.create({
-        name: name,
-        email: email,
-        phoneNumber: phoneNumber,
-        nationality: nationality,
-        address: address,
-        clientId: authUser.user.id,
-      });
+        // Add person as default shareHolder and all representative roles
+        await Company.updateOne(
+          { _id: newCompany._id }, 
+          { 
+            $push: { 
+              shareHolders: {
+                personId: newPerson._id,
+                sharePercentage: 0,
+                sharesData: [{ totalShares: 0, class: "A", type: "Ordinary" }]
+              }
+            } 
+          }
+        );
+        await Company.updateOne(
+          { _id: newCompany._id }, 
+          { 
+            $push: { 
+              representationalSchema: {
+                personId: newPerson._id,
+                role: ["Shareholder", "Director", "Judicial Representative", "Legal Representative", "Secretary"]
+              }
+            } 
+          }
+        );
+      } else {
+        // 2. Update existing company's clientId
+        const updatedCompany = await Company.findByIdAndUpdate(
+          companyId,
+          { clientId: authUser.user.id },
+          { new: true }
+        );
 
-      // add person as default shareHolder and all representative roles
+        if (!updatedCompany) {
+          throw new Error("Company not found");
+        }
 
-      await Company.updateOne({ _id: newCompany._id }, { $push: { shareHolders: newPerson._id } });
-      await Company.updateOne({ _id: newCompany._id }, { $push: { representationalSchema: [{personId: newPerson._id,roles:["Shareholder","Director","Judicial Representative","Legal Representative","Secretary"] }] } });
+        // Create person for the existing company
+        const newPerson = await Person.create({
+          name: name,
+          email: email,
+          phoneNumber: phoneNumber,
+          nationality: nationality,
+          address: address,
+          clientId: authUser.user.id,
+        });
+
+        // Add person as default shareHolder and all representative roles
+        await Company.updateOne(
+          { _id: companyId }, 
+          { 
+            $push: { 
+              shareHolders: {
+                personId: newPerson._id,
+                sharePercentage: 0,
+                sharesData: [{ totalShares: 0, class: "A", type: "Ordinary" }]
+              }
+            } 
+          }
+        );
+        await Company.updateOne(
+          { _id: companyId }, 
+          { 
+            $push: { 
+              representationalSchema: {
+                personId: newPerson._id,
+                role: ["Shareholder", "Director", "Judicial Representative", "Legal Representative", "Secretary"]
+              }
+            } 
+          }
+        );
+      }
     }
 
     res.status(201).json({
