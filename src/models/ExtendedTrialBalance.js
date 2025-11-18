@@ -130,18 +130,22 @@ ExtendedTrialBalanceSchema.pre("save", function (next) {
       const mutableRow = row
 
       mutableRow._id = mutableRow._id || mutableRow.id || mutableRow.code || `row_${Math.random().toString(36).slice(2, 11)}`
-      mutableRow.currentYear = Number(mutableRow.currentYear) || 0
-      mutableRow.adjustments = Number(mutableRow.adjustments) || 0
+      
+      // Round all numeric values
+      mutableRow.currentYear = Math.round(Number(mutableRow.currentYear) || 0)
+      mutableRow.adjustments = Math.round(Number(mutableRow.adjustments) || 0)
+      mutableRow.priorYear = Math.round(Number(mutableRow.priorYear) || 0)
       
       // Handle string reclassification values from old data - convert to 0
       if (typeof mutableRow.reclassification === "string") {
         const parsed = parseFloat(mutableRow.reclassification)
-        mutableRow.reclassification = isNaN(parsed) ? 0 : parsed
+        mutableRow.reclassification = isNaN(parsed) ? 0 : Math.round(parsed)
       } else {
-        mutableRow.reclassification = Number(mutableRow.reclassification) || 0
+        mutableRow.reclassification = Math.round(Number(mutableRow.reclassification) || 0)
       }
       
-      mutableRow.finalBalance = (mutableRow.currentYear || 0) + (mutableRow.adjustments || 0) + (mutableRow.reclassification || 0)
+      // Calculate finalBalance from rounded values
+      mutableRow.finalBalance = Math.round((mutableRow.currentYear || 0) + (mutableRow.adjustments || 0) + (mutableRow.reclassification || 0))
 
       if (!Array.isArray(mutableRow.adjustmentRefs)) {
         mutableRow.adjustmentRefs = []

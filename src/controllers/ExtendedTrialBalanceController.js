@@ -1,5 +1,7 @@
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 const { Workbook } = require("../models/ExcelWorkbook");
+const Adjustment = require("../models/Adjustment");
+const Reclassification = require("../models/Reclassification");
 
 // Get Extended Trial Balance with mappings for a specific engagement and classification
 const getExtendedTrialBalanceWithMappings = async (req, res) => {
@@ -109,33 +111,178 @@ const createOrUpdateExtendedTrialBalance = async (req, res) => {
       });
     }
 
+    // Check if ETB already exists (to determine if it's new or update)
+    const existingEtb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+
+    // Case 1: New trial balance - delete all existing adjustments and reclassifications
+    if (!existingEtb) {
+      console.log('Case 1: New trial balance detected, deleting all adjustments and reclassifications');
+      
+      // Delete all adjustments for this engagement
+      const deletedAdjustments = await Adjustment.deleteMany({ engagementId: engagementId });
+      console.log(`Deleted ${deletedAdjustments.deletedCount} adjustments`);
+
+      // Delete all reclassifications for this engagement
+      const deletedReclassifications = await Reclassification.deleteMany({ engagementId: engagementId });
+      console.log(`Deleted ${deletedReclassifications.deletedCount} reclassifications`);
+    }
+
     // Validate and clean each row
     const cleanedRows = rows.map((row) => {
       if (!row.code || !row.accountName) {
         throw new Error("Each row must have code and accountName");
       }
 
-      const currentYear = Number(row.currentYear) || 0;
-      const adjustments = Number(row.adjustments) || 0;
+      // Parse and round all numeric values
+      const currentYear = Math.round(Number(row.currentYear) || 0);
+      const adjustments = Math.round(Number(row.adjustments) || 0);
       const reclassification = typeof row.reclassification === "string"
-        ? (parseFloat(row.reclassification) || 0)
-        : (Number(row.reclassification) || 0);
+        ? Math.round(parseFloat(row.reclassification) || 0)
+        : Math.round(Number(row.reclassification) || 0);
       
       // Compute finalBalance from formula: currentYear + adjustments + reclassification
-      const computedFinal = currentYear + adjustments + reclassification;
+      const computedFinal = currentYear + adjustments + reclassification; // All values already rounded
       const finalBalance = row.finalBalance !== undefined && row.finalBalance !== null
-        ? Number(row.finalBalance)
-        : computedFinal;
+        ? Math.round(Number(row.finalBalance))
+        : computedFinal; // Already rounded
+
+      // Preserve adjustmentRefs and reclassificationRefs from existing row if updating
+      let adjustmentRefs = row.adjustmentRefs || [];
+      let reclassificationRefs = row.reclassificationRefs || [];
+      
+      if (existingEtb) {
+        const rowId = (row._id || row.rowId)?.toString();
+        if (rowId) {
+          const existingRow = existingEtb.rows.find(r => r._id?.toString() === rowId);
+          if (existingRow) {
+            // Preserve references if not provided in new row
+            if (!row.adjustmentRefs && existingRow.adjustmentRefs) {
+              adjustmentRefs = existingRow.adjustmentRefs;
+            }
+            if (!row.reclassificationRefs && existingRow.reclassificationRefs) {
+              reclassificationRefs = existingRow.reclassificationRefs;
+            }
+          }
+        }
+      }
 
       return {
         ...row,
-        currentYear,
-        adjustments,
-        reclassification,
-        finalBalance,
-        priorYear: Number(row.priorYear) || 0,
+        currentYear, // Rounded
+        adjustments, // Rounded
+        reclassification, // Rounded
+        finalBalance, // Rounded
+        priorYear: Math.round(Number(row.priorYear) || 0), // Rounded
+        adjustmentRefs,
+        reclassificationRefs,
       };
     });
+
+    // Case 2: Check for code/accountName changes and update adjustments/reclassifications
+    if (existingEtb) {
+      console.log('Case 2: Checking for code/accountName changes');
+      
+      // Create a map of existing rows by rowId (_id) for quick lookup
+      const existingRowsMap = new Map();
+      existingEtb.rows.forEach(row => {
+        if (row._id) {
+          existingRowsMap.set(row._id.toString(), row);
+        }
+      });
+
+      // Find rows with changed code or accountName
+      const rowsWithChanges = [];
+      cleanedRows.forEach(newRow => {
+        // Try to find existing row by _id (rowId) if provided
+        if (newRow._id || newRow.rowId) {
+          const rowId = (newRow._id || newRow.rowId).toString();
+          const existingRow = existingRowsMap.get(rowId);
+          
+          if (existingRow) {
+            // Check if code or accountName changed
+            if (existingRow.code !== newRow.code || existingRow.accountName !== newRow.accountName) {
+              rowsWithChanges.push({
+                rowId: rowId,
+                oldCode: existingRow.code,
+                oldAccountName: existingRow.accountName,
+                newCode: newRow.code,
+                newAccountName: newRow.accountName,
+                adjustmentRefs: existingRow.adjustmentRefs || [],
+                reclassificationRefs: existingRow.reclassificationRefs || []
+              });
+            }
+          }
+        } else {
+          // If no rowId, try to match by code
+          const existingRow = existingEtb.rows.find(r => r.code === newRow.code);
+          if (existingRow && existingRow.accountName !== newRow.accountName) {
+            const rowId = existingRow._id?.toString();
+            if (rowId) {
+              rowsWithChanges.push({
+                rowId: rowId,
+                oldCode: existingRow.code,
+                oldAccountName: existingRow.accountName,
+                newCode: newRow.code,
+                newAccountName: newRow.accountName,
+                adjustmentRefs: existingRow.adjustmentRefs || [],
+                reclassificationRefs: existingRow.reclassificationRefs || []
+              });
+            }
+          }
+        }
+      });
+
+      // Update adjustments and reclassifications for changed rows
+      for (const changedRow of rowsWithChanges) {
+        console.log(`Updating references for row ${changedRow.rowId}: ${changedRow.oldCode} -> ${changedRow.newCode}`);
+
+        // Update adjustments
+        if (changedRow.adjustmentRefs && changedRow.adjustmentRefs.length > 0) {
+          for (const adjustmentId of changedRow.adjustmentRefs) {
+            const adjustment = await Adjustment.findById(adjustmentId);
+            if (adjustment) {
+              // Update entries that match this rowId
+              let hasChanges = false;
+              adjustment.entries.forEach(entry => {
+                if (entry.etbRowId === changedRow.rowId) {
+                  entry.code = changedRow.newCode;
+                  entry.accountName = changedRow.newAccountName;
+                  hasChanges = true;
+                }
+              });
+              
+              if (hasChanges) {
+                await adjustment.save();
+                console.log(`Updated adjustment ${adjustmentId}`);
+              }
+            }
+          }
+        }
+
+        // Update reclassifications
+        if (changedRow.reclassificationRefs && changedRow.reclassificationRefs.length > 0) {
+          for (const reclassificationId of changedRow.reclassificationRefs) {
+            const reclassification = await Reclassification.findById(reclassificationId);
+            if (reclassification) {
+              // Update entries that match this rowId
+              let hasChanges = false;
+              reclassification.entries.forEach(entry => {
+                if (entry.etbRowId === changedRow.rowId) {
+                  entry.code = changedRow.newCode;
+                  entry.accountName = changedRow.newAccountName;
+                  hasChanges = true;
+                }
+              });
+              
+              if (hasChanges) {
+                await reclassification.save();
+                console.log(`Updated reclassification ${reclassificationId}`);
+              }
+            }
+          }
+        }
+      }
+    }
 
     const etb = await ExtendedTrialBalance.findOneAndUpdate(
       { engagement: engagementId },
