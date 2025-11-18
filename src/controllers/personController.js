@@ -1,8 +1,92 @@
 const mongoose = require("mongoose");
 const Person = require("../models/Person");
 const Company = require("../models/Company");
-const DocumentRequest = require("../models/DocumentRequest");
 const KnowYourClient = require("../models/KnowYourClient");
+
+// Helper function to create default sharesData array (6 combinations: 3 classes × 2 types)
+const createDefaultSharesData = () => {
+  const ShareClassEnum = ["A", "B", "C"];
+  const ShareTypeEnum = ["Ordinary", "Preferred"];
+  const combinations = [];
+  ShareClassEnum.forEach((shareClass) => {
+    ShareTypeEnum.forEach((shareType) => {
+      combinations.push({
+        totalShares: 0,
+        class: shareClass,
+        type: shareType,
+      });
+    });
+  });
+  return combinations;
+};
+
+// Helper function to calculate sharePercentage from sharesData array
+// Formula: sharePercentage = (sum of all sharesData.totalShares / company.totalShares) * 100
+const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
+  if (!Array.isArray(sharesDataArray) || companyTotalShares === 0) {
+    return 0;
+  }
+  const totalShares = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
+  return (totalShares / companyTotalShares) * 100;
+};
+
+// Helper function to convert sharesData from frontend format {totalShares, shareClass}[] to array format
+// Frontend sends: {totalShares, shareClass}[] - percentage is calculated from totalIssuedShares
+const convertSharesDataToArray = (inputSharesData, totalIssuedShares = 0) => {
+  const defaultArray = createDefaultSharesData();
+
+  // If input is an array (new frontend format: {totalShares, shareClass}[])
+  if (Array.isArray(inputSharesData)) {
+    inputSharesData.forEach((item) => {
+      if (item && (item.shareClass || item.class)) {
+        // Support both shareClass (frontend) and class (backend)
+        const shareClass = item.shareClass || item.class;
+        // Support both shareType (frontend) and type (backend), default to "Ordinary"
+        const shareType = item.shareType || item.type || "Ordinary";
+        
+        const classIndex = ["A", "B", "C"].indexOf(shareClass);
+        const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
+        const index = classIndex * 2 + typeIndex;
+        
+        if (index >= 0 && index < 6) {
+          const totalShares = Number(item.totalShares) || 0;
+          
+          defaultArray[index] = {
+            totalShares: totalShares,
+            class: shareClass,
+            type: shareType,
+          };
+        }
+      }
+    });
+    return defaultArray;
+  }
+
+  // If input is a single object (backward compatibility)
+  if (inputSharesData && typeof inputSharesData === "object" && !Array.isArray(inputSharesData)) {
+    const shareClass = inputSharesData.shareClass || inputSharesData.class || "A";
+    const shareType = inputSharesData.shareType || inputSharesData.type || "Ordinary";
+    const classIndex = ["A", "B", "C"].indexOf(shareClass);
+    const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
+    const index = classIndex * 2 + typeIndex;
+    
+    if (index >= 0 && index < 6) {
+      const totalShares = inputSharesData.totalShares !== undefined 
+        ? Number(inputSharesData.totalShares) 
+        : (inputSharesData.percentage ? Math.round((Number(inputSharesData.percentage) || 0) / 100 * totalIssuedShares) : 0);
+      
+      defaultArray[index] = {
+        totalShares: totalShares,
+        class: shareClass,
+        type: shareType,
+      };
+    }
+    return defaultArray;
+  }
+
+  // Default: return empty array of 6 items
+  return defaultArray;
+};
 
 /**
  * Get all persons for a client (optionally filtered by companyId)
@@ -63,7 +147,7 @@ exports.getAllPersons = async (req, res) => {
             
             return {
               ...personObj,
-              sharePercentage: shareHolder?.sharesData?.percentage,
+              sharePercentage: shareHolder?.sharePercentage || 0,
               roles: roles,
             };
           });
@@ -132,7 +216,7 @@ exports.getPersonById = async (req, res) => {
           return [...acc, ...roleArray];
         }, []);
         
-        personObj.sharePercentage = shareHolder?.sharesData?.percentage;
+        personObj.sharePercentage = shareHolder?.sharePercentage || 0;
         personObj.roles = roles;
       }
     }
@@ -195,12 +279,12 @@ exports.createPerson = async (req, res) => {
 
     await person.save();
 
-    // If companyId is provided and roles/sharePercentage are in body,
+    // If companyId is provided and roles/sharesData are in body,
     // update the company's shareHolders and representationalSchema
     if (companyId) {
       const company = await Company.findById(companyId);
       if (company) {
-        const { roles, sharePercentage, shareClass } = req.body;
+        const { roles, sharesData } = req.body;
 
         // Update representationalSchema if roles are provided
         if (roles && Array.isArray(roles) && roles.length > 0) {
@@ -214,32 +298,43 @@ exports.createPerson = async (req, res) => {
             personId: person._id,
             role: roles, // Store as array of strings
           });
+          company.updatedAt = new Date();
         }
 
-        // Update shareHolders if sharePercentage is provided
-        if (sharePercentage !== undefined && sharePercentage !== null && sharePercentage > 0) {
+        // Update shareHolders if sharesData is provided
+        // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
+        if (sharesData !== undefined && sharesData !== null) {
           // Remove existing shareholding for this person
           company.shareHolders = company.shareHolders?.filter(
             sh => sh.personId?.toString() !== person._id.toString()
           ) || [];
           
-          // Calculate actual number of shares based on percentage
-          const companyTotalShares = company.totalShares || 0;
-          const actualShares = (sharePercentage / 100) * companyTotalShares;
+          // Convert sharesData to array format
+          const totalIssuedShares = company.totalShares || 0;
+          const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
           
-            
-          // Add new shareholding
-          company.shareHolders.push({
-            personId: person._id,
-            sharesData: {
-              percentage: sharePercentage,
-              totalShares: Math.round(actualShares), // Round to nearest whole number
-              class: shareClass || "A",
-            },
-          });
+          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
+          const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+          
+          // Only add if there are actual shares (non-zero totalShares)
+          // If sharesData is empty array or all zeros, person will be removed from shareHolders
+          const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+          if (hasShares) {
+            company.shareHolders.push({
+              personId: person._id,
+              sharePercentage: sharePercentage,
+              sharesData: sharesDataArray,
+            });
+          }
+          
+          // Update company's updatedAt timestamp
+          company.updatedAt = new Date();
         }
 
-        await company.save();
+        // Save company if any changes were made
+        if ((roles && Array.isArray(roles) && roles.length > 0) || (sharesData !== undefined && sharesData !== null)) {
+          await company.save();
+        }
       }
     }
 
@@ -269,7 +364,7 @@ exports.updatePerson = async (req, res) => {
     const updateData = { ...req.body };
 
     // Separate person fields from company relationship fields
-    const { roles, sharePercentage, shareClass, ...personFields } = updateData;
+    const { roles, sharesData, ...personFields } = updateData;
 
     // Remove fields that shouldn't be directly updated
     delete personFields.clientId;
@@ -291,7 +386,8 @@ exports.updatePerson = async (req, res) => {
     }
 
     // If companyId is provided, update company relationships
-    if (companyId && (roles !== undefined || sharePercentage !== undefined)) {
+    // Frontend sends sharesData as {totalShares, shareClass}[] - percentage calculated from totalIssuedShares
+    if (companyId && (roles !== undefined || sharesData !== undefined)) {
       const company = await Company.findById(companyId);
       if (company) {
         const personIdStr = person._id.toString();
@@ -323,31 +419,40 @@ exports.updatePerson = async (req, res) => {
           }
         }
 
-        // Update shareHolders if sharePercentage is provided
-        if (sharePercentage !== undefined) {
+        // Update shareHolders if sharesData is provided
+        // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
+        if (sharesData !== undefined) {
           // Remove existing shareholding for this person
           company.shareHolders = company.shareHolders?.filter(
             sh => sh.personId?.toString() !== personIdStr
           ) || [];
           
-          // Add new shareholding if sharePercentage > 0
-          if (sharePercentage !== null && sharePercentage > 0) {
-            // Calculate actual number of shares based on percentage
-            const companyTotalShares = company.totalShares || 0;
-            const actualShares = (sharePercentage / 100) * companyTotalShares;
-            
-             company.shareHolders.push({
+          // Convert sharesData to array format
+          const totalIssuedShares = company.totalShares || 0;
+          const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
+          
+          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
+          const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+          
+          // Only add if there are actual shares (non-zero totalShares)
+          // If sharesData is empty array or all zeros, person will be removed from shareHolders
+          const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+          if (hasShares) {
+            company.shareHolders.push({
               personId: person._id,
-              sharesData: {
-                percentage: sharePercentage,
-                totalShares: Math.round(actualShares), // Round to nearest whole number
-                class: shareClass || "A",
-              },
+              sharePercentage: sharePercentage,
+              sharesData: sharesDataArray,
             });
           }
+          
+          // Update company's updatedAt timestamp
+          company.updatedAt = new Date();
         }
 
-        await company.save();
+        // Save company if any changes were made
+        if (roles !== undefined || sharesData !== undefined) {
+          await company.save();
+        }
       }
     }
 

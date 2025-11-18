@@ -6,13 +6,27 @@ const ShareTypeEnum = ["Ordinary", "Preferred"];
 
 const ShareDataSchema = new Schema(
   {
-    percentage: { type: Number, required: true, min: 0, max: 100 },
     totalShares: { type: Number, required: true, min: 0 },
     class: { type: String, enum: ShareClassEnum, required: true },
-    type: { type:String, enum:ShareTypeEnum, required:true, default: "Ordinary"}
+    type: { type: String, enum: ShareTypeEnum, required: true, default: "Ordinary" }
   },
   { _id: false }
 );
+
+// Helper function to create default sharesData array (6 combinations: 3 classes × 2 types)
+const createDefaultSharesData = () => {
+  const combinations = [];
+  ShareClassEnum.forEach((shareClass) => {
+    ShareTypeEnum.forEach((shareType) => {
+      combinations.push({
+        totalShares: 0,
+        class: shareClass,
+        type: shareType,
+      });
+    });
+  });
+  return combinations;
+};
 
 const CompanySchema = new Schema(
   {
@@ -31,7 +45,18 @@ const CompanySchema = new Schema(
     shareHoldingCompanies: [
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
-        sharesData: { type: ShareDataSchema, required: true },
+        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
+        sharesData: {
+          type: [ShareDataSchema],
+          required: true,
+          default: createDefaultSharesData,
+          validate: {
+            validator: function(v) {
+              return Array.isArray(v) && v.length >= 1;
+            },
+            message: "sharesData must be an array with at least 1 item"
+          }
+        },
       },
     ],
 
@@ -39,7 +64,18 @@ const CompanySchema = new Schema(
     shareHolders: [
       {
         personId: { type: Types.ObjectId, ref: "Person", required: true },
-        sharesData: { type: ShareDataSchema, required: true },
+        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
+        sharesData: {
+          type: [ShareDataSchema],
+          required: true,
+          default: createDefaultSharesData,
+          validate: {
+            validator: function(v) {
+              return Array.isArray(v) && v.length >= 1;
+            },
+            message: "sharesData must be an array with at least 1 item"
+          }
+        },
       },
     ],
 
@@ -106,6 +142,9 @@ CompanySchema.virtual("shareHoldingCompanyDetails", {
 });
 
 
+
+// Export the helper function for use in controllers
+CompanySchema.statics.createDefaultSharesData = createDefaultSharesData;
 
 module.exports = mongoose.model("Company", CompanySchema);
 
