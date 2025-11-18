@@ -334,6 +334,38 @@ exports.createPerson = async (req, res) => {
         // Save company if any changes were made
         if ((roles && Array.isArray(roles) && roles.length > 0) || (sharesData !== undefined && sharesData !== null)) {
           await company.save();
+          
+          // Update Person's company references
+          if (roles && Array.isArray(roles) && roles.length > 0) {
+            person.representingCompanies = person.representingCompanies || [];
+            if (!person.representingCompanies.some(id => id.toString() === companyId.toString())) {
+              person.representingCompanies.push(companyId);
+              person.updatedAt = new Date();
+              await person.save();
+            }
+          }
+          
+          if (sharesData !== undefined && sharesData !== null) {
+            const totalIssuedShares = company.totalShares || 0;
+            const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
+            const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+            
+            if (hasShares) {
+              person.shareHoldingCompanies = person.shareHoldingCompanies || [];
+              if (!person.shareHoldingCompanies.some(id => id.toString() === companyId.toString())) {
+                person.shareHoldingCompanies.push(companyId);
+                person.updatedAt = new Date();
+                await person.save();
+              }
+            } else {
+              // Remove if no shares
+              person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
+                id => id.toString() !== companyId.toString()
+              );
+              person.updatedAt = new Date();
+              await person.save();
+            }
+          }
         }
       }
     }
@@ -452,6 +484,47 @@ exports.updatePerson = async (req, res) => {
         // Save company if any changes were made
         if (roles !== undefined || sharesData !== undefined) {
           await company.save();
+          
+          // Update Person's company references
+          if (roles !== undefined) {
+            if (Array.isArray(roles) && roles.length > 0) {
+              person.representingCompanies = person.representingCompanies || [];
+              if (!person.representingCompanies.some(id => id.toString() === companyId.toString())) {
+                person.representingCompanies.push(companyId);
+                person.updatedAt = new Date();
+                await person.save();
+              }
+            } else {
+              // Remove if no roles
+              person.representingCompanies = (person.representingCompanies || []).filter(
+                id => id.toString() !== companyId.toString()
+              );
+              person.updatedAt = new Date();
+              await person.save();
+            }
+          }
+          
+          if (sharesData !== undefined) {
+            const totalIssuedShares = company.totalShares || 0;
+            const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
+            const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+            
+            if (hasShares) {
+              person.shareHoldingCompanies = person.shareHoldingCompanies || [];
+              if (!person.shareHoldingCompanies.some(id => id.toString() === companyId.toString())) {
+                person.shareHoldingCompanies.push(companyId);
+                person.updatedAt = new Date();
+                await person.save();
+              }
+            } else {
+              // Remove if no shares
+              person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
+                id => id.toString() !== companyId.toString()
+              );
+              person.updatedAt = new Date();
+              await person.save();
+            }
+          }
         }
       }
     }
@@ -480,7 +553,8 @@ exports.deletePerson = async (req, res) => {
   try {
     const { clientId, companyId, personId } = req.params;
 
-    const person = await Person.findOneAndDelete({
+    // Find person first (before deletion) to get company references
+    const person = await Person.findOne({
       _id: personId,
       clientId,
     });
@@ -517,6 +591,12 @@ exports.deletePerson = async (req, res) => {
         }
       );
     }
+
+    // Now delete the person (Person's arrays will be deleted with the document)
+    await Person.findOneAndDelete({
+      _id: personId,
+      clientId,
+    });
 
     await KnowYourClient.updateMany(
       { "documentRequests.person": person._id },

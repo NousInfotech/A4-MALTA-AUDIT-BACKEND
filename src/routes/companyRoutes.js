@@ -7,6 +7,13 @@ const { requireAuth, requireRole } = require("../middlewares/auth");
 router.use(requireAuth);
 router.use(requireRole("employee"));
 
+// Global search routes (must be before /:clientId routes to avoid conflicts)
+// GET /api/client/company/search/global - Global search for companies
+router.get("/company/search/global", companyController.searchCompaniesGlobal);
+
+// GET /api/client/person/search/global - Global search for persons
+router.get("/person/search/global", companyController.searchPersonsGlobal);
+
 // GET /api/client/:clientId/company - Get all companies for a client
 router.get("/:clientId/company", companyController.getAllCompanies);
 
