@@ -3,8 +3,8 @@ const { Schema } = mongoose;
 
 const FolderPermissionSchema = new Schema(
   {
-    folderName: { type: String, required: true, unique: true, index: true },
-    folderId: { type: Schema.Types.ObjectId, ref: "GlobalFolder" },
+    folderName: { type: String, required: true, index: true }, // Removed unique - folders can have same name in different parents
+    folderId: { type: Schema.Types.ObjectId, ref: "GlobalFolder", unique: true, required: true }, // Use folderId as unique identifier
     
     // Role-based permissions
     permissions: {
