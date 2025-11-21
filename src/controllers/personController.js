@@ -275,6 +275,7 @@ exports.createPerson = async (req, res) => {
       phoneNumber,
       supportingDocuments: supportingDocuments || [],
       nationality,
+      organizationId: req.user.organizationId,
     });
 
     await person.save();

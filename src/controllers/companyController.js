@@ -860,9 +860,8 @@ exports.getCompanyHierarchy = async (req, res) => {
   try {
     const { companyId } = req.params;
 
-    const getHierarchy = async (companyId, depth = 0) => {
-      if (depth > 3) return null; // avoid infinite loops
-
+    const getHierarchy = async (companyId) => {
+      // No longer recursive - only fetch shareholders and representatives for this company
       const company = await Company.findById(companyId)
         .populate("shareHolders.personId", "name nationality address")
         .populate({
@@ -950,18 +949,15 @@ exports.getCompanyHierarchy = async (req, res) => {
         const sharesDataArray = Array.isArray(sh?.sharesData) ? sh.sharesData : [];
         const totalSharesValue = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
         
-        // Recursively fetch sub-company hierarchy
-        const subCompany = await getHierarchy(sh.companyId._id, depth + 1);
-        
+        // Don't include children - only show shareholders and representatives
         mergedNodesMap.set(companyIdStr, {
           id: sh.companyId._id,
           name: sh.companyId.name,
           type: "company",
-          address: subCompany?.address ?? sh.companyId.address,
+          address: sh.companyId.address,
           sharesData: sharesDataArray,
           totalShares: totalSharesValue,
           roles: new Set(),
-          children: subCompany?.shareholders || [],
         });
       }
 
@@ -980,17 +976,15 @@ exports.getCompanyHierarchy = async (req, res) => {
           // New company from representationalCompany only (no shares)
           // Need to fetch company data for address
           const repCompany = await Company.findById(rc.companyId._id).select("name address totalShares").lean();
-          const subCompany = await getHierarchy(rc.companyId._id, depth + 1);
           
           mergedNodesMap.set(companyIdStr, {
             id: rc.companyId._id,
             name: repCompany?.name || rc.companyId.name,
             type: "company",
-            address: repCompany?.address || subCompany?.address,
+            address: repCompany?.address,
             sharesData: [],
             totalShares: 0,
             roles: new Set(roleArray),
-            children: subCompany?.shareholders || [],
           });
         }
       }
@@ -1028,9 +1022,7 @@ exports.getCompanyHierarchy = async (req, res) => {
           finalNode.nationality = nodeData.nationality;
         }
         
-        if (nodeData.type === "company" && nodeData.children) {
-          finalNode.children = nodeData.children;
-        }
+        // Don't include children - only show shareholders and representatives at this level
         
         node.shareholders.push(finalNode);
       }
