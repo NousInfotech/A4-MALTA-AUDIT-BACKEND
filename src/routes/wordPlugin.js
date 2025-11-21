@@ -4,6 +4,7 @@ const { requireAuth, requireRole } = require("../middlewares/auth");
 
 router.use(requireAuth, requireRole(["employee"]));
 
+router.get('/clients', controller.getClients);
 router.get('/employees', controller.getEmployees);
 
 /* GROUP ROUTES */

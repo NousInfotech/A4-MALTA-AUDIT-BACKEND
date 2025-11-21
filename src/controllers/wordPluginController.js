@@ -13,6 +13,17 @@ const parseNumber = (value) => {
 
 // get clients
 
+exports.getClients = async (req, res) => {
+  const { data: clients, error } = await supabase
+    .from("profiles")
+    .select("user_id, name, email")
+    .eq("organization_id", req.user.organizationId)
+    .eq("role", "client");
+  if (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+  return res.status(200).json({ success: true, data: clients });
+};
 exports.getEmployees = async (req, res) => {
   const { data: employees, error } = await supabase
     .from("profiles")
