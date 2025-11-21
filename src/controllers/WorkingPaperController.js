@@ -491,6 +491,15 @@ const getMappingsByWorkbook = async (req, res) => {
   try {
     const { workbookId } = req.params;
 
+    // ✅ CRITICAL: Validate workbookId before using it
+    if (!workbookId || workbookId === 'undefined' || workbookId === 'null') {
+      console.error('❌ Invalid workbookId in getMappingsByWorkbook:', workbookId);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid workbookId provided'
+      });
+    }
+
     const workingPapers = await WorkingPaper.find({
       "rows.mappings.workbookId": workbookId
     })
