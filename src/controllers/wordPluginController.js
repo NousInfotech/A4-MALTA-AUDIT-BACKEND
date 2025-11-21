@@ -4,12 +4,26 @@ const WordPluginDraft = require("../models/WordPluginDraft");
 const WordPluginDraftTemplate = require("../models/WordPluginDraftTemplate");
 const WordPluginVariable = require("../models/WordPluginVariable");
 const Engagement = require("../models/Engagement");
+const { supabase } = require("../config/supabase");
 
 const parseNumber = (value) => {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? null : parsed;
 };
 
+// get clients
+
+exports.getEmployees = async (req, res) => {
+  const { data: employees, error } = await supabase
+    .from("profiles")
+    .select("user_id, name, email")
+    .eq("organization_id", req.user.organizationId)
+    .eq("role", "employee");
+  if (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+  return res.status(200).json({ success: true, data: employees });
+};
 /* GROUP HANDLERS */
 exports.createGroup = async (req, res) => {
   try {
