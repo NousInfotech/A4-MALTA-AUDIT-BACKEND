@@ -364,7 +364,7 @@ const addMappingToRow = async (req, res) => {
       console.log('Backend: ETB rows:', etbExists.rows.map(r => ({ _id: r._id, code: r.code, accountName: r.accountName })));
       
       // Check if the specific row exists
-      const targetRow = etbExists.rows.find(r => r.code === rowId);
+      const targetRow = etbExists.rows.find(r => r._id === rowId);
       console.log('Backend: Target row found:', !!targetRow);
       if (targetRow) {
         console.log('Backend: Target row details:', { code: targetRow.code, accountName: targetRow.accountName, mappings: targetRow.mappings?.length || 0 });
@@ -374,7 +374,7 @@ const addMappingToRow = async (req, res) => {
     const etb = await ExtendedTrialBalance.findOneAndUpdate(
       { 
         engagement: engagementId,
-        "rows.code": rowId 
+        "rows._id": rowId 
       },
       { 
         $push: { "rows.$.mappings": newMapping },
@@ -390,7 +390,7 @@ const addMappingToRow = async (req, res) => {
     console.log('Backend: Update result:', !!etb);
     if (etb) {
       console.log('Backend: Updated ETB rows count:', etb.rows.length);
-      const updatedRow = etb.rows.find(r => r.code === rowId);
+      const updatedRow = etb.rows.find(r => r._id === rowId);
       if (updatedRow) {
         console.log('Backend: Updated row mappings count:', updatedRow.mappings?.length || 0);
       }
