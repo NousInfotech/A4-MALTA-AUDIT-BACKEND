@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const GlobalFolder = require("../models/GlobalFolder");
 const GlobalDocument = require("../models/GlobalDocument");
 const DocumentVersion = require("../models/DocumentVersion");
@@ -42,14 +43,48 @@ function sanitizeFolderName(name) {
   return valid;
 }
 
+// Helper function to build full path from parent hierarchy
+async function buildFolderPath(folderId) {
+  if (!folderId) return "";
+  
+  const folder = await GlobalFolder.findById(folderId);
+  if (!folder) return "";
+  
+  const parentPath = folder.parentId 
+    ? await buildFolderPath(folder.parentId) 
+    : "";
+  
+  return parentPath ? `${parentPath}${folder.name}/` : `${folder.name}/`;
+}
+
 // Check if 2FA is required and verified for folder
-async function check2FAVerification(folderName, user, sessionToken) {
-  const permission = await FolderPermission.findOne({ folderName });
+async function check2FAVerification(folderNameOrId, user, sessionToken) {
+  // Try to find folder by ID first, then by name
+  let folder = null;
+  let folderId = null;
+  
+  if (mongoose.Types.ObjectId.isValid(folderNameOrId)) {
+    folder = await GlobalFolder.findById(folderNameOrId);
+    if (folder) folderId = folder._id;
+  }
+  
+  if (!folder) {
+    folder = await GlobalFolder.findOne({ name: folderNameOrId });
+    if (folder) folderId = folder._id;
+  }
+  
+  const permission = folderId 
+    ? await FolderPermission.findOne({ folderId })
+    : await FolderPermission.findOne({ folderName: folderNameOrId });
+    
   if (!permission || !permission.require2FA) {
     return { required: false, verified: true };
   }
 
   // Check if user has verified 2FA for this folder in current session
+  // Use folderId if available, otherwise use folderName for backward compatibility
+  const folderKey = folderId ? folderId.toString() : folderNameOrId;
+  
   if (sessionToken) {
     const session = await UserSession.findOne({ 
       userId: user.id, 
@@ -58,7 +93,7 @@ async function check2FAVerification(folderName, user, sessionToken) {
     });
     
     if (session && session.twoFactorVerified) {
-      const verifiedAt = session.twoFactorVerified.get(folderName);
+      const verifiedAt = session.twoFactorVerified.get(folderKey);
       // 2FA verification valid for 24 hours
       if (verifiedAt && (Date.now() - verifiedAt.getTime()) < 24 * 60 * 60 * 1000) {
         return { required: true, verified: true };
@@ -69,16 +104,36 @@ async function check2FAVerification(folderName, user, sessionToken) {
   return { required: true, verified: false };
 }
 
-// Check folder permissions
-async function checkFolderPermission(folderName, user, action, sessionToken = null) {
-  const permission = await FolderPermission.findOne({ folderName });
+// Check folder permissions - now supports folderId or folderName
+async function checkFolderPermission(folderNameOrId, user, action, sessionToken = null) {
+  // Try to find folder by ID first, then by name
+  let folder = null;
+  let folderId = null;
+  
+  // Check if it's an ObjectId format
+  if (mongoose.Types.ObjectId.isValid(folderNameOrId)) {
+    folder = await GlobalFolder.findById(folderNameOrId);
+    if (folder) folderId = folder._id;
+  }
+  
+  // If not found by ID, try by name
+  if (!folder) {
+    folder = await GlobalFolder.findOne({ name: folderNameOrId });
+    if (folder) folderId = folder._id;
+  }
+  
+  // If still no folder found, use folderName for backward compatibility
+  const permission = folderId 
+    ? await FolderPermission.findOne({ folderId })
+    : await FolderPermission.findOne({ folderName: folderNameOrId });
+    
   if (!permission) {
     // Default: allow all employees
     return { allowed: ROLE_PERMISSIONS[user.role]?.[action] || false, requires2FA: false };
   }
 
   // Check 2FA requirement
-  const twoFAStatus = await check2FAVerification(folderName, user, sessionToken);
+  const twoFAStatus = await check2FAVerification(folderNameOrId, user, sessionToken);
   if (twoFAStatus.required && !twoFAStatus.verified) {
     return { allowed: false, requires2FA: true, verified: false };
   }
@@ -138,19 +193,27 @@ async function initializePredefinedFolders() {
         });
       await GlobalFolder.create({ name: folder.name, path });
       
-      // Set default permissions
-      await FolderPermission.create({
-        folderName: folder.name,
-        folderType: "predefined",
-        category: folder.category,
-        permissions: {
-          view: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
-          upload: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
-          delete: ["partner", "manager", "admin"],
-          approve: ["partner", "manager", "admin"],
-          manage: ["partner", "manager", "admin"],
-        },
-      });
+      // Set default permissions - use folderId
+      const createdFolder = await GlobalFolder.findOne({ name: folder.name });
+      if (createdFolder) {
+        await FolderPermission.findOneAndUpdate(
+          { folderId: createdFolder._id },
+          {
+            folderName: folder.name,
+            folderId: createdFolder._id,
+            folderType: "predefined",
+            category: folder.category,
+            permissions: {
+              view: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
+              upload: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
+              delete: ["partner", "manager", "admin"],
+              approve: ["partner", "manager", "admin"],
+              manage: ["partner", "manager", "admin"],
+            },
+          },
+          { upsert: true }
+        );
+      }
     }
   }
 }
@@ -158,13 +221,13 @@ async function initializePredefinedFolders() {
 exports.listFolders = async (req, res, next) => {
   try {
     await initializePredefinedFolders();
-    const folders = await GlobalFolder.find().sort({ createdAt: -1 });
+    const folders = await GlobalFolder.find().populate('parentId', 'name path').sort({ createdAt: -1 });
     
     // Add permission info for each folder
     const foldersWithPerms = await Promise.all(
       folders.map(async (folder) => {
-        const perm = await FolderPermission.findOne({ folderName: folder.name });
-        const canView = await checkFolderPermission(folder.name, req.user, "view");
+        const perm = await FolderPermission.findOne({ folderId: folder._id });
+        const canView = await checkFolderPermission(folder._id.toString(), req.user, "view");
         return {
           ...folder.toObject(),
           canView,
@@ -194,14 +257,30 @@ exports.createFolder = async (req, res, next) => {
 
     const rawName = req.body.name;
     const name = sanitizeFolderName(rawName);
-    const path = `${name}/`;
+    const parentId = req.body.parentId || null;
 
-    const exists = await GlobalFolder.findOne({ name });
-    if (exists) return res.status(409).json({ message: "Folder already exists" });
+    // Check if parent exists (if parentId is provided)
+    if (parentId) {
+      const parent = await GlobalFolder.findById(parentId);
+      if (!parent) {
+        return res.status(404).json({ message: "Parent folder not found" });
+      }
+    }
+
+    // Check if folder with same name already exists in the same parent
+    const exists = await GlobalFolder.findOne({ name, parentId });
+    if (exists) {
+      return res.status(409).json({ message: "Folder with this name already exists in the selected location" });
+    }
+
+    // Build full path including parent hierarchy
+    const parentPath = parentId ? await buildFolderPath(parentId) : "";
+    const fullPath = `${parentPath}${name}/`;
+    const storagePath = `${fullPath}.keep`;
 
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(`${path}.keep`, Buffer.from(""), {
+      .upload(storagePath, Buffer.from(""), {
         contentType: "text/plain",
         upsert: false,
       });
@@ -209,11 +288,12 @@ exports.createFolder = async (req, res, next) => {
     
     const folder = await GlobalFolder.create({ 
       name, 
-      path,
+      path: fullPath,
+      parentId: parentId || null,
       createdBy: req.user.name,
     });
     
-    // Create default permissions
+    // Create default permissions - use folderId as unique identifier
     await FolderPermission.create({
       folderName: name,
       folderId: folder._id,
@@ -225,6 +305,17 @@ exports.createFolder = async (req, res, next) => {
         approve: ["partner", "manager", "admin"],
         manage: ["partner", "manager", "admin"],
       },
+    }).catch(async (err) => {
+      // If permission already exists (by folderId), update it instead
+      if (err.code === 11000) {
+        await FolderPermission.findOneAndUpdate(
+          { folderId: folder._id },
+          { folderName: name },
+          { upsert: true }
+        );
+      } else {
+        throw err;
+      }
     });
     
     res.status(201).json(folder);
@@ -282,8 +373,8 @@ exports.renameFolder = async (req, res, next) => {
     folder.path = newPrefix;
     await folder.save();
 
-    // Update permissions
-    await FolderPermission.updateOne({ folderName: oldPrefix.replace("/", "") }, { folderName: newName });
+    // Update permissions - use folderId instead of folderName
+    await FolderPermission.updateOne({ folderId: folder._id }, { folderName: newName });
 
     res.json(folder);
   } catch (err) {
@@ -324,7 +415,7 @@ exports.deleteFolder = async (req, res, next) => {
     if (delErr) throw delErr;
 
     await GlobalDocument.deleteMany({ folderName: folder.name });
-    await FolderPermission.deleteOne({ folderName: folder.name });
+    await FolderPermission.deleteOne({ folderId: folder._id });
     await GlobalFolder.deleteOne({ _id: folder._id });
 
     res.json({ message: "Folder and contents deleted" });
@@ -1144,7 +1235,7 @@ exports.generate2FASecret = async (req, res, next) => {
       return res.status(400).json({ message: "folderName is required" });
     }
 
-    // Sanitize folder name to match how it's stored
+    // Sanitize folder name and find folder
     const sanitizedName = sanitizeFolderName(folderName);
     
     // Check if folder exists
@@ -1157,6 +1248,28 @@ exports.generate2FASecret = async (req, res, next) => {
     const canManage = await canManage2FA(folderName, req.user);
     if (!canManage) {
       return res.status(403).json({ message: "Insufficient permissions to manage 2FA settings" });
+    }
+    
+    // Check if permission exists by folderId
+    let permission = await FolderPermission.findOne({ folderId: folder._id });
+    if (!permission) {
+      // Create permission record if it doesn't exist
+      permission = await FolderPermission.create({
+        folderName: sanitizedName,
+        folderId: folder._id,
+        permissions: {
+          view: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
+          upload: ["partner", "manager", "employee", "senior-employee", "reviewer", "admin"],
+          delete: ["partner", "manager", "admin"],
+          approve: ["partner", "manager", "admin"],
+          manage: ["partner", "manager", "admin"],
+        },
+      }).catch(async (err) => {
+        if (err.code === 11000) {
+          return await FolderPermission.findOne({ folderId: folder._id });
+        }
+        throw err;
+      });
     }
 
     const secret = speakeasy.generateSecret({
@@ -1200,8 +1313,8 @@ exports.enable2FA = async (req, res, next) => {
       return res.status(404).json({ message: "Folder not found" });
     }
 
-    // Find or create permission record
-    let permission = await FolderPermission.findOne({ folderName: sanitizedName });
+    // Find or create permission record - use folderId
+    let permission = await FolderPermission.findOne({ folderId: folder._id });
     if (!permission) {
       // Create permission record if it doesn't exist
       permission = await FolderPermission.create({
@@ -1214,6 +1327,12 @@ exports.enable2FA = async (req, res, next) => {
           approve: ["partner", "manager", "admin"],
           manage: ["partner", "manager", "admin"],
         },
+      }).catch(async (err) => {
+        // If permission already exists (by folderId), get it
+        if (err.code === 11000) {
+          return await FolderPermission.findOne({ folderId: folder._id });
+        }
+        throw err;
       });
     }
 
@@ -1252,7 +1371,15 @@ exports.enable2FA = async (req, res, next) => {
 
 // Check if user can manage 2FA settings (bypasses 2FA requirement)
 async function canManage2FA(folderName, user) {
-  const permission = await FolderPermission.findOne({ folderName: sanitizeFolderName(folderName) });
+  // Find folder first to get folderId
+  const sanitizedName = sanitizeFolderName(folderName);
+  const folder = await GlobalFolder.findOne({ name: sanitizedName });
+  if (!folder) {
+    // Default: check role permissions
+    return ROLE_PERMISSIONS[user.role]?.manage === true;
+  }
+  
+  const permission = await FolderPermission.findOne({ folderId: folder._id });
   if (!permission) {
     // Default: check role permissions
     return ROLE_PERMISSIONS[user.role]?.manage === true;
@@ -1283,11 +1410,16 @@ exports.disable2FA = async (req, res, next) => {
       return res.status(403).json({ message: "Insufficient permissions to manage 2FA settings" });
     }
 
-    // Sanitize folder name to match how it's stored
+    // Sanitize folder name and find folder to get folderId
     const sanitizedName = sanitizeFolderName(folderName);
-    const permission = await FolderPermission.findOne({ folderName: sanitizedName });
-    if (!permission) {
+    const folder = await GlobalFolder.findOne({ name: sanitizedName });
+    if (!folder) {
       return res.status(404).json({ message: "Folder not found" });
+    }
+    
+    const permission = await FolderPermission.findOne({ folderId: folder._id });
+    if (!permission) {
+      return res.status(404).json({ message: "Folder permissions not found" });
     }
 
     permission.require2FA = false;
@@ -1308,7 +1440,13 @@ exports.verify2FA = async (req, res, next) => {
       return res.status(400).json({ message: "folderName and token are required" });
     }
 
-    const permission = await FolderPermission.findOne({ folderName });
+    // Find folder first to get folderId
+    const folder = await GlobalFolder.findOne({ name: folderName });
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+    
+    const permission = await FolderPermission.findOne({ folderId: folder._id });
     if (!permission || !permission.require2FA) {
       return res.status(400).json({ message: "2FA not required for this folder" });
     }
@@ -1347,7 +1485,8 @@ exports.verify2FA = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid 2FA token" });
     }
 
-    // Update session with 2FA verification
+    // Update session with 2FA verification - use folderId as key
+    const folderKey = folder._id.toString();
     const session = await UserSession.findOne({ 
       userId: req.user.id, 
       sessionToken,
@@ -1358,7 +1497,7 @@ exports.verify2FA = async (req, res, next) => {
       if (!session.twoFactorVerified) {
         session.twoFactorVerified = new Map();
       }
-      session.twoFactorVerified.set(folderName, new Date());
+      session.twoFactorVerified.set(folderKey, new Date());
       session.lastActivity = new Date();
       await session.save();
     } else {
@@ -1367,7 +1506,7 @@ exports.verify2FA = async (req, res, next) => {
       expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour session
       
       const twoFactorVerified = new Map();
-      twoFactorVerified.set(folderName, new Date());
+      twoFactorVerified.set(folderKey, new Date());
       
       await UserSession.create({
         userId: req.user.id,
@@ -1399,7 +1538,13 @@ exports.sendEmailOTP = async (req, res, next) => {
       return res.status(400).json({ message: "folderName is required" });
     }
 
-    const permission = await FolderPermission.findOne({ folderName });
+    // Find folder first to get folderId
+    const folder = await GlobalFolder.findOne({ name: folderName });
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+    
+    const permission = await FolderPermission.findOne({ folderId: folder._id });
     if (!permission || !permission.require2FA || permission.twoFactorMethod !== "email") {
       return res.status(400).json({ message: "Email 2FA not enabled for this folder" });
     }
