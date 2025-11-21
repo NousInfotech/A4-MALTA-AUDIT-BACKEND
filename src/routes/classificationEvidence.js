@@ -48,4 +48,10 @@ router.patch("/:evidenceId/mappings/:mappingId/toggle", requireAuth, requireRole
 // Get all mappings for a specific workbook across all evidence files
 router.get("/workbooks/:workbookId/mappings", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), cec.getMappingsByWorkbook);
 
+// Get evidence files for specific cell ranges in a workbook
+router.get("/workbooks/:workbookId/cell-range", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), cec.getEvidenceByCellRange);
+
+// Add reference file to workbook (without creating mapping)
+router.post("/workbooks/:workbookId/reference-files/:evidenceId", requireAuth, requireRole(["employee", "reviewer", "partner", "admin", "senior-employee"]), cec.addReferenceFileToWorkbook);
+
 module.exports = router;
