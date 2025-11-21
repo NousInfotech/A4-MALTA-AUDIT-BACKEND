@@ -14,27 +14,74 @@ const parseNumber = (value) => {
 // get clients
 
 exports.getClients = async (req, res) => {
-  const { data: clients, error } = await supabase
-    .from("profiles")
-    .select("user_id, name, email")
-    .eq("organization_id", req.user.organizationId)
-    .eq("role", "client");
-  if (error) {
+  try {
+    const { page = 1, limit = 10, sortBy = "name", sortOrder = "asc" } = req.query;
+
+    const pageNumber = parseInt(page, 10);
+    const limitNumber = parseInt(limit, 10);
+
+    const from = (pageNumber - 1) * limitNumber;
+    const to = from + limitNumber - 1;
+
+    // Fetch paginated + sorted clients
+    const { data: clients, error } = await supabase
+      .from("profiles")
+      .select("user_id, name, email", { count: "exact" })
+      .eq("organization_id", req.user.organizationId)
+      .eq("role", "client")
+      .order(sortBy, { ascending: sortOrder.toLowerCase() === "asc" })
+      .range(from, to);
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: clients,
+      pagination: {
+        page: pageNumber,
+        limit: limitNumber,
+        total: clients?.length ?? 0,
+      },
+    });
+  } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }
-  return res.status(200).json({ success: true, data: clients });
 };
+
 exports.getEmployees = async (req, res) => {
-  const { data: employees, error } = await supabase
-    .from("profiles")
-    .select("user_id, name, email")
-    .eq("organization_id", req.user.organizationId)
-    .eq("role", "employee");
-  if (error) {
+  try {
+    const { page = 1, limit = 10, sortBy = "name", sortOrder = "asc" } = req.query;
+
+    const pageNumber = parseInt(page, 10);
+    const limitNumber = parseInt(limit, 10);
+
+    const from = (pageNumber - 1) * limitNumber;
+    const to = from + limitNumber - 1;
+
+    const { data: employees, error } = await supabase
+      .from("profiles")
+      .select("user_id, name, email", { count: "exact" })
+      .eq("organization_id", req.user.organizationId)
+      .eq("role", "employee")
+      .order(sortBy, { ascending: sortOrder.toLowerCase() === "asc" })
+      .range(from, to);
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: employees,
+      pagination: {
+        page: pageNumber,
+        limit: limitNumber,
+        total: employees?.length ?? 0,
+      },
+    });
+  } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }
-  return res.status(200).json({ success: true, data: employees });
 };
+
 /* GROUP HANDLERS */
 exports.createGroup = async (req, res) => {
   try {
