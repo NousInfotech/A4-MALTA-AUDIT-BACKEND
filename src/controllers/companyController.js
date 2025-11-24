@@ -33,89 +33,118 @@ const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
   if (!Array.isArray(sharesDataArray) || companyTotalShares === 0) {
     return 0;
   }
-  const totalShares = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
+  const totalShares = sharesDataArray.reduce(
+    (sum, item) => sum + (Number(item.totalShares) || 0),
+    0
+  );
   return (totalShares / companyTotalShares) * 100;
 };
 
 // Helper functions to update Person's company references
-const updatePersonShareHoldingCompanies = async (personId, companyId, action = 'add') => {
+const updatePersonShareHoldingCompanies = async (
+  personId,
+  companyId,
+  action = "add"
+) => {
   try {
     const person = await Person.findById(personId);
     if (!person) return;
 
-    const companyObjectId = typeof companyId === 'string' ? new mongoose.Types.ObjectId(companyId) : companyId;
-    
-    if (action === 'add') {
+    const companyObjectId =
+      typeof companyId === "string"
+        ? new mongoose.Types.ObjectId(companyId)
+        : companyId;
+
+    if (action === "add") {
       // Add companyId if not already present
-      if (!person.shareHoldingCompanies || !person.shareHoldingCompanies.some(
-        id => id.toString() === companyObjectId.toString()
-      )) {
+      if (
+        !person.shareHoldingCompanies ||
+        !person.shareHoldingCompanies.some(
+          (id) => id.toString() === companyObjectId.toString()
+        )
+      ) {
         person.shareHoldingCompanies = person.shareHoldingCompanies || [];
         person.shareHoldingCompanies.push(companyObjectId);
         person.updatedAt = new Date();
         await person.save();
       }
-    } else if (action === 'remove') {
+    } else if (action === "remove") {
       // Check if person is still a shareholder in this company
       const company = await Company.findById(companyId);
       if (company) {
         const isStillShareholder = company.shareHolders?.some(
-          sh => sh.personId?.toString() === personId.toString()
+          (sh) => sh.personId?.toString() === personId.toString()
         );
-        
+
         // Only remove if person is no longer a shareholder in this company
         if (!isStillShareholder) {
-          person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
-            id => id.toString() !== companyObjectId.toString()
-          );
+          person.shareHoldingCompanies = (
+            person.shareHoldingCompanies || []
+          ).filter((id) => id.toString() !== companyObjectId.toString());
           person.updatedAt = new Date();
           await person.save();
         }
       }
     }
   } catch (error) {
-    console.error(`Error updating person shareHoldingCompanies for person ${personId}:`, error);
+    console.error(
+      `Error updating person shareHoldingCompanies for person ${personId}:`,
+      error
+    );
     // Don't throw - this is a background update
   }
 };
 
-const updatePersonRepresentingCompanies = async (personId, companyId, action = 'add') => {
+const updatePersonRepresentingCompanies = async (
+  personId,
+  companyId,
+  action = "add"
+) => {
   try {
     const person = await Person.findById(personId);
     if (!person) return;
 
-    const companyObjectId = typeof companyId === 'string' ? new mongoose.Types.ObjectId(companyId) : companyId;
-    
-    if (action === 'add') {
+    const companyObjectId =
+      typeof companyId === "string"
+        ? new mongoose.Types.ObjectId(companyId)
+        : companyId;
+
+    if (action === "add") {
       // Add companyId if not already present
-      if (!person.representingCompanies || !person.representingCompanies.some(
-        id => id.toString() === companyObjectId.toString()
-      )) {
+      if (
+        !person.representingCompanies ||
+        !person.representingCompanies.some(
+          (id) => id.toString() === companyObjectId.toString()
+        )
+      ) {
         person.representingCompanies = person.representingCompanies || [];
         person.representingCompanies.push(companyObjectId);
         person.updatedAt = new Date();
         await person.save();
       }
-    } else if (action === 'remove') {
+    } else if (action === "remove") {
       // Check if person is still a representative in this company
       const company = await Company.findById(companyId);
       if (company) {
         const isStillRepresentative = company.representationalSchema?.some(
-          rs => rs.personId?.toString() === personId.toString()
+          (rs) => rs.personId?.toString() === personId.toString()
         );
-        
+
         // Only remove if person is no longer a representative in this company
         if (!isStillRepresentative) {
-          person.representingCompanies = (person.representingCompanies || []).filter(
-            id => id.toString() !== companyObjectId.toString()
-          );
+          person.representingCompanies = (
+            person.representingCompanies || []
+          ).filter((id) => id.toString() !== companyObjectId.toString());
           person.updatedAt = new Date();
           await person.save();
         }
       }
     }
   } catch (error) {
-    console.error(`Error updating person representingCompanies for person ${personId}:`, error);
+    console.error(
+      `Error updating person representingCompanies for person ${personId}:`,
+      error
+    );
     // Don't throw - this is a background update
   }
 };
@@ -132,18 +161,29 @@ const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
   }
 
   // If it's a single object (old format), convert to array
-  if (sharesData && typeof sharesData === "object" && !Array.isArray(sharesData)) {
+  if (
+    sharesData &&
+    typeof sharesData === "object" &&
+    !Array.isArray(sharesData)
+  ) {
     const defaultArray = createDefaultSharesData();
     const classIndex = ["A", "B", "C"].indexOf(sharesData.class || "A");
-    const typeIndex = ["Ordinary", "Preferred"].indexOf(sharesData.type || "Ordinary");
+    const typeIndex = ["Ordinary", "Preferred"].indexOf(
+      sharesData.type || "Ordinary"
+    );
     const index = classIndex * 2 + typeIndex;
-    
+
     if (index >= 0 && index < 6) {
       // Calculate totalShares from percentage if needed
-      const totalShares = sharesData.totalShares !== undefined 
-        ? Number(sharesData.totalShares) 
-        : (sharesData.percentage ? Math.round((Number(sharesData.percentage) || 0) / 100 * totalSharesValue) : 0);
-      
+      const totalShares =
+        sharesData.totalShares !== undefined
+          ? Number(sharesData.totalShares)
+          : sharesData.percentage
+          ? Math.round(
+              ((Number(sharesData.percentage) || 0) / 100) * totalSharesValue
+            )
+          : 0;
+
       defaultArray[index] = {
         totalShares: totalShares,
         class: sharesData.class || "A",
@@ -159,8 +199,12 @@ const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
 
 // Helper function to merge sharesData from input into array format
 // Frontend sends: {totalShares, shareClass}[] - sharePercentage is calculated separately
-const mergeSharesData = (inputSharesData, totalIssuedShares = 0, existingSharesData = null) => {
-  const defaultArray = existingSharesData 
+const mergeSharesData = (
+  inputSharesData,
+  totalIssuedShares = 0,
+  existingSharesData = null
+) => {
+  const defaultArray = existingSharesData
     ? convertToSharesDataArray(existingSharesData, totalIssuedShares)
     : createDefaultSharesData();
 
@@ -172,14 +216,14 @@ const mergeSharesData = (inputSharesData, totalIssuedShares = 0, existingSharesD
         const shareClass = item.shareClass || item.class;
         // Support both shareType (frontend) and type (backend), default to "Ordinary"
         const shareType = item.shareType || item.type || "Ordinary";
-        
+
         const classIndex = ["A", "B", "C"].indexOf(shareClass);
         const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
         const index = classIndex * 2 + typeIndex;
-        
+
         if (index >= 0 && index < 6) {
           const totalShares = Number(item.totalShares) || 0;
-          
+
           defaultArray[index] = {
             totalShares: totalShares,
             class: shareClass,
@@ -203,7 +247,7 @@ exports.getAllCompanies = async (req, res) => {
   try {
     const { clientId } = req.params;
 
-    const companies = await Company.find({ clientId })
+    const companies = await Company.find({ clientId,organizationId:req.user.organizationId })
       .populate({
         path: "shareHolders.personId",
         select: "name email phoneNumber nationality address",
@@ -259,12 +303,14 @@ exports.getCompanyById = async (req, res) => {
     })
       .populate({
         path: "shareHolders.personId",
-        select: "name email phoneNumber nationality address supportingDocuments",
+        select:
+          "name email phoneNumber nationality address supportingDocuments",
         model: "Person",
       })
       .populate({
         path: "representationalSchema.personId",
-        select: "name email phoneNumber nationality address supportingDocuments",
+        select:
+          "name email phoneNumber nationality address supportingDocuments",
         model: "Person",
       })
       .populate({
@@ -318,7 +364,7 @@ exports.createCompany = async (req, res) => {
       supportingDocuments,
       timelineStart,
       shareHoldingCompanies,
-      totalShares,                 // ✅ <-- add
+      totalShares, // ✅ <-- add
       industry,
       description,
     } = req.body;
@@ -331,15 +377,17 @@ exports.createCompany = async (req, res) => {
     }
 
     // Default totalShares to 100 if not provided or is 0 (minimum required by model)
-    const finalTotalShares = totalShares && Number(totalShares) > 0 ? Number(totalShares) : 100;
+    const finalTotalShares =
+      totalShares && Number(totalShares) > 0 ? Number(totalShares) : 100;
     const totalIssuedShares = finalTotalShares;
 
     // Normalize shareHoldingCompanies to use sharesData array structure
     // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
     const formattedShareholdings = Array.isArray(shareHoldingCompanies)
       ? shareHoldingCompanies.map((s) => {
-          const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
-          
+          const companyId =
+            typeof s.companyId === "object" ? s.companyId._id : s.companyId;
+
           // Convert sharesData to array format
           // Frontend format: {totalShares, shareClass}[] or {totalShares, shareClass, shareType}[]
           const sharesDataArray = mergeSharesData(
@@ -348,7 +396,10 @@ exports.createCompany = async (req, res) => {
           );
 
           // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+          const sharePercentage = calculateSharePercentage(
+            sharesDataArray,
+            totalIssuedShares
+          );
 
           return {
             companyId: companyId,
@@ -421,7 +472,9 @@ exports.updateCompany = async (req, res) => {
     }
 
     if (Object.prototype.hasOwnProperty.call(updateData, "description")) {
-      const normalizedDescription = normalizeOptionalString(updateData.description);
+      const normalizedDescription = normalizeOptionalString(
+        updateData.description
+      );
       if (normalizedDescription === undefined) {
         delete updateData.description;
       } else {
@@ -431,9 +484,14 @@ exports.updateCompany = async (req, res) => {
 
     // Handle representationalCompany update if provided
     if (updateData.representationalCompany) {
-      updateData.representationalCompany = Array.isArray(updateData.representationalCompany)
+      updateData.representationalCompany = Array.isArray(
+        updateData.representationalCompany
+      )
         ? updateData.representationalCompany.map((rc) => ({
-            companyId: typeof rc.companyId === 'object' ? rc.companyId._id : rc.companyId,
+            companyId:
+              typeof rc.companyId === "object"
+                ? rc.companyId._id
+                : rc.companyId,
             role: Array.isArray(rc.role) ? rc.role : [rc.role],
           }))
         : [];
@@ -443,22 +501,34 @@ exports.updateCompany = async (req, res) => {
     // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
     if (updateData.shareHoldingCompanies) {
       // Get existing company to preserve sharesData if not changing
-      const existingCompany = await Company.findOne({ _id: companyId, clientId });
-      const totalIssuedShares = Number(updateData.totalShares) || Number(existingCompany?.totalShares) || 0;
-      
-      updateData.shareHoldingCompanies = Array.isArray(updateData.shareHoldingCompanies)
+      const existingCompany = await Company.findOne({
+        _id: companyId,
+        clientId,
+      });
+      const totalIssuedShares =
+        Number(updateData.totalShares) ||
+        Number(existingCompany?.totalShares) ||
+        0;
+
+      updateData.shareHoldingCompanies = Array.isArray(
+        updateData.shareHoldingCompanies
+      )
         ? updateData.shareHoldingCompanies.map((s) => {
-            const companyId = typeof s.companyId === 'object' ? s.companyId._id : s.companyId;
-            
+            const companyId =
+              typeof s.companyId === "object" ? s.companyId._id : s.companyId;
+
             // Get existing sharesData if available
             let existingSharesData = null;
             if (existingCompany) {
               const existingShare = existingCompany.shareHoldingCompanies?.find(
-                (sh) => (typeof sh.companyId === 'object' ? sh.companyId?._id?.toString() : sh.companyId?.toString()) === companyId?.toString()
+                (sh) =>
+                  (typeof sh.companyId === "object"
+                    ? sh.companyId?._id?.toString()
+                    : sh.companyId?.toString()) === companyId?.toString()
               );
               existingSharesData = existingShare?.sharesData;
             }
-            
+
             // Merge input sharesData with existing or create new
             // Frontend format: {totalShares, shareClass}[] or {totalShares, shareClass, shareType}[]
             const sharesDataArray = mergeSharesData(
@@ -466,10 +536,13 @@ exports.updateCompany = async (req, res) => {
               totalIssuedShares,
               existingSharesData
             );
-            
+
             // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-            const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
-            
+            const sharePercentage = calculateSharePercentage(
+              sharesDataArray,
+              totalIssuedShares
+            );
+
             return {
               companyId: companyId,
               sharePercentage: sharePercentage,
@@ -518,106 +591,133 @@ exports.updateCompany = async (req, res) => {
     }
 
     // Sync Person references if shareHolders or representationalSchema were updated
-    if (updateData.shareHolders !== undefined || updateData.representationalSchema !== undefined) {
+    if (
+      updateData.shareHolders !== undefined ||
+      updateData.representationalSchema !== undefined
+    ) {
       // Get all person IDs from the updated company
       const shareholderPersonIds = new Set();
       const representativePersonIds = new Set();
-      
+
       if (company.shareHolders) {
         company.shareHolders.forEach((sh) => {
-          const personId = sh?.personId?._id || sh?.personId?.id || sh?.personId;
+          const personId =
+            sh?.personId?._id || sh?.personId?.id || sh?.personId;
           if (personId) {
             shareholderPersonIds.add(String(personId));
           }
         });
       }
-      
+
       if (company.representationalSchema) {
         company.representationalSchema.forEach((rs) => {
-          const personId = rs?.personId?._id || rs?.personId?.id || rs?.personId;
+          const personId =
+            rs?.personId?._id || rs?.personId?.id || rs?.personId;
           if (personId) {
             representativePersonIds.add(String(personId));
           }
         });
       }
-      
+
       // Get all person IDs that need to be checked (current + previous)
-      const allPersonIds = new Set([...shareholderPersonIds, ...representativePersonIds]);
-      
+      const allPersonIds = new Set([
+        ...shareholderPersonIds,
+        ...representativePersonIds,
+      ]);
+
       // If shareHolders was updated, check previous shareholders
       if (updateData.shareHolders !== undefined) {
-        const previousCompany = await Company.findById(companyId).select('shareHolders').lean();
+        const previousCompany = await Company.findById(companyId)
+          .select("shareHolders")
+          .lean();
         if (previousCompany?.shareHolders) {
           previousCompany.shareHolders.forEach((sh) => {
-            const personId = sh?.personId?._id || sh?.personId?.id || sh?.personId;
+            const personId =
+              sh?.personId?._id || sh?.personId?.id || sh?.personId;
             if (personId) {
               allPersonIds.add(String(personId));
             }
           });
         }
       }
-      
+
       // If representationalSchema was updated, check previous representatives
       if (updateData.representationalSchema !== undefined) {
-        const previousCompany = await Company.findById(companyId).select('representationalSchema').lean();
+        const previousCompany = await Company.findById(companyId)
+          .select("representationalSchema")
+          .lean();
         if (previousCompany?.representationalSchema) {
           previousCompany.representationalSchema.forEach((rs) => {
-            const personId = rs?.personId?._id || rs?.personId?.id || rs?.personId;
+            const personId =
+              rs?.personId?._id || rs?.personId?.id || rs?.personId;
             if (personId) {
               allPersonIds.add(String(personId));
             }
           });
         }
       }
-      
+
       // Update only relevant persons
       for (const personIdStr of allPersonIds) {
         try {
-          const person = await Person.findById(personIdStr).select('shareHoldingCompanies representingCompanies');
+          const person = await Person.findById(personIdStr).select(
+            "shareHoldingCompanies representingCompanies"
+          );
           if (!person) continue;
-          
+
           const wasShareholder = person.shareHoldingCompanies?.some(
-            id => id.toString() === companyId.toString()
+            (id) => id.toString() === companyId.toString()
           );
           const wasRepresentative = person.representingCompanies?.some(
-            id => id.toString() === companyId.toString()
+            (id) => id.toString() === companyId.toString()
           );
           const isNowShareholder = shareholderPersonIds.has(personIdStr);
           const isNowRepresentative = representativePersonIds.has(personIdStr);
-          
+
           // Update shareHoldingCompanies
           if (wasShareholder && !isNowShareholder) {
-            person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
-              id => id.toString() !== companyId.toString()
-            );
+            person.shareHoldingCompanies = (
+              person.shareHoldingCompanies || []
+            ).filter((id) => id.toString() !== companyId.toString());
             person.updatedAt = new Date();
             await person.save();
           } else if (!wasShareholder && isNowShareholder) {
             person.shareHoldingCompanies = person.shareHoldingCompanies || [];
-            if (!person.shareHoldingCompanies.some(id => id.toString() === companyId.toString())) {
+            if (
+              !person.shareHoldingCompanies.some(
+                (id) => id.toString() === companyId.toString()
+              )
+            ) {
               person.shareHoldingCompanies.push(companyId);
               person.updatedAt = new Date();
               await person.save();
             }
           }
-          
+
           // Update representingCompanies
           if (wasRepresentative && !isNowRepresentative) {
-            person.representingCompanies = (person.representingCompanies || []).filter(
-              id => id.toString() !== companyId.toString()
-            );
+            person.representingCompanies = (
+              person.representingCompanies || []
+            ).filter((id) => id.toString() !== companyId.toString());
             person.updatedAt = new Date();
             await person.save();
           } else if (!wasRepresentative && isNowRepresentative) {
             person.representingCompanies = person.representingCompanies || [];
-            if (!person.representingCompanies.some(id => id.toString() === companyId.toString())) {
+            if (
+              !person.representingCompanies.some(
+                (id) => id.toString() === companyId.toString()
+              )
+            ) {
               person.representingCompanies.push(companyId);
               person.updatedAt = new Date();
               await person.save();
             }
           }
         } catch (error) {
-          console.error(`Error syncing person ${personIdStr} references:`, error);
+          console.error(
+            `Error syncing person ${personIdStr} references:`,
+            error
+          );
           // Continue with other persons
         }
       }
@@ -822,9 +922,10 @@ exports.removeRepresentative = async (req, res) => {
 
     // Remove only from representationalSchema (not from shareHolders)
     const beforeCount = company.representationalSchema?.length || 0;
-    company.representationalSchema = company.representationalSchema?.filter(
-      (rs) => rs.personId?.toString() !== personId
-    ) || [];
+    company.representationalSchema =
+      company.representationalSchema?.filter(
+        (rs) => rs.personId?.toString() !== personId
+      ) || [];
 
     const removed = beforeCount > (company.representationalSchema?.length || 0);
 
@@ -899,11 +1000,16 @@ exports.getCompanyHierarchy = async (req, res) => {
       // 1. Process shareHolders (persons with shares)
       for (const sh of company.shareHolders || []) {
         if (!sh?.personId?._id) continue;
-        
+
         const personIdStr = sh.personId._id.toString();
-        const sharesDataArray = Array.isArray(sh?.sharesData) ? sh.sharesData : [];
-        const totalSharesValue = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
-        
+        const sharesDataArray = Array.isArray(sh?.sharesData)
+          ? sh.sharesData
+          : [];
+        const totalSharesValue = sharesDataArray.reduce(
+          (sum, item) => sum + (Number(item.totalShares) || 0),
+          0
+        );
+
         mergedNodesMap.set(personIdStr, {
           id: sh.personId._id,
           name: sh.personId.name,
@@ -919,14 +1025,18 @@ exports.getCompanyHierarchy = async (req, res) => {
       // 2. Process representationalSchema (persons with roles, may or may not have shares)
       for (const rs of company.representationalSchema || []) {
         if (!rs?.personId?._id) continue;
-        
+
         const personIdStr = rs.personId._id.toString();
-        const roleArray = Array.isArray(rs.role) ? rs.role : (rs.role ? [rs.role] : []);
-        
+        const roleArray = Array.isArray(rs.role)
+          ? rs.role
+          : rs.role
+          ? [rs.role]
+          : [];
+
         if (mergedNodesMap.has(personIdStr)) {
           // Merge: add roles to existing node
           const existingNode = mergedNodesMap.get(personIdStr);
-          roleArray.forEach(role => existingNode.roles.add(role));
+          roleArray.forEach((role) => existingNode.roles.add(role));
         } else {
           // New person from representationalSchema only (no shares)
           mergedNodesMap.set(personIdStr, {
@@ -945,14 +1055,19 @@ exports.getCompanyHierarchy = async (req, res) => {
       // 3. Process shareHoldingCompanies (companies with shares)
       for (const sh of company.shareHoldingCompanies || []) {
         if (!sh?.companyId?._id) continue;
-        
+
         const companyIdStr = sh.companyId._id.toString();
-        const sharesDataArray = Array.isArray(sh?.sharesData) ? sh.sharesData : [];
-        const totalSharesValue = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
-        
+        const sharesDataArray = Array.isArray(sh?.sharesData)
+          ? sh.sharesData
+          : [];
+        const totalSharesValue = sharesDataArray.reduce(
+          (sum, item) => sum + (Number(item.totalShares) || 0),
+          0
+        );
+
         // Recursively fetch sub-company hierarchy
         const subCompany = await getHierarchy(sh.companyId._id, depth + 1);
-        
+
         mergedNodesMap.set(companyIdStr, {
           id: sh.companyId._id,
           name: sh.companyId.name,
@@ -968,20 +1083,26 @@ exports.getCompanyHierarchy = async (req, res) => {
       // 4. Process representationalCompany (companies with roles, may or may not have shares)
       for (const rc of company.representationalCompany || []) {
         if (!rc?.companyId?._id) continue;
-        
+
         const companyIdStr = rc.companyId._id.toString();
-        const roleArray = Array.isArray(rc.role) ? rc.role : (rc.role ? [rc.role] : []);
-        
+        const roleArray = Array.isArray(rc.role)
+          ? rc.role
+          : rc.role
+          ? [rc.role]
+          : [];
+
         if (mergedNodesMap.has(companyIdStr)) {
           // Merge: add roles to existing node
           const existingNode = mergedNodesMap.get(companyIdStr);
-          roleArray.forEach(role => existingNode.roles.add(role));
+          roleArray.forEach((role) => existingNode.roles.add(role));
         } else {
           // New company from representationalCompany only (no shares)
           // Need to fetch company data for address
-          const repCompany = await Company.findById(rc.companyId._id).select("name address totalShares").lean();
+          const repCompany = await Company.findById(rc.companyId._id)
+            .select("name address totalShares")
+            .lean();
           const subCompany = await getHierarchy(rc.companyId._id, depth + 1);
-          
+
           mergedNodesMap.set(companyIdStr, {
             id: rc.companyId._id,
             name: repCompany?.name || rc.companyId.name,
@@ -997,21 +1118,22 @@ exports.getCompanyHierarchy = async (req, res) => {
 
       // Convert merged nodes to final array and calculate percentages
       const parentTotalShares = company.totalShares || 0;
-      
+
       for (const [nodeId, nodeData] of mergedNodesMap.entries()) {
         // Add "Shareholder" role if node has shares
         if (nodeData.totalShares > 0 && !nodeData.roles.has("Shareholder")) {
           nodeData.roles.add("Shareholder");
         }
-        
+
         // Calculate share percentage
-        const sharePercentage = parentTotalShares > 0 
-          ? (nodeData.totalShares / parentTotalShares) * 100 
-          : 0;
-        
+        const sharePercentage =
+          parentTotalShares > 0
+            ? (nodeData.totalShares / parentTotalShares) * 100
+            : 0;
+
         // Convert Set to Array for roles
         const rolesArray = Array.from(nodeData.roles);
-        
+
         const finalNode = {
           id: nodeData.id,
           name: nodeData.name,
@@ -1022,16 +1144,16 @@ exports.getCompanyHierarchy = async (req, res) => {
           sharePercentage: sharePercentage,
           roles: rolesArray.length > 0 ? rolesArray : undefined,
         };
-        
+
         // Add type-specific fields
         if (nodeData.type === "person" && nodeData.nationality) {
           finalNode.nationality = nodeData.nationality;
         }
-        
+
         if (nodeData.type === "company" && nodeData.children) {
           finalNode.children = nodeData.children;
         }
-        
+
         node.shareholders.push(finalNode);
       }
 
@@ -1042,7 +1164,9 @@ exports.getCompanyHierarchy = async (req, res) => {
     return res.status(200).json({ success: true, data: hierarchy });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: "Failed to fetch hierarchy" });
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch hierarchy" });
   }
 };
 
@@ -1061,20 +1185,26 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const personIdStr = personId.toString();
     const totalIssuedShares = company.totalShares || 0;
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+    const sharePercentage = calculateSharePercentage(
+      sharesDataArray,
+      totalIssuedShares
+    );
 
     // Remove existing and add updated
-    company.shareHolders = company.shareHolders?.filter(
-      sh => sh.personId?.toString() !== personIdStr
-    ) || [];
+    company.shareHolders =
+      company.shareHolders?.filter(
+        (sh) => sh.personId?.toString() !== personIdStr
+      ) || [];
 
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHolders.push({
         personId: personId,
         sharePercentage: sharePercentage,
@@ -1082,15 +1212,20 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
       });
 
       // Add "Shareholder" role to representationalSchema
-      const existingRepIndex = company.representationalSchema?.findIndex(
-        rs => rs.personId?.toString() === personIdStr
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalSchema?.findIndex(
+          (rs) => rs.personId?.toString() === personIdStr
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
         // Person already in representatives - add "Shareholder" role if not present
-        const existingRoles = company.representationalSchema[existingRepIndex].role || [];
+        const existingRoles =
+          company.representationalSchema[existingRepIndex].role || [];
         if (!existingRoles.includes("Shareholder")) {
-          company.representationalSchema[existingRepIndex].role = [...existingRoles, "Shareholder"];
+          company.representationalSchema[existingRepIndex].role = [
+            ...existingRoles,
+            "Shareholder",
+          ];
         }
       } else {
         // Person not in representatives - add to representationalSchema with "Shareholder" role
@@ -1102,23 +1237,30 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
           role: ["Shareholder"],
         });
         // Update Person's representingCompanies reference
-        await updatePersonRepresentingCompanies(personId, companyId, 'add');
+        await updatePersonRepresentingCompanies(personId, companyId, "add");
       }
     } else {
       // Remove "Shareholder" role if shares are 0
-      const existingRepIndex = company.representationalSchema?.findIndex(
-        rs => rs.personId?.toString() === personIdStr
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalSchema?.findIndex(
+          (rs) => rs.personId?.toString() === personIdStr
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
-        const existingRoles = company.representationalSchema[existingRepIndex].role || [];
-        const filteredRoles = existingRoles.filter(r => r !== "Shareholder");
+        const existingRoles =
+          company.representationalSchema[existingRepIndex].role || [];
+        const filteredRoles = existingRoles.filter((r) => r !== "Shareholder");
         if (filteredRoles.length === 0) {
           // Remove from representationalSchema if no roles left
-          company.representationalSchema = company.representationalSchema.filter(
-            (_, idx) => idx !== existingRepIndex
+          company.representationalSchema =
+            company.representationalSchema.filter(
+              (_, idx) => idx !== existingRepIndex
+            );
+          await updatePersonRepresentingCompanies(
+            personId,
+            companyId,
+            "remove"
           );
-          await updatePersonRepresentingCompanies(personId, companyId, 'remove');
         } else {
           company.representationalSchema[existingRepIndex].role = filteredRoles;
         }
@@ -1129,16 +1271,28 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
     await company.save();
 
     // Update Person's shareHoldingCompanies reference
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
-      await updatePersonShareHoldingCompanies(personId, companyId, 'add');
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
+      await updatePersonShareHoldingCompanies(personId, companyId, "add");
     } else {
-      await updatePersonShareHoldingCompanies(personId, companyId, 'remove');
+      await updatePersonShareHoldingCompanies(personId, companyId, "remove");
     }
 
-    res.status(200).json({ success: true, message: "Shareholder updated successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Shareholder updated successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error updating shareholder:", error);
-    res.status(500).json({ success: false, message: "Failed to update shareholder", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to update shareholder",
+        error: error.message,
+      });
   }
 };
 
@@ -1153,19 +1307,25 @@ exports.addShareHolderPersonNew = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const totalIssuedShares = company.totalShares || 0;
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+    const sharePercentage = calculateSharePercentage(
+      sharesDataArray,
+      totalIssuedShares
+    );
 
     // Remove if exists, then add
-    company.shareHolders = company.shareHolders?.filter(
-      sh => sh.personId?.toString() !== personId?.toString()
-    ) || [];
+    company.shareHolders =
+      company.shareHolders?.filter(
+        (sh) => sh.personId?.toString() !== personId?.toString()
+      ) || [];
 
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHolders.push({
         personId: personId,
         sharePercentage: sharePercentage,
@@ -1174,17 +1334,22 @@ exports.addShareHolderPersonNew = async (req, res) => {
     }
 
     // Add "Shareholder" role to representationalSchema if person is added as shareholder
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       // Check if person already exists in representationalSchema
-      const existingRepIndex = company.representationalSchema?.findIndex(
-        rs => rs.personId?.toString() === personId?.toString()
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalSchema?.findIndex(
+          (rs) => rs.personId?.toString() === personId?.toString()
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
         // Person already in representatives - add "Shareholder" role if not present
-        const existingRoles = company.representationalSchema[existingRepIndex].role || [];
+        const existingRoles =
+          company.representationalSchema[existingRepIndex].role || [];
         if (!existingRoles.includes("Shareholder")) {
-          company.representationalSchema[existingRepIndex].role = [...existingRoles, "Shareholder"];
+          company.representationalSchema[existingRepIndex].role = [
+            ...existingRoles,
+            "Shareholder",
+          ];
         }
       } else {
         // Person not in representatives - add to representationalSchema with "Shareholder" role
@@ -1196,7 +1361,7 @@ exports.addShareHolderPersonNew = async (req, res) => {
           role: ["Shareholder"],
         });
         // Update Person's representingCompanies reference
-        await updatePersonRepresentingCompanies(personId, companyId, 'add');
+        await updatePersonRepresentingCompanies(personId, companyId, "add");
       }
     }
 
@@ -1204,14 +1369,26 @@ exports.addShareHolderPersonNew = async (req, res) => {
     await company.save();
 
     // Update Person's shareHoldingCompanies reference
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
-      await updatePersonShareHoldingCompanies(personId, companyId, 'add');
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
+      await updatePersonShareHoldingCompanies(personId, companyId, "add");
     }
 
-    res.status(200).json({ success: true, message: "Shareholder added successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Shareholder added successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error adding shareholder:", error);
-    res.status(500).json({ success: false, message: "Failed to add shareholder", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to add shareholder",
+        error: error.message,
+      });
   }
 };
 
@@ -1226,16 +1403,26 @@ exports.updateShareHolderPersonExistingBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk update logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies for each personId
     // to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk update not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk update not yet implemented" });
   } catch (error) {
     console.error("Error bulk updating shareholders:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk update shareholders", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk update shareholders",
+        error: error.message,
+      });
   }
 };
 
@@ -1250,16 +1437,26 @@ exports.addShareHolderPersonNewBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk add logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies(personId, companyId, 'add')
     // for each person to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk add not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk add not yet implemented" });
   } catch (error) {
     console.error("Error bulk adding shareholders:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk add shareholders", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk add shareholders",
+        error: error.message,
+      });
   }
 };
 
@@ -1274,19 +1471,25 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const totalIssuedShares = company.totalShares || 0;
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+    const sharePercentage = calculateSharePercentage(
+      sharesDataArray,
+      totalIssuedShares
+    );
 
     // Remove existing and add updated
-    company.shareHoldingCompanies = company.shareHoldingCompanies?.filter(
-      sh => sh.companyId?.toString() !== addingCompanyId?.toString()
-    ) || [];
+    company.shareHoldingCompanies =
+      company.shareHoldingCompanies?.filter(
+        (sh) => sh.companyId?.toString() !== addingCompanyId?.toString()
+      ) || [];
 
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHoldingCompanies.push({
         companyId: addingCompanyId,
         sharePercentage: sharePercentage,
@@ -1294,15 +1497,20 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
       });
 
       // Add "Shareholder" role to representationalCompany
-      const existingRepIndex = company.representationalCompany?.findIndex(
-        rc => rc.companyId?.toString() === addingCompanyId?.toString()
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalCompany?.findIndex(
+          (rc) => rc.companyId?.toString() === addingCompanyId?.toString()
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
         // Company already in representatives - add "Shareholder" role if not present
-        const existingRoles = company.representationalCompany[existingRepIndex].role || [];
+        const existingRoles =
+          company.representationalCompany[existingRepIndex].role || [];
         if (!existingRoles.includes("Shareholder")) {
-          company.representationalCompany[existingRepIndex].role = [...existingRoles, "Shareholder"];
+          company.representationalCompany[existingRepIndex].role = [
+            ...existingRoles,
+            "Shareholder",
+          ];
         }
       } else {
         // Company not in representatives - add to representationalCompany with "Shareholder" role
@@ -1316,20 +1524,24 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
       }
     } else {
       // Remove "Shareholder" role if shares are 0
-      const existingRepIndex = company.representationalCompany?.findIndex(
-        rc => rc.companyId?.toString() === addingCompanyId?.toString()
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalCompany?.findIndex(
+          (rc) => rc.companyId?.toString() === addingCompanyId?.toString()
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
-        const existingRoles = company.representationalCompany[existingRepIndex].role || [];
-        const filteredRoles = existingRoles.filter(r => r !== "Shareholder");
+        const existingRoles =
+          company.representationalCompany[existingRepIndex].role || [];
+        const filteredRoles = existingRoles.filter((r) => r !== "Shareholder");
         if (filteredRoles.length === 0) {
           // Remove from representationalCompany if no roles left
-          company.representationalCompany = company.representationalCompany.filter(
-            (_, idx) => idx !== existingRepIndex
-          );
+          company.representationalCompany =
+            company.representationalCompany.filter(
+              (_, idx) => idx !== existingRepIndex
+            );
         } else {
-          company.representationalCompany[existingRepIndex].role = filteredRoles;
+          company.representationalCompany[existingRepIndex].role =
+            filteredRoles;
         }
       }
     }
@@ -1337,10 +1549,22 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
     company.updatedAt = new Date();
     await company.save();
 
-    res.status(200).json({ success: true, message: "Company shareholder updated successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Company shareholder updated successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error updating company shareholder:", error);
-    res.status(500).json({ success: false, message: "Failed to update company shareholder", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to update company shareholder",
+        error: error.message,
+      });
   }
 };
 
@@ -1355,19 +1579,25 @@ exports.addShareHolderCompanyNew = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const totalIssuedShares = company.totalShares || 0;
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
+    const sharePercentage = calculateSharePercentage(
+      sharesDataArray,
+      totalIssuedShares
+    );
 
     // Remove if exists, then add
-    company.shareHoldingCompanies = company.shareHoldingCompanies?.filter(
-      sh => sh.companyId?.toString() !== addingCompanyId?.toString()
-    ) || [];
+    company.shareHoldingCompanies =
+      company.shareHoldingCompanies?.filter(
+        (sh) => sh.companyId?.toString() !== addingCompanyId?.toString()
+      ) || [];
 
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHoldingCompanies.push({
         companyId: addingCompanyId,
         sharePercentage: sharePercentage,
@@ -1376,17 +1606,22 @@ exports.addShareHolderCompanyNew = async (req, res) => {
     }
 
     // Add "Shareholder" role to representationalCompany if company is added as shareholder
-    if (sharesDataArray.some(item => item.totalShares > 0)) {
+    if (sharesDataArray.some((item) => item.totalShares > 0)) {
       // Check if company already exists in representationalCompany
-      const existingRepIndex = company.representationalCompany?.findIndex(
-        rc => rc.companyId?.toString() === addingCompanyId?.toString()
-      ) ?? -1;
+      const existingRepIndex =
+        company.representationalCompany?.findIndex(
+          (rc) => rc.companyId?.toString() === addingCompanyId?.toString()
+        ) ?? -1;
 
       if (existingRepIndex >= 0) {
         // Company already in representatives - add "Shareholder" role if not present
-        const existingRoles = company.representationalCompany[existingRepIndex].role || [];
+        const existingRoles =
+          company.representationalCompany[existingRepIndex].role || [];
         if (!existingRoles.includes("Shareholder")) {
-          company.representationalCompany[existingRepIndex].role = [...existingRoles, "Shareholder"];
+          company.representationalCompany[existingRepIndex].role = [
+            ...existingRoles,
+            "Shareholder",
+          ];
         }
       } else {
         // Company not in representatives - add to representationalCompany with "Shareholder" role
@@ -1403,10 +1638,22 @@ exports.addShareHolderCompanyNew = async (req, res) => {
     company.updatedAt = new Date();
     await company.save();
 
-    res.status(200).json({ success: true, message: "Company shareholder added successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Company shareholder added successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error adding company shareholder:", error);
-    res.status(500).json({ success: false, message: "Failed to add company shareholder", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to add company shareholder",
+        error: error.message,
+      });
   }
 };
 
@@ -1421,16 +1668,26 @@ exports.updateShareHolderCompanyExistingBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk update logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies for each personId
     // to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk update not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk update not yet implemented" });
   } catch (error) {
     console.error("Error bulk updating company shareholders:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk update company shareholders", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk update company shareholders",
+        error: error.message,
+      });
   }
 };
 
@@ -1445,16 +1702,26 @@ exports.addShareHolderCompanyNewBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk add logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies(personId, companyId, 'add')
     // for each person to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk add not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk add not yet implemented" });
   } catch (error) {
     console.error("Error bulk adding company shareholders:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk add company shareholders", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk add company shareholders",
+        error: error.message,
+      });
   }
 };
 
@@ -1469,13 +1736,16 @@ exports.updateRepresentationPersonExisting = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const personIdStr = personId.toString();
-    company.representationalSchema = company.representationalSchema?.filter(
-      rs => rs.personId?.toString() !== personIdStr
-    ) || [];
+    company.representationalSchema =
+      company.representationalSchema?.filter(
+        (rs) => rs.personId?.toString() !== personIdStr
+      ) || [];
 
     if (Array.isArray(role) && role.length > 0) {
       company.representationalSchema.push({
@@ -1489,15 +1759,27 @@ exports.updateRepresentationPersonExisting = async (req, res) => {
 
     // Update Person's representingCompanies reference
     if (Array.isArray(role) && role.length > 0) {
-      await updatePersonRepresentingCompanies(personId, companyId, 'add');
+      await updatePersonRepresentingCompanies(personId, companyId, "add");
     } else {
-      await updatePersonRepresentingCompanies(personId, companyId, 'remove');
+      await updatePersonRepresentingCompanies(personId, companyId, "remove");
     }
 
-    res.status(200).json({ success: true, message: "Representation updated successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Representation updated successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error updating representation:", error);
-    res.status(500).json({ success: false, message: "Failed to update representation", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to update representation",
+        error: error.message,
+      });
   }
 };
 
@@ -1512,13 +1794,16 @@ exports.addRepresentationPersonNew = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // Remove if exists, then add
-    company.representationalSchema = company.representationalSchema?.filter(
-      rs => rs.personId?.toString() !== personId?.toString()
-    ) || [];
+    company.representationalSchema =
+      company.representationalSchema?.filter(
+        (rs) => rs.personId?.toString() !== personId?.toString()
+      ) || [];
 
     if (Array.isArray(role) && role.length > 0) {
       company.representationalSchema.push({
@@ -1532,13 +1817,25 @@ exports.addRepresentationPersonNew = async (req, res) => {
 
     // Update Person's representingCompanies reference
     if (Array.isArray(role) && role.length > 0) {
-      await updatePersonRepresentingCompanies(personId, companyId, 'add');
+      await updatePersonRepresentingCompanies(personId, companyId, "add");
     }
 
-    res.status(200).json({ success: true, message: "Representation added successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Representation added successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error adding representation:", error);
-    res.status(500).json({ success: false, message: "Failed to add representation", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to add representation",
+        error: error.message,
+      });
   }
 };
 
@@ -1553,16 +1850,26 @@ exports.updateRepresentationPersonExistingBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk update logic
     // When implementing, ensure to call updatePersonRepresentingCompanies for each personId
     // to maintain Person.representingCompanies references
-    res.status(200).json({ success: true, message: "Bulk update not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk update not yet implemented" });
   } catch (error) {
     console.error("Error bulk updating representations:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk update representations", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk update representations",
+        error: error.message,
+      });
   }
 };
 
@@ -1577,16 +1884,26 @@ exports.addRepresentationPersonNewBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk add logic
     // When implementing, ensure to call updatePersonRepresentingCompanies(personId, companyId, 'add')
     // for each person to maintain Person.representingCompanies references
-    res.status(200).json({ success: true, message: "Bulk add not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk add not yet implemented" });
   } catch (error) {
     console.error("Error bulk adding representations:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk add representations", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk add representations",
+        error: error.message,
+      });
   }
 };
 
@@ -1601,13 +1918,16 @@ exports.updateRepresentationCompanyExisting = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     const companyIdStr = addingCompanyId.toString();
-    company.representationalCompany = company.representationalCompany?.filter(
-      rc => rc.companyId?.toString() !== companyIdStr
-    ) || [];
+    company.representationalCompany =
+      company.representationalCompany?.filter(
+        (rc) => rc.companyId?.toString() !== companyIdStr
+      ) || [];
 
     if (Array.isArray(role) && role.length > 0) {
       company.representationalCompany.push({
@@ -1619,10 +1939,22 @@ exports.updateRepresentationCompanyExisting = async (req, res) => {
     company.updatedAt = new Date();
     await company.save();
 
-    res.status(200).json({ success: true, message: "Company representation updated successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Company representation updated successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error updating company representation:", error);
-    res.status(500).json({ success: false, message: "Failed to update company representation", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to update company representation",
+        error: error.message,
+      });
   }
 };
 
@@ -1637,13 +1969,16 @@ exports.addRepresentationCompanyNew = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // Remove if exists, then add
-    company.representationalCompany = company.representationalCompany?.filter(
-      rc => rc.companyId?.toString() !== addingCompanyId?.toString()
-    ) || [];
+    company.representationalCompany =
+      company.representationalCompany?.filter(
+        (rc) => rc.companyId?.toString() !== addingCompanyId?.toString()
+      ) || [];
 
     if (Array.isArray(role) && role.length > 0) {
       company.representationalCompany.push({
@@ -1655,10 +1990,22 @@ exports.addRepresentationCompanyNew = async (req, res) => {
     company.updatedAt = new Date();
     await company.save();
 
-    res.status(200).json({ success: true, message: "Company representation added successfully", data: company });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Company representation added successfully",
+        data: company,
+      });
   } catch (error) {
     console.error("Error adding company representation:", error);
-    res.status(500).json({ success: false, message: "Failed to add company representation", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to add company representation",
+        error: error.message,
+      });
   }
 };
 
@@ -1673,16 +2020,26 @@ exports.updateRepresentationCompanyExistingBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk update logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies for each personId
     // to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk update not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk update not yet implemented" });
   } catch (error) {
     console.error("Error bulk updating company representations:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk update company representations", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk update company representations",
+        error: error.message,
+      });
   }
 };
 
@@ -1697,16 +2054,26 @@ exports.addRepresentationCompanyNewBulk = async (req, res) => {
 
     const company = await Company.findOne({ _id: companyId, clientId });
     if (!company) {
-      return res.status(404).json({ success: false, message: "Company not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Company not found" });
     }
 
     // TODO: Implement bulk add logic
     // When implementing, ensure to call updatePersonShareHoldingCompanies(personId, companyId, 'add')
     // for each person to maintain Person.shareHoldingCompanies references
-    res.status(200).json({ success: true, message: "Bulk add not yet implemented" });
+    res
+      .status(200)
+      .json({ success: true, message: "Bulk add not yet implemented" });
   } catch (error) {
     console.error("Error bulk adding company representations:", error);
-    res.status(500).json({ success: false, message: "Failed to bulk add company representations", error: error.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to bulk add company representations",
+        error: error.message,
+      });
   }
 };
 
@@ -1723,24 +2090,29 @@ exports.searchCompaniesGlobal = async (req, res) => {
     const limitNumber = parseInt(limit, 10);
     const skip = (pageNumber - 1) * limitNumber;
 
+    // Build search query
+    let searchQuery = {
+      organizationId: req.user.organizationId,
+    };
+
     // Add text search if provided
     if (search && search.trim().length > 0) {
-      searchQuery = {
-          organizationId: req.user.organizationId,
-          name: { $regex: search.trim(), $options: "i" }
-      }
+      searchQuery.name = { $regex: search.trim(), $options: "i" };
+      searchQuery.registrationNumber = { $regex: search.trim(), $options: "i" };
     }
 
-    // Execute query with pagination
-    const [companies, total] = await Promise.all([
-      Company.find(searchQuery)
-        .select("_id name registrationNumber")
-        .sort({ name: 1 }) // Alphabetical order
-        // .skip(skip)
-        // .limit(limitNumber)
-        .lean(),
-      Company.countDocuments(searchQuery),
-    ]);
+
+    const companies = await Company.find(searchQuery)
+      .select("_id name registrationNumber")
+      .sort({ name: 1 }) // Alphabetical order
+      .skip(skip)
+      .limit(limitNumber)
+      .lean();
+
+
+    const companyCount = await Company.countDocuments({
+      organizationId: req.user.organizationId,
+    });
 
     res.status(200).json({
       success: true,
@@ -1748,8 +2120,8 @@ exports.searchCompaniesGlobal = async (req, res) => {
       pagination: {
         page: pageNumber,
         limit: limitNumber,
-        total,
-        totalPages: Math.ceil(total / limitNumber),
+        total: companyCount,
+        totalPages: Math.ceil(companyCount / limitNumber),
       },
     });
   } catch (error) {
@@ -1832,7 +2204,9 @@ exports.searchPersonsGlobal = async (req, res) => {
     }
 
     // Build search query - search all persons associated with companies in the organization
-    const personIdsArray = Array.from(personIds).map(id => new mongoose.Types.ObjectId(id));
+    const personIdsArray = Array.from(personIds).map(
+      (id) => new mongoose.Types.ObjectId(id)
+    );
     let searchQuery = {
       _id: { $in: personIdsArray },
     };
@@ -1885,6 +2259,3 @@ exports.searchPersonsGlobal = async (req, res) => {
     });
   }
 };
-
-
-

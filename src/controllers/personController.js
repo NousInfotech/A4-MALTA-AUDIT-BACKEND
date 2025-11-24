@@ -26,7 +26,10 @@ const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
   if (!Array.isArray(sharesDataArray) || companyTotalShares === 0) {
     return 0;
   }
-  const totalShares = sharesDataArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
+  const totalShares = sharesDataArray.reduce(
+    (sum, item) => sum + (Number(item.totalShares) || 0),
+    0
+  );
   return (totalShares / companyTotalShares) * 100;
 };
 
@@ -43,14 +46,14 @@ const convertSharesDataToArray = (inputSharesData, totalIssuedShares = 0) => {
         const shareClass = item.shareClass || item.class;
         // Support both shareType (frontend) and type (backend), default to "Ordinary"
         const shareType = item.shareType || item.type || "Ordinary";
-        
+
         const classIndex = ["A", "B", "C"].indexOf(shareClass);
         const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
         const index = classIndex * 2 + typeIndex;
-        
+
         if (index >= 0 && index < 6) {
           const totalShares = Number(item.totalShares) || 0;
-          
+
           defaultArray[index] = {
             totalShares: totalShares,
             class: shareClass,
@@ -63,18 +66,30 @@ const convertSharesDataToArray = (inputSharesData, totalIssuedShares = 0) => {
   }
 
   // If input is a single object (backward compatibility)
-  if (inputSharesData && typeof inputSharesData === "object" && !Array.isArray(inputSharesData)) {
-    const shareClass = inputSharesData.shareClass || inputSharesData.class || "A";
-    const shareType = inputSharesData.shareType || inputSharesData.type || "Ordinary";
+  if (
+    inputSharesData &&
+    typeof inputSharesData === "object" &&
+    !Array.isArray(inputSharesData)
+  ) {
+    const shareClass =
+      inputSharesData.shareClass || inputSharesData.class || "A";
+    const shareType =
+      inputSharesData.shareType || inputSharesData.type || "Ordinary";
     const classIndex = ["A", "B", "C"].indexOf(shareClass);
     const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
     const index = classIndex * 2 + typeIndex;
-    
+
     if (index >= 0 && index < 6) {
-      const totalShares = inputSharesData.totalShares !== undefined 
-        ? Number(inputSharesData.totalShares) 
-        : (inputSharesData.percentage ? Math.round((Number(inputSharesData.percentage) || 0) / 100 * totalIssuedShares) : 0);
-      
+      const totalShares =
+        inputSharesData.totalShares !== undefined
+          ? Number(inputSharesData.totalShares)
+          : inputSharesData.percentage
+          ? Math.round(
+              ((Number(inputSharesData.percentage) || 0) / 100) *
+                totalIssuedShares
+            )
+          : 0;
+
       defaultArray[index] = {
         totalShares: totalShares,
         class: shareClass,
@@ -96,55 +111,68 @@ const convertSharesDataToArray = (inputSharesData, totalIssuedShares = 0) => {
 exports.getAllPersons = async (req, res) => {
   try {
     const { clientId, companyId } = req.params;
+    const organizationId = req.user.organizationId;
 
     // Build query - persons are now decoupled, so we query by clientId
     let persons = [];
-    
+
     // If companyId is provided, filter to only persons associated with that company
     if (companyId) {
-      const company = await Company.findById(companyId);
+      const company = await Company.findOne({
+        _id: companyId,
+        organizationId: organizationId,
+      });
       if (company) {
         // Get person IDs from shareHolders and representationalSchema
         const personIdsInCompany = new Set();
-        
+
         // Get person IDs from shareHolders
-        company.shareHolders?.forEach(sh => {
+        company.shareHolders?.forEach((sh) => {
           if (sh.personId) personIdsInCompany.add(sh.personId.toString());
         });
-        
+
         // Get person IDs from representationalSchema
-        company.representationalSchema?.forEach(rs => {
+        company.representationalSchema?.forEach((rs) => {
           if (rs.personId) personIdsInCompany.add(rs.personId.toString());
         });
 
         // Fetch only persons associated with this company
         if (personIdsInCompany.size > 0) {
-          const personObjectIds = Array.from(personIdsInCompany).map(id => new mongoose.Types.ObjectId(id));
+          const personObjectIds = Array.from(personIdsInCompany).map(
+            (id) => new mongoose.Types.ObjectId(id)
+          );
           persons = await Person.find({
             clientId,
-            _id: { $in: personObjectIds }
+            organizationId: organizationId,
+            _id: { $in: personObjectIds },
           }).sort({ createdAt: -1 });
 
           // Add relationship info to persons
-          persons = persons.map(person => {
+          persons = persons.map((person) => {
             const personObj = person.toObject();
             const personIdStr = person._id.toString();
-            
+
             // Find shareholding info
             const shareHolder = company.shareHolders?.find(
-              sh => sh.personId?.toString() === personIdStr
+              (sh) => sh.personId?.toString() === personIdStr
             );
-            
+
             // Find role info - role is now an array of strings
-            const roleEntries = company.representationalSchema
-              ?.filter(rs => rs.personId?.toString() === personIdStr) || [];
-            
+            const roleEntries =
+              company.representationalSchema?.filter(
+                (rs) => rs.personId?.toString() === personIdStr
+              ) || [];
+
             // Flatten roles from all entries (should only be one entry per person now)
             const roles = roleEntries.reduce((acc, rs) => {
-              const roleArray = Array.isArray(rs.role) ? rs.role : (rs.role ? [rs.role] : []);
+              const roleArray = Array.isArray(rs.role)
+                ? rs.role
+                : rs.role
+                ? [rs.role]
+                : [];
               return [...acc, ...roleArray];
             }, []);
-            
+
             return {
               ...personObj,
               sharePercentage: shareHolder?.sharePercentage || 0,
@@ -155,7 +183,9 @@ exports.getAllPersons = async (req, res) => {
       }
     } else {
       // If no companyId, return all persons for the client
-      persons = await Person.find({ clientId }).sort({ createdAt: -1 });
+      persons = await Person.find({ clientId, organizationId }).sort({
+        createdAt: -1,
+      });
     }
 
     res.status(200).json({
@@ -200,22 +230,28 @@ exports.getPersonById = async (req, res) => {
       const company = await Company.findById(companyId);
       if (company) {
         const personIdStr = person._id.toString();
-        
+
         // Find shareholding info
         const shareHolder = company.shareHolders?.find(
-          sh => sh.personId?.toString() === personIdStr
+          (sh) => sh.personId?.toString() === personIdStr
         );
-        
+
         // Find role info - role is now an array of strings
-        const roleEntries = company.representationalSchema
-          ?.filter(rs => rs.personId?.toString() === personIdStr) || [];
-        
+        const roleEntries =
+          company.representationalSchema?.filter(
+            (rs) => rs.personId?.toString() === personIdStr
+          ) || [];
+
         // Flatten roles from all entries (should only be one entry per person now)
         const roles = roleEntries.reduce((acc, rs) => {
-          const roleArray = Array.isArray(rs.role) ? rs.role : (rs.role ? [rs.role] : []);
+          const roleArray = Array.isArray(rs.role)
+            ? rs.role
+            : rs.role
+            ? [rs.role]
+            : [];
           return [...acc, ...roleArray];
         }, []);
-        
+
         personObj.sharePercentage = shareHolder?.sharePercentage || 0;
         personObj.roles = roles;
       }
@@ -289,10 +325,11 @@ exports.createPerson = async (req, res) => {
         // Update representationalSchema if roles are provided
         if (roles && Array.isArray(roles) && roles.length > 0) {
           // Remove existing entries for this person
-          company.representationalSchema = company.representationalSchema?.filter(
-            rs => rs.personId?.toString() !== person._id.toString()
-          ) || [];
-          
+          company.representationalSchema =
+            company.representationalSchema?.filter(
+              (rs) => rs.personId?.toString() !== person._id.toString()
+            ) || [];
+
           // Add single entry with array of roles
           company.representationalSchema.push({
             personId: person._id,
@@ -305,20 +342,29 @@ exports.createPerson = async (req, res) => {
         // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
         if (sharesData !== undefined && sharesData !== null) {
           // Remove existing shareholding for this person
-          company.shareHolders = company.shareHolders?.filter(
-            sh => sh.personId?.toString() !== person._id.toString()
-          ) || [];
-          
+          company.shareHolders =
+            company.shareHolders?.filter(
+              (sh) => sh.personId?.toString() !== person._id.toString()
+            ) || [];
+
           // Convert sharesData to array format
           const totalIssuedShares = company.totalShares || 0;
-          const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
-          
+          const sharesDataArray = convertSharesDataToArray(
+            sharesData,
+            totalIssuedShares
+          );
+
           // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
-          
+          const sharePercentage = calculateSharePercentage(
+            sharesDataArray,
+            totalIssuedShares
+          );
+
           // Only add if there are actual shares (non-zero totalShares)
           // If sharesData is empty array or all zeros, person will be removed from shareHolders
-          const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+          const hasShares = sharesDataArray.some(
+            (item) => item.totalShares > 0
+          );
           if (hasShares) {
             company.shareHolders.push({
               personId: person._id,
@@ -326,42 +372,58 @@ exports.createPerson = async (req, res) => {
               sharesData: sharesDataArray,
             });
           }
-          
+
           // Update company's updatedAt timestamp
           company.updatedAt = new Date();
         }
 
         // Save company if any changes were made
-        if ((roles && Array.isArray(roles) && roles.length > 0) || (sharesData !== undefined && sharesData !== null)) {
+        if (
+          (roles && Array.isArray(roles) && roles.length > 0) ||
+          (sharesData !== undefined && sharesData !== null)
+        ) {
           await company.save();
-          
+
           // Update Person's company references
           if (roles && Array.isArray(roles) && roles.length > 0) {
             person.representingCompanies = person.representingCompanies || [];
-            if (!person.representingCompanies.some(id => id.toString() === companyId.toString())) {
+            if (
+              !person.representingCompanies.some(
+                (id) => id.toString() === companyId.toString()
+              )
+            ) {
               person.representingCompanies.push(companyId);
               person.updatedAt = new Date();
               await person.save();
             }
           }
-          
+
           if (sharesData !== undefined && sharesData !== null) {
             const totalIssuedShares = company.totalShares || 0;
-            const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
-            const hasShares = sharesDataArray.some(item => item.totalShares > 0);
-            
+            const sharesDataArray = convertSharesDataToArray(
+              sharesData,
+              totalIssuedShares
+            );
+            const hasShares = sharesDataArray.some(
+              (item) => item.totalShares > 0
+            );
+
             if (hasShares) {
               person.shareHoldingCompanies = person.shareHoldingCompanies || [];
-              if (!person.shareHoldingCompanies.some(id => id.toString() === companyId.toString())) {
+              if (
+                !person.shareHoldingCompanies.some(
+                  (id) => id.toString() === companyId.toString()
+                )
+              ) {
                 person.shareHoldingCompanies.push(companyId);
                 person.updatedAt = new Date();
                 await person.save();
               }
             } else {
               // Remove if no shares
-              person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
-                id => id.toString() !== companyId.toString()
-              );
+              person.shareHoldingCompanies = (
+                person.shareHoldingCompanies || []
+              ).filter((id) => id.toString() !== companyId.toString());
               person.updatedAt = new Date();
               await person.save();
             }
@@ -392,7 +454,7 @@ exports.createPerson = async (req, res) => {
  */
 exports.updatePerson = async (req, res) => {
   try {
-    const { clientId, companyId, personId, } = req.params;
+    const { clientId, companyId, personId } = req.params;
     const updateData = { ...req.body };
 
     // Separate person fields from company relationship fields
@@ -428,15 +490,16 @@ exports.updatePerson = async (req, res) => {
         if (roles !== undefined) {
           // Find existing entry to preserve companyId if it exists
           const existingEntry = company.representationalSchema?.find(
-            rs => rs.personId?.toString() === personIdStr
+            (rs) => rs.personId?.toString() === personIdStr
           );
           const existingCompanyId = existingEntry?.companyId || null;
-          
+
           // Remove existing entries for this person
-          company.representationalSchema = company.representationalSchema?.filter(
-            rs => rs.personId?.toString() !== personIdStr
-          ) || [];
-          
+          company.representationalSchema =
+            company.representationalSchema?.filter(
+              (rs) => rs.personId?.toString() !== personIdStr
+            ) || [];
+
           // Add single entry with array of roles if roles array is provided
           if (Array.isArray(roles) && roles.length > 0) {
             const newEntry = {
@@ -455,20 +518,29 @@ exports.updatePerson = async (req, res) => {
         // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
         if (sharesData !== undefined) {
           // Remove existing shareholding for this person
-          company.shareHolders = company.shareHolders?.filter(
-            sh => sh.personId?.toString() !== personIdStr
-          ) || [];
-          
+          company.shareHolders =
+            company.shareHolders?.filter(
+              (sh) => sh.personId?.toString() !== personIdStr
+            ) || [];
+
           // Convert sharesData to array format
           const totalIssuedShares = company.totalShares || 0;
-          const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
-          
+          const sharesDataArray = convertSharesDataToArray(
+            sharesData,
+            totalIssuedShares
+          );
+
           // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(sharesDataArray, totalIssuedShares);
-          
+          const sharePercentage = calculateSharePercentage(
+            sharesDataArray,
+            totalIssuedShares
+          );
+
           // Only add if there are actual shares (non-zero totalShares)
           // If sharesData is empty array or all zeros, person will be removed from shareHolders
-          const hasShares = sharesDataArray.some(item => item.totalShares > 0);
+          const hasShares = sharesDataArray.some(
+            (item) => item.totalShares > 0
+          );
           if (hasShares) {
             company.shareHolders.push({
               personId: person._id,
@@ -476,7 +548,7 @@ exports.updatePerson = async (req, res) => {
               sharesData: sharesDataArray,
             });
           }
-          
+
           // Update company's updatedAt timestamp
           company.updatedAt = new Date();
         }
@@ -484,43 +556,56 @@ exports.updatePerson = async (req, res) => {
         // Save company if any changes were made
         if (roles !== undefined || sharesData !== undefined) {
           await company.save();
-          
+
           // Update Person's company references
           if (roles !== undefined) {
             if (Array.isArray(roles) && roles.length > 0) {
               person.representingCompanies = person.representingCompanies || [];
-              if (!person.representingCompanies.some(id => id.toString() === companyId.toString())) {
+              if (
+                !person.representingCompanies.some(
+                  (id) => id.toString() === companyId.toString()
+                )
+              ) {
                 person.representingCompanies.push(companyId);
                 person.updatedAt = new Date();
                 await person.save();
               }
             } else {
               // Remove if no roles
-              person.representingCompanies = (person.representingCompanies || []).filter(
-                id => id.toString() !== companyId.toString()
-              );
+              person.representingCompanies = (
+                person.representingCompanies || []
+              ).filter((id) => id.toString() !== companyId.toString());
               person.updatedAt = new Date();
               await person.save();
             }
           }
-          
+
           if (sharesData !== undefined) {
             const totalIssuedShares = company.totalShares || 0;
-            const sharesDataArray = convertSharesDataToArray(sharesData, totalIssuedShares);
-            const hasShares = sharesDataArray.some(item => item.totalShares > 0);
-            
+            const sharesDataArray = convertSharesDataToArray(
+              sharesData,
+              totalIssuedShares
+            );
+            const hasShares = sharesDataArray.some(
+              (item) => item.totalShares > 0
+            );
+
             if (hasShares) {
               person.shareHoldingCompanies = person.shareHoldingCompanies || [];
-              if (!person.shareHoldingCompanies.some(id => id.toString() === companyId.toString())) {
+              if (
+                !person.shareHoldingCompanies.some(
+                  (id) => id.toString() === companyId.toString()
+                )
+              ) {
                 person.shareHoldingCompanies.push(companyId);
                 person.updatedAt = new Date();
                 await person.save();
               }
             } else {
               // Remove if no shares
-              person.shareHoldingCompanies = (person.shareHoldingCompanies || []).filter(
-                id => id.toString() !== companyId.toString()
-              );
+              person.shareHoldingCompanies = (
+                person.shareHoldingCompanies || []
+              ).filter((id) => id.toString() !== companyId.toString());
               person.updatedAt = new Date();
               await person.save();
             }
@@ -571,12 +656,14 @@ exports.deletePerson = async (req, res) => {
       // Remove from specific company
       const company = await Company.findById(companyId);
       if (company) {
-        company.shareHolders = company.shareHolders?.filter(
-          sh => sh.personId?.toString() !== personId
-        ) || [];
-        company.representationalSchema = company.representationalSchema?.filter(
-          rs => rs.personId?.toString() !== personId
-        ) || [];
+        company.shareHolders =
+          company.shareHolders?.filter(
+            (sh) => sh.personId?.toString() !== personId
+          ) || [];
+        company.representationalSchema =
+          company.representationalSchema?.filter(
+            (rs) => rs.personId?.toString() !== personId
+          ) || [];
         await company.save();
       }
     } else {
@@ -617,4 +704,3 @@ exports.deletePerson = async (req, res) => {
     });
   }
 };
-
