@@ -97,8 +97,13 @@ const saveWorkbookAndSheets = async (req, res) => {
     workbook.sheets = currentSheetIds;
     await workbook.save({ session });
 
+    // ✅ CRITICAL: Populate sheets AND referenceFiles.evidence in final response
     const finalWorkbook = await Workbook.findById(workbook._id)
       .populate({ path: "sheets", session: session })
+      .populate({
+        path: "referenceFiles.evidence",
+        select: "evidenceUrl uploadedBy createdAt _id"
+      })
       .session(session);
 
     await session.commitTransaction();
@@ -126,7 +131,13 @@ const getWorkbookWithSheets = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const workbook = await Workbook.findById(id).populate("sheets");
+    // ✅ CRITICAL: Populate sheets AND referenceFiles.evidence
+    const workbook = await Workbook.findById(id)
+      .populate("sheets")
+      .populate({
+        path: "referenceFiles.evidence",
+        select: "evidenceUrl uploadedBy createdAt _id"
+      });
 
     if (!workbook) {
       return res
@@ -237,7 +248,13 @@ const listWorkbooks = async (req, res) => {
 const getWorkbookById = async (req, res) => {
   try {
     const { workbookId } = req.params;
-    const workbook = await Workbook.findById(workbookId);
+    
+    // ✅ CRITICAL: Populate referenceFiles.evidence to ensure reference files are available after page refresh
+    const workbook = await Workbook.findById(workbookId)
+      .populate({
+        path: "referenceFiles.evidence",
+        select: "evidenceUrl uploadedBy createdAt _id"
+      });
 
     if (!workbook) {
       return res

@@ -27,6 +27,27 @@ const NamedRangeSchema = new Schema(
   { _id: true }
 );
 
+const ReferenceSchema = new Schema(
+  {
+    details: {
+      sheet: { type: String, required: true },
+      start: {
+        row: { type: Number, required: true },
+        col: { type: Number, required: true },
+      },
+      end: {
+        row: { type: Number, required: true },
+        col: { type: Number, required: true },
+      },
+    },
+    evidence: [{
+      type: Schema.Types.ObjectId,
+      ref: "ClassificationEvidence",
+    }],
+  },
+  { _id: true }
+);
+
 const WorkbookSchema = new Schema(
   {
     engagementId: { type: String, required: true },
@@ -45,6 +66,7 @@ const WorkbookSchema = new Schema(
     sheets: [{ type: Schema.Types.ObjectId, ref: "Sheet" }],
     mappings: { type: [MappingSchema], default: [] },
     namedRanges: { type: [NamedRangeSchema], default: [] },
+    referenceFiles: { type: [ReferenceSchema], default: [] }, // Array of reference file ranges with evidence IDs
 
     customFields: {
       type: Schema.Types.Mixed,

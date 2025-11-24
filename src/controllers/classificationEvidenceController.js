@@ -181,15 +181,83 @@ exports.deleteEvidence = async (req, res) => {
   try {
     const { evidenceId } = req.params;
 
-    const evidence = await ClassificationEvidence.findByIdAndDelete(evidenceId);
+    // ✅ CRITICAL: Find the evidence first to get linked workbooks before deletion
+    const evidence = await ClassificationEvidence.findById(evidenceId);
     if (!evidence) {
       return res.status(404).json({
         error: "Evidence not found",
       });
     }
 
+    // ✅ CRITICAL: Remove evidence ID from all workbook referenceFiles before deleting evidence
+    // Find all workbooks that reference this evidence in their referenceFiles
+    const workbooksWithEvidence = await Workbook.find({
+      "referenceFiles.evidence": evidenceId
+    });
+
+    console.log('Backend: Deleting evidence, found workbooks with references:', {
+      evidenceId,
+      workbooksCount: workbooksWithEvidence.length,
+      workbookIds: workbooksWithEvidence.map(wb => wb._id.toString())
+    });
+
+    // Update each workbook to remove the evidence ID from referenceFiles
+    for (const workbook of workbooksWithEvidence) {
+      if (!workbook.referenceFiles || !Array.isArray(workbook.referenceFiles)) {
+        continue;
+      }
+
+      // Clean up old format entries first
+      workbook.referenceFiles = workbook.referenceFiles.filter((ref) => {
+        return ref && typeof ref === 'object' && ref.details && ref.details.sheet;
+      });
+
+      // Remove evidence ID from each reference file entry
+      let hasChanges = false;
+      workbook.referenceFiles = workbook.referenceFiles.map((ref) => {
+        if (!ref.evidence || !Array.isArray(ref.evidence)) {
+          return ref;
+        }
+
+        // Remove the evidence ID from this reference entry
+        const originalLength = ref.evidence.length;
+        ref.evidence = ref.evidence.filter(
+          (evId) => evId.toString() !== evidenceId.toString()
+        );
+
+        if (ref.evidence.length !== originalLength) {
+          hasChanges = true;
+        }
+
+        return ref;
+      });
+
+      // Remove reference file entries that have no evidence IDs left
+      const originalRefFilesCount = workbook.referenceFiles.length;
+      workbook.referenceFiles = workbook.referenceFiles.filter(
+        (ref) => ref.evidence && ref.evidence.length > 0
+      );
+
+      if (workbook.referenceFiles.length !== originalRefFilesCount) {
+        hasChanges = true;
+      }
+
+      // Save the workbook if there were changes
+      if (hasChanges) {
+        await workbook.save();
+        console.log('Backend: Updated workbook after evidence deletion:', {
+          workbookId: workbook._id.toString(),
+          remainingReferenceFilesCount: workbook.referenceFiles.length
+        });
+      }
+    }
+
+    // ✅ Now delete the evidence
+    await ClassificationEvidence.findByIdAndDelete(evidenceId);
+
     res.status(200).json({
       message: "Evidence deleted successfully",
+      workbooksUpdated: workbooksWithEvidence.length,
     });
   } catch (error) {
     console.error("Error deleting evidence:", error);
@@ -289,11 +357,15 @@ exports.linkWorkbookToEvidence = async (req, res) => {
     );
 
     if (!alreadyLinked) {
+      // Add workbook to evidence's linkedWorkbooks
       evidence.linkedWorkbooks.push(workbookId);
       await evidence.save();
     } else {
       console.log('Backend: Workbook already linked to evidence, returning existing state');
     }
+
+    // Note: referenceFiles are now managed via mappings in addMappingToEvidence
+    // This method just ensures the bidirectional link exists
 
     // Populate and return
     const populatedEvidence = await ClassificationEvidence.findById(evidenceId)
@@ -324,10 +396,167 @@ exports.linkWorkbookToEvidence = async (req, res) => {
   }
 };
 
+// Add reference file to workbook (without creating mapping)
+// This is separate from mappings - reference files are just linked to cell ranges
+exports.addReferenceFileToWorkbook = async (req, res) => {
+  try {
+    const { workbookId, evidenceId } = req.params;
+    const { sheet, start, end } = req.body; // Cell range details
+
+    console.log('Backend: Adding reference file to workbook:', {
+      workbookId,
+      evidenceId,
+      sheet,
+      start,
+      end
+    });
+
+    if (!workbookId || !evidenceId) {
+      return res.status(400).json({
+        success: false,
+        message: "workbookId and evidenceId are required"
+      });
+    }
+
+    if (!sheet || !start || !start.row || start.col === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "sheet, start.row, and start.col are required"
+      });
+    }
+
+    // Verify workbook exists
+    const workbook = await Workbook.findById(workbookId);
+    if (!workbook) {
+      return res.status(404).json({
+        success: false,
+        message: "Workbook not found"
+      });
+    }
+
+    // Verify evidence exists
+    const evidence = await ClassificationEvidence.findById(evidenceId);
+    if (!evidence) {
+      return res.status(404).json({
+        success: false,
+        message: "Evidence not found"
+      });
+    }
+
+    // Initialize referenceFiles if needed
+    if (!workbook.referenceFiles) {
+      workbook.referenceFiles = [];
+    }
+
+    // Clean up old format entries
+    workbook.referenceFiles = workbook.referenceFiles.filter((ref) => {
+      return ref && typeof ref === 'object' && ref.details && ref.details.sheet;
+    });
+
+    // Normalize end coordinates
+    const normalizedEnd = {
+      row: end?.row ?? start.row,
+      col: end?.col ?? start.col,
+    };
+
+    // Find existing reference file entry for this exact cell range
+    let refFileEntry = workbook.referenceFiles.find((ref) => {
+      if (!ref.details) return false;
+      return (
+        ref.details.sheet === sheet &&
+        ref.details.start.row === start.row &&
+        ref.details.start.col === start.col &&
+        ref.details.end.row === normalizedEnd.row &&
+        ref.details.end.col === normalizedEnd.col
+      );
+    });
+
+    if (refFileEntry) {
+      // Add evidence ID to existing entry if not already present
+      if (!refFileEntry.evidence) {
+        refFileEntry.evidence = [];
+      }
+      if (!refFileEntry.evidence.some(
+        (evId) => evId.toString() === evidenceId.toString()
+      )) {
+        refFileEntry.evidence.push(evidenceId);
+      }
+    } else {
+      // Create new reference file entry
+      refFileEntry = {
+        details: {
+          sheet: sheet,
+          start: {
+            row: start.row,
+            col: start.col,
+          },
+          end: {
+            row: normalizedEnd.row,
+            col: normalizedEnd.col,
+          },
+        },
+        evidence: [evidenceId],
+      };
+      workbook.referenceFiles.push(refFileEntry);
+    }
+
+    await workbook.save();
+
+    // Also ensure workbook is in evidence's linkedWorkbooks (bidirectional relationship)
+    if (!evidence.linkedWorkbooks.some(
+      (linkedId) => linkedId.toString() === workbookId.toString()
+    )) {
+      evidence.linkedWorkbooks.push(workbookId);
+      await evidence.save();
+    }
+
+    // Populate and return updated workbook
+    const updatedWorkbook = await Workbook.findById(workbookId)
+      .populate('referenceFiles.evidence', 'evidenceUrl uploadedBy createdAt');
+
+    res.status(200).json({
+      success: true,
+      message: "Reference file added to workbook successfully",
+      workbook: updatedWorkbook,
+    });
+  } catch (error) {
+    console.error("Error adding reference file to workbook:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to add reference file",
+    });
+  }
+};
+
 // Unlink workbook from evidence
 exports.unlinkWorkbookFromEvidence = async (req, res) => {
   try {
     const { evidenceId, workbookId } = req.params;
+
+    // Remove evidence from workbook's referenceFiles (new schema with details)
+    const workbook = await Workbook.findById(workbookId);
+    if (workbook && workbook.referenceFiles) {
+      // ✅ CRITICAL FIX: Clean up old format referenceFiles (ObjectIds) before processing
+      // Filter out any entries that don't have the required details structure
+      workbook.referenceFiles = workbook.referenceFiles.filter((ref) => {
+        // Keep only entries that have the new schema structure (with details)
+        return ref && typeof ref === 'object' && ref.details && ref.details.sheet;
+      });
+
+      // Remove evidence ID from all reference file entries
+      workbook.referenceFiles = workbook.referenceFiles.map((ref) => {
+        if (ref.evidence && Array.isArray(ref.evidence)) {
+          ref.evidence = ref.evidence.filter(
+            (evId) => evId.toString() !== evidenceId.toString()
+          );
+        }
+        return ref;
+      }).filter((ref) => {
+        // Remove reference entries that have no evidence left
+        return ref.evidence && ref.evidence.length > 0;
+      });
+      await workbook.save();
+    }
 
     const evidence = await ClassificationEvidence.findByIdAndUpdate(
       evidenceId,
@@ -421,6 +650,79 @@ exports.addMappingToEvidence = async (req, res) => {
         success: false,
         message: "Evidence not found"
       });
+    }
+
+    // Ensure evidence is in workbook's referenceFiles using new ReferenceSchema
+    // Find or create a reference file entry for this mapping's cell range
+    if (!workbook.referenceFiles) {
+      workbook.referenceFiles = [];
+    }
+
+    // ✅ CRITICAL FIX: Clean up old format referenceFiles (ObjectIds) before processing
+    // Filter out any entries that don't have the required details structure
+    workbook.referenceFiles = workbook.referenceFiles.filter((ref) => {
+      // Keep only entries that have the new schema structure (with details)
+      return ref && typeof ref === 'object' && ref.details && ref.details.sheet;
+    });
+
+    const mappingDetails = newMapping.details;
+    const { sheet, start, end } = mappingDetails;
+
+    // Normalize end coordinates (use start if end is missing)
+    const normalizedEnd = {
+      row: end?.row ?? start.row,
+      col: end?.col ?? start.col,
+    };
+
+    // Find existing reference file entry for this exact cell range
+    let refFileEntry = workbook.referenceFiles.find((ref) => {
+      if (!ref.details) return false;
+      return (
+        ref.details.sheet === sheet &&
+        ref.details.start.row === start.row &&
+        ref.details.start.col === start.col &&
+        ref.details.end.row === normalizedEnd.row &&
+        ref.details.end.col === normalizedEnd.col
+      );
+    });
+
+    if (refFileEntry) {
+      // Add evidence ID to existing entry if not already present
+      if (!refFileEntry.evidence) {
+        refFileEntry.evidence = [];
+      }
+      if (!refFileEntry.evidence.some(
+        (evId) => evId.toString() === evidenceId.toString()
+      )) {
+        refFileEntry.evidence.push(evidenceId);
+      }
+    } else {
+      // Create new reference file entry with proper structure
+      refFileEntry = {
+        details: {
+          sheet: sheet,
+          start: {
+            row: start.row,
+            col: start.col,
+          },
+          end: {
+            row: normalizedEnd.row,
+            col: normalizedEnd.col,
+          },
+        },
+        evidence: [evidenceId],
+      };
+      workbook.referenceFiles.push(refFileEntry);
+    }
+
+    await workbook.save();
+
+    // Also ensure workbook is in evidence's linkedWorkbooks
+    if (!evidence.linkedWorkbooks.some(
+      (linkedId) => linkedId.toString() === workbookId.toString()
+    )) {
+      evidence.linkedWorkbooks.push(workbookId);
+      await evidence.save();
     }
 
     res.status(200).json({
@@ -613,6 +915,15 @@ exports.getMappingsByWorkbook = async (req, res) => {
   try {
     const { workbookId } = req.params;
 
+    // ✅ CRITICAL: Validate workbookId before using it
+    if (!workbookId || workbookId === 'undefined' || workbookId === 'null') {
+      console.error('❌ Invalid workbookId in getMappingsByWorkbook:', workbookId);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid workbookId provided'
+      });
+    }
+
     const evidenceList = await ClassificationEvidence.find({
       $or: [
         { linkedWorkbooks: workbookId },
@@ -660,6 +971,87 @@ exports.getMappingsByWorkbook = async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || "Failed to fetch mappings",
+    });
+  }
+};
+
+// Get evidence files for specific cell ranges in a workbook
+exports.getEvidenceByCellRange = async (req, res) => {
+  try {
+    const { workbookId } = req.params;
+    const { sheet, startRow, startCol, endRow, endCol } = req.query;
+
+    if (!workbookId || !sheet || startRow === undefined || startCol === undefined || endRow === undefined || endCol === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "workbookId, sheet, startRow, startCol, endRow, and endCol are required"
+      });
+    }
+
+    const startRowNum = parseInt(startRow);
+    const startColNum = parseInt(startCol);
+    const endRowNum = parseInt(endRow);
+    const endColNum = parseInt(endCol);
+
+    // Find all evidence files that have mappings to this workbook
+    const evidenceList = await ClassificationEvidence.find({
+      "mappings.workbookId": workbookId
+    })
+    .populate({
+      path: "mappings.workbookId",
+      model: "Workbook",
+      select: "name cloudFileId webUrl classification category"
+    })
+    .populate('classificationId', 'classification status')
+    .lean();
+
+    // Filter evidence files where mappings overlap with the requested cell range
+    const matchingEvidence = [];
+    
+    evidenceList.forEach(evidence => {
+      const relevantMappings = evidence.mappings.filter(mapping => {
+        // Check if mapping is for the same workbook and sheet
+        if (!mapping.workbookId || 
+            mapping.workbookId._id.toString() !== workbookId ||
+            !mapping.details ||
+            mapping.details.sheet !== sheet) {
+          return false;
+        }
+
+        // Check if mapping overlaps with requested range
+        const mappingStartRow = mapping.details.start.row;
+        const mappingEndRow = mapping.details.end.row;
+        const mappingStartCol = mapping.details.start.col;
+        const mappingEndCol = mapping.details.end.col;
+
+        // Check for overlap
+        const rowOverlap = !(mappingEndRow < startRowNum || mappingStartRow > endRowNum);
+        const colOverlap = !(mappingEndCol < startColNum || mappingStartCol > endColNum);
+
+        return rowOverlap && colOverlap && mapping.isActive !== false;
+      });
+
+      if (relevantMappings.length > 0) {
+        matchingEvidence.push({
+          _id: evidence._id,
+          evidenceUrl: evidence.evidenceUrl,
+          uploadedBy: evidence.uploadedBy,
+          createdAt: evidence.createdAt,
+          updatedAt: evidence.updatedAt,
+          mappings: relevantMappings
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: matchingEvidence
+    });
+  } catch (error) {
+    console.error("Error fetching evidence by cell range:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch evidence",
     });
   }
 };

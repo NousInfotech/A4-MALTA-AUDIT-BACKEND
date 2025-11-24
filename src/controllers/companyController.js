@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
-
 const normalizeOptionalString = (value) => {
   if (typeof value !== "string") {
     return undefined;
@@ -961,9 +960,8 @@ exports.getCompanyHierarchy = async (req, res) => {
   try {
     const { companyId } = req.params;
 
-    const getHierarchy = async (companyId, depth = 0) => {
-      if (depth > 3) return null; // avoid infinite loops
-
+    const getHierarchy = async (companyId) => {
+      // No longer recursive - only fetch shareholders and representatives for this company
       const company = await Company.findById(companyId)
         .populate("shareHolders.personId", "name nationality address")
         .populate({
@@ -1072,11 +1070,10 @@ exports.getCompanyHierarchy = async (req, res) => {
           id: sh.companyId._id,
           name: sh.companyId.name,
           type: "company",
-          address: subCompany?.address ?? sh.companyId.address,
+          address: sh.companyId.address,
           sharesData: sharesDataArray,
           totalShares: totalSharesValue,
           roles: new Set(),
-          children: subCompany?.shareholders || [],
         });
       }
 
@@ -1107,11 +1104,10 @@ exports.getCompanyHierarchy = async (req, res) => {
             id: rc.companyId._id,
             name: repCompany?.name || rc.companyId.name,
             type: "company",
-            address: repCompany?.address || subCompany?.address,
+            address: repCompany?.address,
             sharesData: [],
             totalShares: 0,
             roles: new Set(roleArray),
-            children: subCompany?.shareholders || [],
           });
         }
       }
