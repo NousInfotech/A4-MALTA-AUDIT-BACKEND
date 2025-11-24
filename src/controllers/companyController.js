@@ -960,8 +960,11 @@ exports.getCompanyHierarchy = async (req, res) => {
   try {
     const { companyId } = req.params;
 
-    const getHierarchy = async (companyId) => {
-      // No longer recursive - only fetch shareholders and representatives for this company
+    const getHierarchy = async (companyId, depth = 0) => {
+      // Limit recursion depth to prevent infinite loops
+      if (depth > 10) return null;
+
+      // Fetch shareholders and representatives for this company
       const company = await Company.findById(companyId)
         .populate("shareHolders.personId", "name nationality address")
         .populate({
@@ -1074,6 +1077,7 @@ exports.getCompanyHierarchy = async (req, res) => {
           sharesData: sharesDataArray,
           totalShares: totalSharesValue,
           roles: new Set(),
+          children: subCompany ? subCompany.shareholders : [],
         });
       }
 
@@ -1108,6 +1112,7 @@ exports.getCompanyHierarchy = async (req, res) => {
             sharesData: [],
             totalShares: 0,
             roles: new Set(roleArray),
+            children: subCompany ? subCompany.shareholders : [],
           });
         }
       }
