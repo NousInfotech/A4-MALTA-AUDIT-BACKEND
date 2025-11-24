@@ -19,30 +19,39 @@ exports.getClients = async (req, res) => {
 
     const pageNumber = parseInt(page, 10);
     const limitNumber = parseInt(limit, 10);
-
     const from = (pageNumber - 1) * limitNumber;
     const to = from + limitNumber - 1;
 
-    // Fetch paginated + sorted clients
+    // Fetch profiles
     const { data: clients, error } = await supabase
       .from("profiles")
-      .select("user_id, name, email", { count: "exact" })
+      .select("user_id, name", { count: "exact" })
       .eq("organization_id", req.user.organizationId)
       .eq("role", "client")
-      .order(sortBy, { ascending: sortOrder.toLowerCase() === "asc" })
+      .order(sortBy, { ascending: sortOrder === "asc" })
       .range(from, to);
 
     if (error) throw error;
 
+    // Fetch all auth users (emails)
+    const { data: auth } = await supabase.auth.admin.listUsers();
+    const emailMap = new Map(auth.users.map(u => [u.id, u.email]));
+
+    const final = clients.map(c => ({
+      ...c,
+      email: emailMap.get(c.user_id) ?? null,
+    }));
+
     return res.status(200).json({
       success: true,
-      data: clients,
+      data: final,
       pagination: {
         page: pageNumber,
         limit: limitNumber,
-        total: clients?.length ?? 0,
-      },
+        total: clients.length
+      }
     });
+
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }
@@ -54,33 +63,44 @@ exports.getEmployees = async (req, res) => {
 
     const pageNumber = parseInt(page, 10);
     const limitNumber = parseInt(limit, 10);
-
     const from = (pageNumber - 1) * limitNumber;
     const to = from + limitNumber - 1;
 
+    // Fetch profiles
     const { data: employees, error } = await supabase
       .from("profiles")
-      .select("user_id, name, email", { count: "exact" })
+      .select("user_id, name", { count: "exact" })
       .eq("organization_id", req.user.organizationId)
       .eq("role", "employee")
-      .order(sortBy, { ascending: sortOrder.toLowerCase() === "asc" })
+      .order(sortBy, { ascending: sortOrder === "asc" })
       .range(from, to);
 
     if (error) throw error;
 
+    // Fetch auth emails
+    const { data: auth } = await supabase.auth.admin.listUsers();
+    const emailMap = new Map(auth.users.map(u => [u.id, u.email]));
+
+    const final = employees.map(e => ({
+      ...e,
+      email: emailMap.get(e.user_id) ?? null,
+    }));
+
     return res.status(200).json({
       success: true,
-      data: employees,
+      data: final,
       pagination: {
         page: pageNumber,
         limit: limitNumber,
-        total: employees?.length ?? 0,
-      },
+        total: employees.length
+      }
     });
+
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }
 };
+
 
 /* GROUP HANDLERS */
 exports.createGroup = async (req, res) => {
