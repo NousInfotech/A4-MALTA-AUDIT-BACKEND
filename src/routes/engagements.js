@@ -45,6 +45,35 @@ router.get(
   ec.getLibraryFiles
 );
 
+// Folder management routes
+router.get(
+  "/:id/library/folders",
+  requireAuth,
+  requireRole("employee"),
+  ec.listEngagementFolders
+);
+
+router.post(
+  "/:id/library/folders",
+  requireAuth,
+  requireRole("employee"),
+  ec.createEngagementFolder
+);
+
+router.patch(
+  "/:id/library/folders/:folderId",
+  requireAuth,
+  requireRole("employee"),
+  ec.renameEngagementFolder
+);
+
+router.delete(
+  "/:id/library/folders/:folderId",
+  requireAuth,
+  requireRole("employee"),
+  ec.deleteEngagementFolder
+);
+
 router.post("/:id/trial-balance", requireAuth, ec.saveTrialBalance);
 router.post(
   "/:id/trial-balance/google-sheets",
