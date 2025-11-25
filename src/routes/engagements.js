@@ -55,6 +55,13 @@ router.delete("/:id/trial-balance", requireAuth, ec.deleteTrialBalance);
 
 router.post("/:id/etb", requireAuth, ec.saveETB);
 router.get("/:id/etb", requireAuth, ec.getETB);
+
+// Export routes
+router.get("/:id/export/all", requireAuth, ec.exportAll); // Deprecated - kept for backward compatibility
+router.get("/:id/export/etb", requireAuth, ec.exportETB);
+router.get("/:id/export/adjustments", requireAuth, ec.exportAdjustments);
+router.get("/:id/export/reclassifications", requireAuth, ec.exportReclassifications);
+router.get("/:id/export/evidence", requireAuth, ec.exportEvidenceFiles);
 router.get(
   "/:id/etb/classification/:classification",
   requireAuth,

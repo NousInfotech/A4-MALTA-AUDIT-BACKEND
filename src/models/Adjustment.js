@@ -135,6 +135,27 @@ const AdjustmentSchema = new Schema(
       type: [AdjustmentHistorySchema],
       default: [],
     },
+    evidenceFiles: {
+      type: [{
+        fileName: {
+          type: String,
+          required: true,
+        },
+        fileUrl: {
+          type: String,
+          required: true,
+        },
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        uploadedBy: {
+          userId: String,
+          userName: String,
+        },
+      }],
+      default: [],
+    },
     createdAt: {
       type: Date,
       default: Date.now,

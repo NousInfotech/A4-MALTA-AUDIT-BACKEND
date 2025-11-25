@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const XLSX = require("xlsx");
 const Reclassification = require("../models/Reclassification");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
@@ -828,6 +829,260 @@ exports.getReclassificationHistory = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to fetch reclassification history",
+    });
+  }
+};
+
+/**
+ * Export reclassifications to Excel
+ * GET /api/reclassifications/engagement/:engagementId/export
+ */
+exports.exportReclassifications = async (req, res) => {
+  try {
+    const { engagementId } = req.params;
+
+    const reclassifications = await Reclassification.find({ engagementId }).sort({
+      createdAt: -1,
+    });
+
+    if (reclassifications.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No reclassifications found for this engagement",
+      });
+    }
+
+    // Prepare Excel data
+    const headers = [
+      "Reclassification No",
+      "From Account Code",
+      "From Account Name",
+      "To Account Code",
+      "To Account Name",
+      "Amount",
+      "Reason",
+      "Status",
+      "Posted By",
+      "Posted Date",
+      "Created Date",
+      "Linked Evidence Filenames",
+    ];
+
+    const rows = [];
+
+    for (const rc of reclassifications) {
+      // Get posted user and date from history
+      const postedHistory = rc.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = rc.createdAt
+        ? new Date(rc.createdAt).toLocaleDateString()
+        : "N/A";
+
+      // Get evidence filenames
+      const evidenceFilenames = rc.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      // Separate DR and CR entries
+      const drEntries = rc.entries.filter((e) => e.dr > 0);
+      const crEntries = rc.entries.filter((e) => e.cr > 0);
+
+      // Match DR entries with CR entries (From -> To)
+      for (const drEntry of drEntries) {
+        for (const crEntry of crEntries) {
+          // Match by amount if possible, otherwise just pair them
+          if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
+            rows.push([
+              rc.reclassificationNo,
+              drEntry.code,
+              drEntry.accountName,
+              crEntry.code,
+              crEntry.accountName,
+              drEntry.dr,
+              rc.description || drEntry.details || crEntry.details || "",
+              rc.status,
+              postedBy,
+              postedDate,
+              createdDate,
+              evidenceFilenames,
+            ]);
+            break; // Match found, move to next DR entry
+          }
+        }
+      }
+
+      // If no entries, still create a row with reclassification info
+      if (rc.entries.length === 0) {
+        rows.push([
+          rc.reclassificationNo,
+          "",
+          "",
+          "",
+          "",
+          0,
+          rc.description || "",
+          rc.status,
+          postedBy,
+          postedDate,
+          createdDate,
+          evidenceFilenames,
+        ]);
+      }
+    }
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Set column widths
+    ws["!cols"] = [
+      { wch: 20 }, // Reclassification No
+      { wch: 15 }, // From Account Code
+      { wch: 25 }, // From Account Name
+      { wch: 15 }, // To Account Code
+      { wch: 25 }, // To Account Name
+      { wch: 15 }, // Amount
+      { wch: 30 }, // Reason
+      { wch: 10 }, // Status
+      { wch: 15 }, // Posted By
+      { wch: 12 }, // Posted Date
+      { wch: 12 }, // Created Date
+      { wch: 40 }, // Linked Evidence Filenames
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Reclassifications");
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    // Set response headers
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="reclassifications_${engagementId}_${new Date().toISOString().split("T")[0]}.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting reclassifications:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export reclassifications",
+    });
+  }
+};
+
+/**
+ * Add evidence file to a reclassification
+ * POST /api/reclassifications/:id/evidence
+ */
+exports.addEvidenceFile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileName, fileUrl } = req.body;
+
+    if (!fileName || !fileUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "fileName and fileUrl are required",
+      });
+    }
+
+    const reclassification = await Reclassification.findById(id);
+
+    if (!reclassification) {
+      return res.status(404).json({
+        success: false,
+        message: "Reclassification not found",
+      });
+    }
+
+    // Extract user info
+    let userId = "system";
+    let userName = "System";
+    if (req && req.user) {
+      userId = req.user.id || req.user._id || "system";
+      userName = req.user.name || req.user.email || "Unknown User";
+    }
+
+    // Add evidence file
+    if (!reclassification.evidenceFiles) {
+      reclassification.evidenceFiles = [];
+    }
+
+    reclassification.evidenceFiles.push({
+      fileName,
+      fileUrl,
+      uploadedAt: new Date(),
+      uploadedBy: {
+        userId,
+        userName,
+      },
+    });
+
+    await reclassification.save();
+
+    return res.status(200).json({
+      success: true,
+      data: reclassification,
+      message: "Evidence file added successfully",
+    });
+  } catch (error) {
+    console.error("Error adding evidence file:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to add evidence file",
+    });
+  }
+};
+
+/**
+ * Remove evidence file from a reclassification
+ * DELETE /api/reclassifications/:id/evidence/:evidenceId
+ */
+exports.removeEvidenceFile = async (req, res) => {
+  try {
+    const { id, evidenceId } = req.params;
+
+    const reclassification = await Reclassification.findById(id);
+
+    if (!reclassification) {
+      return res.status(404).json({
+        success: false,
+        message: "Reclassification not found",
+      });
+    }
+
+    if (!reclassification.evidenceFiles || reclassification.evidenceFiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No evidence files found",
+      });
+    }
+
+    // Remove evidence file
+    reclassification.evidenceFiles = reclassification.evidenceFiles.filter(
+      (file) => file._id.toString() !== evidenceId
+    );
+
+    await reclassification.save();
+
+    return res.status(200).json({
+      success: true,
+      data: reclassification,
+      message: "Evidence file removed successfully",
+    });
+  } catch (error) {
+    console.error("Error removing evidence file:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to remove evidence file",
     });
   }
 };

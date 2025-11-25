@@ -7,8 +7,15 @@ const sheetService = require("../services/googleSheetsService");
 const TrialBalance = require("../models/TrialBalance");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 const ClassificationSection = require("../models/ClassificationSection");
+const Adjustment = require("../models/Adjustment");
+const Reclassification = require("../models/Reclassification");
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
+const archiver = require("archiver");
+const https = require("https");
+const http = require("http");
+const PDFDocument = require("pdfkit");
+const Workbook = require("../models/ExcelWorkbook");
 const {
   uploadWorkbookFile,
   uploadTrialBalance,
@@ -684,6 +691,8 @@ const ENGAGEMENT_FOLDERS = [
   "Others",
   "Trial Balance",
   "Audit Sections",
+  "Adjustments",
+  "Reclassifications",
 ];
 
 exports.getLibraryFiles = async (req, res, next) => {
@@ -3626,5 +3635,1243 @@ exports.getAuditorEngagements = async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+};
+
+/**
+ * Export Extended Trial Balance as Excel
+ * GET /api/engagements/:id/export/etb
+ */
+exports.exportETB = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { format } = req.query; // 'xlsx' or 'pdf'
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Get ETB with populated linked Excel files
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId })
+      .populate({
+        path: "rows.linkedExcelFiles",
+        model: "Workbook",
+        select: "name",
+      })
+      .lean();
+
+    if (!etb || !etb.rows || etb.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No Extended Trial Balance data found",
+      });
+    }
+
+    if (format === "pdf") {
+      return await exports.exportETBAsPDF(req, res, etb, sanitizedEngagementName);
+    }
+
+    // Excel export
+    const etbHeaders = [
+      "Code",
+      "Account Name",
+      "Opening Balances",
+      "Adjustments",
+      "Reclassifications",
+      "Final Balances",
+      "Grouping1",
+      "Grouping2",
+      "Grouping3",
+      "Grouping4",
+      "Linked Files",
+    ];
+
+    const etbRows = etb.rows.map((row) => {
+      // Get linked file names
+      const linkedFileNames = row.linkedExcelFiles
+        ?.map((file) => file.name || "")
+        .filter(Boolean)
+        .join("; ") || "None";
+
+      return [
+        row.code || "",
+        row.accountName || "",
+        row.priorYear || 0, // Opening Balance = priorYear
+        row.adjustments || 0,
+        row.reclassification || 0,
+        row.finalBalance || 0, // Final Balance = finalBalance
+        row.grouping1 || "",
+        row.grouping2 || "",
+        row.grouping3 || "",
+        row.grouping4 || "",
+        linkedFileNames,
+      ];
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([etbHeaders, ...etbRows]);
+    ws["!cols"] = [
+      { wch: 15 }, // Code
+      { wch: 30 }, // Account Name
+      { wch: 18 }, // Opening Balances
+      { wch: 15 }, // Adjustments
+      { wch: 18 }, // Reclassifications
+      { wch: 18 }, // Final Balances
+      { wch: 20 }, // Grouping1
+      { wch: 20 }, // Grouping2
+      { wch: 20 }, // Grouping3
+      { wch: 20 }, // Grouping4
+      { wch: 40 }, // Linked Files
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Extended Trial Balance");
+
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Extended_Trial_Balance.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting ETB:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export Extended Trial Balance",
+    });
+  }
+};
+
+/**
+ * Export Extended Trial Balance as PDF
+ */
+exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
+  try {
+    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Extended_Trial_Balance.pdf"`
+    );
+
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(18).text("Extended Trial Balance", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+    doc.moveDown(1);
+
+    // Table headers
+    const startX = 50;
+    let y = 120;
+    const rowHeight = 20;
+    const colWidths = [50, 120, 70, 60, 70, 70, 60, 60, 60, 60, 100];
+
+    // Headers
+    const headers = [
+      "Code",
+      "Account Name",
+      "Opening",
+      "Adjustments",
+      "Reclass",
+      "Final",
+      "Group1",
+      "Group2",
+      "Group3",
+      "Group4",
+      "Linked Files",
+    ];
+
+    doc.fontSize(8).font("Helvetica-Bold");
+    let x = startX;
+    headers.forEach((header, i) => {
+      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      x += colWidths[i];
+    });
+
+    y += rowHeight;
+    doc.moveTo(50, y).lineTo(950, y).stroke();
+
+    // Data rows
+    doc.font("Helvetica");
+    etb.rows.forEach((row, index) => {
+      if (y > 500) {
+        // New page
+        doc.addPage();
+        y = 50;
+        // Redraw headers
+        x = startX;
+        doc.font("Helvetica-Bold");
+        headers.forEach((header, i) => {
+          doc.text(header, x, y, { width: colWidths[i], align: "left" });
+          x += colWidths[i];
+        });
+        y += rowHeight;
+        doc.moveTo(50, y).lineTo(950, y).stroke();
+        doc.font("Helvetica");
+      }
+
+      const linkedFileNames = row.linkedExcelFiles
+        ?.map((file) => file.name || "")
+        .filter(Boolean)
+        .join("; ") || "None";
+
+      const rowData = [
+        row.code || "",
+        row.accountName || "",
+        (row.priorYear || 0).toLocaleString(),
+        (row.adjustments || 0).toLocaleString(),
+        (row.reclassification || 0).toLocaleString(),
+        (row.finalBalance || 0).toLocaleString(),
+        row.grouping1 || "",
+        row.grouping2 || "",
+        row.grouping3 || "",
+        row.grouping4 || "",
+        linkedFileNames.substring(0, 30), // Truncate long file names
+      ];
+
+      x = startX;
+      rowData.forEach((cell, i) => {
+        doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+        x += colWidths[i];
+      });
+
+      y += rowHeight;
+    });
+
+    doc.end();
+  } catch (error) {
+    console.error("Error exporting ETB as PDF:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export Extended Trial Balance as PDF",
+      });
+    }
+  }
+};
+
+/**
+ * Export Adjustments as Excel
+ * GET /api/engagements/:id/export/adjustments
+ */
+exports.exportAdjustments = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { format } = req.query; // 'xlsx' or 'pdf'
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    const adjustments = await Adjustment.find({ engagementId }).sort({ createdAt: -1 }).lean();
+
+    if (adjustments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No adjustments found for this engagement",
+      });
+    }
+
+    if (format === "pdf") {
+      return await exports.exportAdjustmentsAsPDF(req, res, adjustments, sanitizedEngagementName);
+    }
+
+    // Excel export
+    const adjHeaders = [
+      "Adjustment No",
+      "Type",
+      "Debit/Credit",
+      "Description",
+      "Account Code",
+      "Account Name",
+      "Amount",
+      "Details",
+      "Status",
+      "Posted By",
+      "Posted Date",
+      "Created Date",
+      "Linked Evidence Filenames",
+    ];
+
+    const adjRows = [];
+    for (const adj of adjustments) {
+      const postedHistory = adj.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = adj.createdAt
+        ? new Date(adj.createdAt).toLocaleDateString()
+        : "N/A";
+      const evidenceFilenames = adj.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      if (adj.entries && adj.entries.length > 0) {
+        for (const entry of adj.entries) {
+          const type = entry.dr > 0 ? "Debit" : "Credit";
+          const amount = entry.dr > 0 ? entry.dr : entry.cr;
+
+          adjRows.push([
+            adj.adjustmentNo,
+            "Adjustment",
+            type,
+            adj.description || "",
+            entry.code,
+            entry.accountName,
+            amount,
+            entry.details || "",
+            adj.status,
+            postedBy,
+            postedDate,
+            createdDate,
+            evidenceFilenames,
+          ]);
+        }
+      } else {
+        adjRows.push([
+          adj.adjustmentNo,
+          "Adjustment",
+          "N/A",
+          adj.description || "",
+          "",
+          "",
+          0,
+          "",
+          adj.status,
+          postedBy,
+          postedDate,
+          createdDate,
+          evidenceFilenames,
+        ]);
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([adjHeaders, ...adjRows]);
+    ws["!cols"] = [
+      { wch: 15 }, // Adjustment No
+      { wch: 12 }, // Type
+      { wch: 12 }, // Debit/Credit
+      { wch: 30 }, // Description
+      { wch: 12 }, // Account Code
+      { wch: 25 }, // Account Name
+      { wch: 15 }, // Amount
+      { wch: 30 }, // Details
+      { wch: 10 }, // Status
+      { wch: 15 }, // Posted By
+      { wch: 12 }, // Posted Date
+      { wch: 12 }, // Created Date
+      { wch: 40 }, // Linked Evidence Filenames
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Adjustments");
+
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Adjustments.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting adjustments:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export adjustments",
+    });
+  }
+};
+
+/**
+ * Export Adjustments as PDF
+ */
+exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngagementName) => {
+  try {
+    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Adjustments.pdf"`
+    );
+
+    doc.pipe(res);
+
+    doc.fontSize(18).text("Adjustments", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+    doc.moveDown(1);
+
+    const startX = 50;
+    let y = 120;
+    const rowHeight = 20;
+    const colWidths = [60, 50, 50, 100, 50, 100, 60, 80, 50, 60, 60, 60, 100];
+
+    const headers = [
+      "Adj No",
+      "Type",
+      "D/C",
+      "Description",
+      "Code",
+      "Account",
+      "Amount",
+      "Details",
+      "Status",
+      "Posted By",
+      "Posted",
+      "Created",
+      "Evidence",
+    ];
+
+    doc.fontSize(8).font("Helvetica-Bold");
+    let x = startX;
+    headers.forEach((header, i) => {
+      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      x += colWidths[i];
+    });
+
+    y += rowHeight;
+    doc.moveTo(50, y).lineTo(950, y).stroke();
+
+    doc.font("Helvetica");
+    adjustments.forEach((adj) => {
+      const postedHistory = adj.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = adj.createdAt
+        ? new Date(adj.createdAt).toLocaleDateString()
+        : "N/A";
+      const evidenceFilenames = adj.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      if (adj.entries && adj.entries.length > 0) {
+        adj.entries.forEach((entry) => {
+          if (y > 500) {
+            doc.addPage();
+            y = 50;
+            x = startX;
+            doc.font("Helvetica-Bold");
+            headers.forEach((header, i) => {
+              doc.text(header, x, y, { width: colWidths[i], align: "left" });
+              x += colWidths[i];
+            });
+            y += rowHeight;
+            doc.moveTo(50, y).lineTo(950, y).stroke();
+            doc.font("Helvetica");
+          }
+
+          const type = entry.dr > 0 ? "Debit" : "Credit";
+          const amount = entry.dr > 0 ? entry.dr : entry.cr;
+
+          const rowData = [
+            adj.adjustmentNo,
+            "Adj",
+            type,
+            (adj.description || "").substring(0, 30),
+            entry.code || "",
+            (entry.accountName || "").substring(0, 30),
+            amount.toLocaleString(),
+            (entry.details || "").substring(0, 30),
+            adj.status,
+            postedBy.substring(0, 15),
+            postedDate,
+            createdDate,
+            evidenceFilenames.substring(0, 30),
+          ];
+
+          x = startX;
+          rowData.forEach((cell, i) => {
+            doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+            x += colWidths[i];
+          });
+
+          y += rowHeight;
+        });
+      }
+    });
+
+    doc.end();
+  } catch (error) {
+    console.error("Error exporting adjustments as PDF:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export adjustments as PDF",
+      });
+    }
+  }
+};
+
+/**
+ * Export Reclassifications as Excel
+ * GET /api/engagements/:id/export/reclassifications
+ */
+exports.exportReclassifications = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { format } = req.query; // 'xlsx' or 'pdf'
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    const reclassifications = await Reclassification.find({ engagementId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (reclassifications.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No reclassifications found for this engagement",
+      });
+    }
+
+    if (format === "pdf") {
+      return await exports.exportReclassificationsAsPDF(req, res, reclassifications, sanitizedEngagementName);
+    }
+
+    // Excel export
+    const rclsHeaders = [
+      "Reclassification No",
+      "From Account Code",
+      "From Account Name",
+      "To Account Code",
+      "To Account Name",
+      "Amount",
+      "Reason",
+      "Status",
+      "Posted By",
+      "Posted Date",
+      "Created Date",
+      "Linked Evidence Filenames",
+    ];
+
+    const rclsRows = [];
+    for (const rc of reclassifications) {
+      const postedHistory = rc.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = rc.createdAt
+        ? new Date(rc.createdAt).toLocaleDateString()
+        : "N/A";
+      const evidenceFilenames = rc.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      const drEntries = rc.entries.filter((e) => e.dr > 0);
+      const crEntries = rc.entries.filter((e) => e.cr > 0);
+
+      for (const drEntry of drEntries) {
+        for (const crEntry of crEntries) {
+          if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
+            rclsRows.push([
+              rc.reclassificationNo,
+              drEntry.code,
+              drEntry.accountName,
+              crEntry.code,
+              crEntry.accountName,
+              drEntry.dr,
+              rc.description || drEntry.details || crEntry.details || "",
+              rc.status,
+              postedBy,
+              postedDate,
+              createdDate,
+              evidenceFilenames,
+            ]);
+            break;
+          }
+        }
+      }
+
+      if (rc.entries.length === 0) {
+        rclsRows.push([
+          rc.reclassificationNo,
+          "",
+          "",
+          "",
+          "",
+          0,
+          rc.description || "",
+          rc.status,
+          postedBy,
+          postedDate,
+          createdDate,
+          evidenceFilenames,
+        ]);
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([rclsHeaders, ...rclsRows]);
+    ws["!cols"] = [
+      { wch: 18 }, // Reclassification No
+      { wch: 15 }, // From Account Code
+      { wch: 25 }, // From Account Name
+      { wch: 15 }, // To Account Code
+      { wch: 25 }, // To Account Name
+      { wch: 15 }, // Amount
+      { wch: 30 }, // Reason
+      { wch: 10 }, // Status
+      { wch: 15 }, // Posted By
+      { wch: 12 }, // Posted Date
+      { wch: 12 }, // Created Date
+      { wch: 40 }, // Linked Evidence Filenames
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Reclassifications");
+
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Reclassifications.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting reclassifications:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export reclassifications",
+    });
+  }
+};
+
+/**
+ * Export Reclassifications as PDF
+ */
+exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanitizedEngagementName) => {
+  try {
+    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Reclassifications.pdf"`
+    );
+
+    doc.pipe(res);
+
+    doc.fontSize(18).text("Reclassifications", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+    doc.moveDown(1);
+
+    const startX = 50;
+    let y = 120;
+    const rowHeight = 20;
+    const colWidths = [70, 60, 100, 60, 100, 60, 100, 50, 60, 60, 60, 100];
+
+    const headers = [
+      "Rcls No",
+      "From Code",
+      "From Account",
+      "To Code",
+      "To Account",
+      "Amount",
+      "Reason",
+      "Status",
+      "Posted By",
+      "Posted",
+      "Created",
+      "Evidence",
+    ];
+
+    doc.fontSize(8).font("Helvetica-Bold");
+    let x = startX;
+    headers.forEach((header, i) => {
+      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      x += colWidths[i];
+    });
+
+    y += rowHeight;
+    doc.moveTo(50, y).lineTo(950, y).stroke();
+
+    doc.font("Helvetica");
+    reclassifications.forEach((rc) => {
+      const postedHistory = rc.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = rc.createdAt
+        ? new Date(rc.createdAt).toLocaleDateString()
+        : "N/A";
+      const evidenceFilenames = rc.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      const drEntries = rc.entries.filter((e) => e.dr > 0);
+      const crEntries = rc.entries.filter((e) => e.cr > 0);
+
+      drEntries.forEach((drEntry) => {
+        crEntries.forEach((crEntry) => {
+          if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
+            if (y > 500) {
+              doc.addPage();
+              y = 50;
+              x = startX;
+              doc.font("Helvetica-Bold");
+              headers.forEach((header, i) => {
+                doc.text(header, x, y, { width: colWidths[i], align: "left" });
+                x += colWidths[i];
+              });
+              y += rowHeight;
+              doc.moveTo(50, y).lineTo(950, y).stroke();
+              doc.font("Helvetica");
+            }
+
+            const rowData = [
+              rc.reclassificationNo,
+              drEntry.code || "",
+              (drEntry.accountName || "").substring(0, 30),
+              crEntry.code || "",
+              (crEntry.accountName || "").substring(0, 30),
+              drEntry.dr.toLocaleString(),
+              (rc.description || drEntry.details || crEntry.details || "").substring(0, 30),
+              rc.status,
+              postedBy.substring(0, 15),
+              postedDate,
+              createdDate,
+              evidenceFilenames.substring(0, 30),
+            ];
+
+            x = startX;
+            rowData.forEach((cell, i) => {
+              doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+              x += colWidths[i];
+            });
+
+            y += rowHeight;
+          }
+        });
+      });
+    });
+
+    doc.end();
+  } catch (error) {
+    console.error("Error exporting reclassifications as PDF:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export reclassifications as PDF",
+      });
+    }
+  }
+};
+
+/**
+ * Export Extended Trial Balance, Adjustments, and Reclassifications as multi-sheet Excel (DEPRECATED - kept for backward compatibility)
+ * GET /api/engagements/:id/export/all
+ */
+exports.exportAll = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    // Get engagement details
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+
+    // ========== Sheet 1: Extended Trial Balance ==========
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId }).lean();
+    if (etb && etb.rows && etb.rows.length > 0) {
+      const etbHeaders = [
+        "Account Code",
+        "Account Name",
+        "Opening Balance",
+        "Adjustments",
+        "Reclassification",
+        "Closing Balance",
+        "Classification",
+      ];
+
+      const etbRows = etb.rows.map((row) => [
+        row.code || "",
+        row.accountName || "",
+        row.openingBalance || 0,
+        row.adjustments || 0,
+        row.reclassification || 0,
+        row.closingBalance || 0,
+        row.classification || "",
+      ]);
+
+      const etbWs = XLSX.utils.aoa_to_sheet([etbHeaders, ...etbRows]);
+      etbWs["!cols"] = [
+        { wch: 15 }, // Account Code
+        { wch: 30 }, // Account Name
+        { wch: 18 }, // Opening Balance
+        { wch: 15 }, // Adjustments
+        { wch: 18 }, // Reclassification
+        { wch: 18 }, // Closing Balance
+        { wch: 40 }, // Classification
+      ];
+      XLSX.utils.book_append_sheet(wb, etbWs, "Extended Trial Balance");
+    } else {
+      // Create empty sheet if no ETB data
+      const emptyEtbWs = XLSX.utils.aoa_to_sheet([["No Extended Trial Balance data available"]]);
+      XLSX.utils.book_append_sheet(wb, emptyEtbWs, "Extended Trial Balance");
+    }
+
+    // ========== Sheet 2: Adjustments ==========
+    const adjustments = await Adjustment.find({ engagementId }).sort({ createdAt: -1 }).lean();
+    if (adjustments.length > 0) {
+      const adjHeaders = [
+        "Adjustment No",
+        "Type",
+        "Debit/Credit",
+        "Description",
+        "Account Code",
+        "Account Name",
+        "Amount",
+        "Details",
+        "Status",
+        "Posted By",
+        "Posted Date",
+        "Created Date",
+        "Linked Evidence Filenames",
+      ];
+
+      const adjRows = [];
+      for (const adj of adjustments) {
+        const postedHistory = adj.history?.find((h) => h.action === "posted");
+        const postedBy = postedHistory?.userName || "N/A";
+        const postedDate = postedHistory?.timestamp
+          ? new Date(postedHistory.timestamp).toLocaleDateString()
+          : "N/A";
+        const createdDate = adj.createdAt
+          ? new Date(adj.createdAt).toLocaleDateString()
+          : "N/A";
+        const evidenceFilenames = adj.evidenceFiles
+          ?.map((f) => f.fileName)
+          .join("; ") || "None";
+
+        if (adj.entries && adj.entries.length > 0) {
+          for (const entry of adj.entries) {
+            const type = entry.dr > 0 ? "Debit" : "Credit";
+            const amount = entry.dr > 0 ? entry.dr : entry.cr;
+
+            adjRows.push([
+              adj.adjustmentNo,
+              "Adjustment",
+              type,
+              adj.description || "",
+              entry.code,
+              entry.accountName,
+              amount,
+              entry.details || "",
+              adj.status,
+              postedBy,
+              postedDate,
+              createdDate,
+              evidenceFilenames,
+            ]);
+          }
+        } else {
+          adjRows.push([
+            adj.adjustmentNo,
+            "Adjustment",
+            "N/A",
+            adj.description || "",
+            "",
+            "",
+            0,
+            "",
+            adj.status,
+            postedBy,
+            postedDate,
+            createdDate,
+            evidenceFilenames,
+          ]);
+        }
+      }
+
+      const adjWs = XLSX.utils.aoa_to_sheet([adjHeaders, ...adjRows]);
+      adjWs["!cols"] = [
+        { wch: 15 }, // Adjustment No
+        { wch: 12 }, // Type
+        { wch: 12 }, // Debit/Credit
+        { wch: 30 }, // Description
+        { wch: 12 }, // Account Code
+        { wch: 25 }, // Account Name
+        { wch: 15 }, // Amount
+        { wch: 30 }, // Details
+        { wch: 10 }, // Status
+        { wch: 15 }, // Posted By
+        { wch: 12 }, // Posted Date
+        { wch: 12 }, // Created Date
+        { wch: 40 }, // Linked Evidence Filenames
+      ];
+      XLSX.utils.book_append_sheet(wb, adjWs, "Adjustments");
+    } else {
+      const emptyAdjWs = XLSX.utils.aoa_to_sheet([["No Adjustments data available"]]);
+      XLSX.utils.book_append_sheet(wb, emptyAdjWs, "Adjustments");
+    }
+
+    // ========== Sheet 3: Reclassifications ==========
+    const reclassifications = await Reclassification.find({ engagementId })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (reclassifications.length > 0) {
+      const rclsHeaders = [
+        "Reclassification No",
+        "From Account Code",
+        "From Account Name",
+        "To Account Code",
+        "To Account Name",
+        "Amount",
+        "Reason",
+        "Status",
+        "Posted By",
+        "Posted Date",
+        "Created Date",
+        "Linked Evidence Filenames",
+      ];
+
+      const rclsRows = [];
+      for (const rc of reclassifications) {
+        const postedHistory = rc.history?.find((h) => h.action === "posted");
+        const postedBy = postedHistory?.userName || "N/A";
+        const postedDate = postedHistory?.timestamp
+          ? new Date(postedHistory.timestamp).toLocaleDateString()
+          : "N/A";
+        const createdDate = rc.createdAt
+          ? new Date(rc.createdAt).toLocaleDateString()
+          : "N/A";
+        const evidenceFilenames = rc.evidenceFiles
+          ?.map((f) => f.fileName)
+          .join("; ") || "None";
+
+        const drEntries = rc.entries.filter((e) => e.dr > 0);
+        const crEntries = rc.entries.filter((e) => e.cr > 0);
+
+        for (const drEntry of drEntries) {
+          for (const crEntry of crEntries) {
+            if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
+              rclsRows.push([
+                rc.reclassificationNo,
+                drEntry.code,
+                drEntry.accountName,
+                crEntry.code,
+                crEntry.accountName,
+                drEntry.dr,
+                rc.description || drEntry.details || crEntry.details || "",
+                rc.status,
+                postedBy,
+                postedDate,
+                createdDate,
+                evidenceFilenames,
+              ]);
+              break;
+            }
+          }
+        }
+
+        if (rc.entries.length === 0) {
+          rclsRows.push([
+            rc.reclassificationNo,
+            "",
+            "",
+            "",
+            "",
+            0,
+            rc.description || "",
+            rc.status,
+            postedBy,
+            postedDate,
+            createdDate,
+            evidenceFilenames,
+          ]);
+        }
+      }
+
+      const rclsWs = XLSX.utils.aoa_to_sheet([rclsHeaders, ...rclsRows]);
+      rclsWs["!cols"] = [
+        { wch: 18 }, // Reclassification No
+        { wch: 15 }, // From Account Code
+        { wch: 25 }, // From Account Name
+        { wch: 15 }, // To Account Code
+        { wch: 25 }, // To Account Name
+        { wch: 15 }, // Amount
+        { wch: 30 }, // Reason
+        { wch: 10 }, // Status
+        { wch: 15 }, // Posted By
+        { wch: 12 }, // Posted Date
+        { wch: 12 }, // Created Date
+        { wch: 40 }, // Linked Evidence Filenames
+      ];
+      XLSX.utils.book_append_sheet(wb, rclsWs, "Reclassifications");
+    } else {
+      const emptyRclsWs = XLSX.utils.aoa_to_sheet([["No Reclassifications data available"]]);
+      XLSX.utils.book_append_sheet(wb, emptyRclsWs, "Reclassifications");
+    }
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    // Set response headers
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting all data:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export data",
+    });
+  }
+};
+
+/**
+ * Export evidence files as ZIP
+ * GET /api/engagements/:id/export/evidence
+ */
+exports.exportEvidenceFiles = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    // Get engagement details
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Get all adjustments and reclassifications with evidence files
+    const adjustments = await Adjustment.find({ engagementId }).lean();
+    const reclassifications = await Reclassification.find({ engagementId }).lean();
+
+    // Collect all evidence files
+    const evidenceFiles = [];
+
+    // From adjustments
+    for (const adj of adjustments) {
+      if (adj.evidenceFiles && adj.evidenceFiles.length > 0) {
+        for (const file of adj.evidenceFiles) {
+          evidenceFiles.push({
+            fileName: `Adjustments_${adj.adjustmentNo}_${file.fileName}`,
+            fileUrl: file.fileUrl,
+            uploadedAt: file.uploadedAt,
+            uploadedBy: file.uploadedBy?.userName || "Unknown",
+          });
+        }
+      }
+    }
+
+    // From reclassifications
+    for (const rc of reclassifications) {
+      if (rc.evidenceFiles && rc.evidenceFiles.length > 0) {
+        for (const file of rc.evidenceFiles) {
+          evidenceFiles.push({
+            fileName: `Reclassifications_${rc.reclassificationNo}_${file.fileName}`,
+            fileUrl: file.fileUrl,
+            uploadedAt: file.uploadedAt,
+            uploadedBy: file.uploadedBy?.userName || "Unknown",
+          });
+        }
+      }
+    }
+
+    if (evidenceFiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No evidence files found for this engagement",
+      });
+    }
+
+    // Create ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 }, // Maximum compression
+    });
+
+    // Set response headers
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_EvidenceFiles.zip"`
+    );
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Helper function to download file from URL or Supabase
+    const downloadFile = async (url, fileName) => {
+      try {
+        // Check if it's a Supabase storage URL
+        if (url.includes("supabase.co") && url.includes("/storage/v1/object/public/")) {
+          // Extract bucket and path from Supabase URL
+          const urlParts = url.split("/storage/v1/object/public/");
+          if (urlParts.length === 2) {
+            const bucketAndPath = urlParts[1];
+            const [bucket, ...pathParts] = bucketAndPath.split("/");
+            const filePath = pathParts.join("/");
+
+            // Download from Supabase storage
+            const { data, error } = await supabase.storage
+              .from(bucket)
+              .download(filePath);
+
+            if (error) {
+              throw new Error(`Supabase download error: ${error.message}`);
+            }
+
+            // Convert blob to buffer
+            const arrayBuffer = await data.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+          }
+        }
+
+        // For other URLs, use HTTP/HTTPS download
+        return new Promise((resolve, reject) => {
+          const protocol = url.startsWith("https") ? https : http;
+          protocol
+            .get(url, (response) => {
+              if (response.statusCode === 301 || response.statusCode === 302) {
+                // Handle redirect
+                return downloadFile(response.headers.location, fileName)
+                  .then(resolve)
+                  .catch(reject);
+              }
+              if (response.statusCode !== 200) {
+                reject(new Error(`Failed to download file: ${response.statusCode}`));
+                return;
+              }
+              const chunks = [];
+              response.on("data", (chunk) => chunks.push(chunk));
+              response.on("end", () => resolve(Buffer.concat(chunks)));
+              response.on("error", reject);
+            })
+            .on("error", reject);
+        });
+      } catch (error) {
+        console.error(`Error downloading file ${fileName} from ${url}:`, error);
+        throw error;
+      }
+    };
+
+    // Add files to archive
+    for (const file of evidenceFiles) {
+      try {
+        const fileBuffer = await downloadFile(file.fileUrl, file.fileName);
+        archive.append(fileBuffer, { name: file.fileName });
+      } catch (error) {
+        console.error(`Error downloading file ${file.fileName}:`, error);
+        // Continue with other files even if one fails
+        // Optionally, add an error file to the archive
+        archive.append(
+          Buffer.from(`Error: Could not download ${file.fileName}\nURL: ${file.fileUrl}\nError: ${error.message}`),
+          { name: `ERROR_${file.fileName}.txt` }
+        );
+      }
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+  } catch (error) {
+    console.error("Error exporting evidence files:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export evidence files",
+      });
+    }
   }
 };

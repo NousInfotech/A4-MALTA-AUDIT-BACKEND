@@ -29,6 +29,17 @@ router.get(
 router.get("/etb/:etbId", requireAuth, adjustmentController.getAdjustmentsByETB);
 
 /**
+ * @route   GET /api/adjustments/engagement/:engagementId/export
+ * @desc    Export adjustments to Excel
+ * @access  Protected
+ */
+router.get(
+  "/engagement/:engagementId/export",
+  requireAuth,
+  adjustmentController.exportAdjustments
+);
+
+/**
  * @route   GET /api/adjustments/:id
  * @desc    Get a single adjustment by ID
  * @access  Protected
@@ -69,6 +80,20 @@ router.delete("/:id", requireAuth, adjustmentController.deleteAdjustment);
  * @access  Protected
  */
 router.get("/:id/history", requireAuth, adjustmentController.getAdjustmentHistory);
+
+/**
+ * @route   POST /api/adjustments/:id/evidence
+ * @desc    Add evidence file to an adjustment
+ * @access  Protected
+ */
+router.post("/:id/evidence", requireAuth, adjustmentController.addEvidenceFile);
+
+/**
+ * @route   DELETE /api/adjustments/:id/evidence/:evidenceId
+ * @desc    Remove evidence file from an adjustment
+ * @access  Protected
+ */
+router.delete("/:id/evidence/:evidenceId", requireAuth, adjustmentController.removeEvidenceFile);
 
 module.exports = router;
 
