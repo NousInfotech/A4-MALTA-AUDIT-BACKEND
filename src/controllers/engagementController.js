@@ -3483,9 +3483,27 @@ exports.assignAuditor = async (req, res, next) => {
       });
     }
 
+    // Fetch auditor name from Supabase profiles
+    let auditorName = "Unknown User";
+    try {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("name, email")
+        .eq("user_id", auditorId)
+        .single();
+
+      if (!error && profile) {
+        auditorName = profile.name || profile.email || "Unknown User";
+      }
+    } catch (err) {
+      console.error("Error fetching auditor name:", err);
+      // Continue with default name if fetch fails
+    }
+
     // Add auditor to the array
     const newAuditor = {
       auditorId,
+      auditorName,
       assignedBy,
       assignedAt: new Date(),
     };
