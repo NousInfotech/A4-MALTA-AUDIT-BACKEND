@@ -30,6 +30,10 @@ const EngagementSchema = new Schema(
           type: String,
           required: true,
         },
+        auditorName: {
+          type: String,
+          required: true,
+        },
         assignedAt: {
           type: Date,
           default: Date.now,
