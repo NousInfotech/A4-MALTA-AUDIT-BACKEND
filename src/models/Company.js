@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 const { Schema, Types } = mongoose;
 
-const ShareClassEnum = ["A", "B", "C"];
-const ShareTypeEnum = ["Ordinary", "Preferred"];
+const ShareClassEnum = ["A", "B", "C", "Ordinary"];
+const ShareTypeEnum = ["Ordinary"];
 
 const ShareDataSchema = new Schema(
   {
@@ -39,7 +39,7 @@ const CompanySchema = new Schema(
     industry: { type: String },
     description: { type: String },
     companyStartedAt: { type: Date },
-    totalShares: { type: Number, min: 100 },
+    totalShares: { type: [ShareDataSchema] },
 
     // Shareholding by other companies
     shareHoldingCompanies: [

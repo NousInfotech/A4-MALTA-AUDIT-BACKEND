@@ -20,8 +20,9 @@ const upload = multer({
   }
 });
 
-// Public route - anyone can view branding
-router.get('/', brandingController.getBrandingSettings);
+// Route requires authentication to get organizationId
+// All users can view their organization's branding
+router.get('/', requireAuth, brandingController.getBrandingSettings);
 
 // Admin-only routes
 router.put('/', requireAuth, requireRole('admin'), brandingController.updateBrandingSettings);

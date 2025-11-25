@@ -1,36 +1,38 @@
 // controllers/userController.js
-const { supabase } = require("../config/supabase")
-const mongoose = require("mongoose")
+const { supabase } = require("../config/supabase");
+const mongoose = require("mongoose");
 
 // Mongoose models
-const Engagement = require("../models/Engagement")
-const DocumentRequest = require("../models/DocumentRequest")
-const Procedure = require("../models/Procedure")
-const ExtendedTrialBalance = require("../models/ExtendedTrialBalance")
-const WorkingPaper = require("../models/WorkingPaper")
-const TrialBalance = require("../models/TrialBalance")
-const EngagementLibrary = require("../models/EngagementLibrary")
-const ChecklistItem = require("../models/ChecklistItem")
+const Engagement = require("../models/Engagement");
+const DocumentRequest = require("../models/DocumentRequest");
+const Procedure = require("../models/Procedure");
+const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
+const WorkingPaper = require("../models/WorkingPaper");
+const TrialBalance = require("../models/TrialBalance");
+const EngagementLibrary = require("../models/EngagementLibrary");
+const ChecklistItem = require("../models/ChecklistItem");
 const ClassificationSection = require("../models/ClassificationSection");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
 
 exports.deleteUser = async (req, res) => {
-  const session = await mongoose.startSession()
+  const session = await mongoose.startSession();
   try {
-    const userId = req.params.id
+    const userId = req.params.id;
     if (!userId) {
-      return res.status(400).json({ error: "User ID is required" })
+      return res.status(400).json({ error: "User ID is required" });
     }
 
     // 1) MONGO TRANSACTION: delete all engagement-related data for this client
-    let engagementIds = []
-    let mongoStats = {}
+    let engagementIds = [];
+    let mongoStats = {};
 
     await session.withTransaction(async () => {
       // Find all engagements for this client
-      const engagements = await Engagement.find({ clientId: userId }).session(session)
-      engagementIds = engagements.map((e) => e._id)
+      const engagements = await Engagement.find({ clientId: userId }).session(
+        session
+      );
+      engagementIds = engagements.map((e) => e._id);
 
       if (engagementIds.length === 0) {
         // No engagements—nothing to cascade
@@ -44,31 +46,41 @@ exports.deleteUser = async (req, res) => {
           libraries: 0,
           checklistItems: 0,
           classificationSections: 0,
-        }
+        };
       } else {
         // Delete all dependent docs by engagement
-        const [
-          drRes,
-          procRes,
-          etbRes,
-          wpRes,
-          tbRes,
-          libRes,
-          chkRes,
-          clsRes,
-        ] = await Promise.all([
-          DocumentRequest.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          Procedure.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          ExtendedTrialBalance.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          WorkingPaper.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          TrialBalance.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          EngagementLibrary.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          ChecklistItem.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-          ClassificationSection.deleteMany({ engagement: { $in: engagementIds } }).session(session),
-        ])
+        const [drRes, procRes, etbRes, wpRes, tbRes, libRes, chkRes, clsRes] =
+          await Promise.all([
+            DocumentRequest.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            Procedure.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            ExtendedTrialBalance.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            WorkingPaper.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            TrialBalance.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            EngagementLibrary.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            ChecklistItem.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+            ClassificationSection.deleteMany({
+              engagement: { $in: engagementIds },
+            }).session(session),
+          ]);
 
         // Finally, delete the engagements themselves
-        const engRes = await Engagement.deleteMany({ _id: { $in: engagementIds } }).session(session)
+        const engRes = await Engagement.deleteMany({
+          _id: { $in: engagementIds },
+        }).session(session);
 
         mongoStats = {
           engagements: engRes.deletedCount || 0,
@@ -80,63 +92,85 @@ exports.deleteUser = async (req, res) => {
           libraries: libRes.deletedCount || 0,
           checklistItems: chkRes.deletedCount || 0,
           classificationSections: clsRes.deletedCount || 0,
-        }
+        };
       }
-    })
+    });
 
     // 2) SUPABASE: delete profile row then auth user (not part of Mongo transaction)
     // Remove from profiles table
-    const { error: dbError } = await supabase.from("profiles").delete().eq("user_id", userId)
+    const { error: dbError } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("user_id", userId);
     if (dbError) {
       // At this point, Mongo deletions are committed. We surface the error.
-      throw dbError
+      throw dbError;
     }
 
     // Remove from Supabase Auth
-    const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+    const { error: authError } = await supabase.auth.admin.deleteUser(userId);
     if (authError) {
-      throw authError
+      throw authError;
     }
 
     res.status(200).json({
       message: "User and all related data deleted successfully",
       userId,
       mongoStats,
-    })
+    });
   } catch (error) {
-    console.error("Error deleting user (deep):", error)
+    console.error("Error deleting user (deep):", error);
     // If we are still inside a transaction block, abort; outside of it, this is a no-op.
-    try { await session.abortTransaction() } catch (_) {}
+    try {
+      await session.abortTransaction();
+    } catch (_) {}
     res.status(500).json({
       error: error.message || "Failed to delete user",
-      note:
-        "Mongo deletions are transactional. Supabase operations are best-effort and happen after Mongo commit.",
-    })
+      note: "Mongo deletions are transactional. Supabase operations are best-effort and happen after Mongo commit.",
+    });
   } finally {
-    session.endSession()
+    session.endSession();
   }
-}
-
+};
 
 exports.createUser = async (req, res) => {
   try {
-    const { email, password, name, companyName, companyNumber, industry, summary, companyId, nationality, address, phoneNumber } = req.body
+    const {
+      email,
+      password,
+      name,
+      companyName,
+      companyNumber,
+      industry,
+      summary,
+      isCreateCompany = false,
+      isNewCompany = true,
+      companyId,
+      nationality,
+      address,
+      shareHolderData,
+      representationalSchema,
+    } = req.body;
+
     if (!email || !password || !name) {
-      return res.status(400).json({ error: "Email, password, and name are required" })
+      return res
+        .status(400)
+        .json({ error: "Email, password, and name are required" });
     }
 
-    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-      email: email,
-      password: password,
-      email_confirm: true, 
-      user_metadata: {
-        role: "client",
-        name: name,
-      },
-    })
+    const { data: authUser, error: authError } =
+      await supabase.auth.admin.createUser({
+        email: email,
+        password: password,
+        email_confirm: true,
+        user_metadata: {
+          role: "client",
+          name: name,
+        },
+      });
 
     if (authError) {
-      throw authError
+      throw authError;
     }
 
     const { data: userRecord, error: dbError } = await supabase
@@ -145,7 +179,7 @@ exports.createUser = async (req, res) => {
         user_id: authUser.user.id,
         name: name,
         role: "client",
-        status: "approved", 
+        status: "approved",
         company_name: companyName,
         company_number: companyNumber,
         organization_id: req.user.organizationId,
@@ -154,133 +188,181 @@ exports.createUser = async (req, res) => {
         updated_at: new Date().toISOString(),
       })
       .select()
-      .single()
+      .single();
 
     if (dbError) {
-      await supabase.auth.admin.deleteUser(authUser.user.id)
-      throw dbError
+      await supabase.auth.admin.deleteUser(authUser.user.id);
+      throw dbError;
     }
 
-    // Only create company/person if role is "client" (defaults to "client" if not specified)
-    const userRole = req.body.role || "client";
-    if (userRole === "client") {
-      if(!companyId){
-        // 1. Create new company
-        const newCompany = await Company.create({
-          name: companyName,
-          registrationNumber: companyNumber,
-          industry: industry,
-          address: address,
-          description: summary,
+    // Create company and related data if isCreateCompany is true
+    if (isCreateCompany) {
+      if (isNewCompany) {
+        if (!companyName || !companyNumber || !address || !nationality) {
+          await supabase.auth.admin.deleteUser(authUser.user.id);
+          await supabase
+            .from("profiles")
+            .delete()
+            .eq("user_id", authUser.user.id);
+          return res.status(400).json({
+            error:
+              "Company name, company number, address, and nationality are required when creating a company",
+          });
+        }
+
+        // Validate totalShares if provided
+        if (
+          shareHolderData?.totalShares &&
+          (isNaN(shareHolderData.totalShares) ||
+            shareHolderData.totalShares < 0)
+        ) {
+          await supabase.auth.admin.deleteUser(authUser.user.id);
+          await supabase
+            .from("profiles")
+            .delete()
+            .eq("user_id", authUser.user.id);
+          return res.status(400).json({
+            error: "Company total shares must be a valid positive number",
+          });
+        }
+
+        // Create the company owner (Person)
+        const companyOwner = await Person.create({
           clientId: authUser.user.id,
+          name: name,
+          email: email,
+          nationality: nationality,
+          address: address,
           organizationId: req.user.organizationId,
         });
 
-        // Create person 
-        const newPerson = await Person.create({
-          name: name,
-          email: email,
-          phoneNumber: phoneNumber,
-          nationality: nationality,
-          address: address,
+        // Create the company
+        const newCompany = await Company.create({
           clientId: authUser.user.id,
+          organizationId: req.user.organizationId,
+          name: companyName,
+          registrationNumber: companyNumber,
+          address: address,
+          industry: industry,
+          description: summary,
+          totalShares: shareHolderData?.totalShares || 100,
         });
 
-        // Add person as default shareHolder and all representative roles
-        await Company.updateOne(
-          { _id: newCompany._id }, 
-          { 
-            $push: { 
-              shareHolders: {
-                personId: newPerson._id,
-                sharePercentage: 0,
-                sharesData: [{ totalShares: 0, class: "A", type: "Ordinary" }]
-              }
-            } 
-          }
-        );
-        await Company.updateOne(
-          { _id: newCompany._id }, 
-          { 
-            $push: { 
-              representationalSchema: {
-                personId: newPerson._id,
-                role: ["Shareholder", "Director", "Judicial Representative", "Legal Representative", "Secretary"]
-              }
-            } 
-          }
-        );
-      } else {
-        // 2. Update existing company's clientId
-        const updatedCompany = await Company.findByIdAndUpdate(
-          companyId,
-          { clientId: authUser.user.id },
-          { new: true }
-        );
+        // Prepare shareholders array
+        const shareholders = [];
+        const companyTotalShares = shareHolderData?.totalShares || 100;
 
-        if (!updatedCompany) {
-          throw new Error("Company not found");
+        // Add company owner as shareholder if shareHolderData exists
+        if (
+          shareHolderData &&
+          shareHolderData.shares &&
+          Array.isArray(shareHolderData.shares) &&
+          shareHolderData.shares.length > 0
+        ) {
+          // Calculate total shares held by the person
+          const totalSharesHeld = shareHolderData.shares.reduce(
+            (sum, share) => sum + (share.totalShares || 0),
+            0
+          );
+
+          // Calculate share percentage
+          const sharePercentage =
+            companyTotalShares > 0
+              ? (totalSharesHeld / companyTotalShares) * 100
+              : 0;
+
+          // Use provided shares data
+          shareholders.push({
+            personId: companyOwner._id,
+            sharePercentage: sharePercentage,
+            sharesData: shareHolderData.shares.map((share) => ({
+              totalShares: share.totalShares || 0,
+              class: share.class || "A",
+              type: share.type || "Ordinary",
+            })),
+          });
+        } else {
+          // Default: 100% ownership with default shares data
+          const defaultSharesData = Company.createDefaultSharesData();
+          if (defaultSharesData.length > 0 && companyTotalShares > 0) {
+            defaultSharesData[0].totalShares = companyTotalShares;
+          }
+          shareholders.push({
+            personId: companyOwner._id,
+            sharePercentage: 100,
+            sharesData: defaultSharesData,
+          });
         }
 
-        // Create person for the existing company
-        const newPerson = await Person.create({
-          name: name,
-          email: email,
-          phoneNumber: phoneNumber,
-          nationality: nationality,
-          address: address,
+        // Prepare representational schema
+        const representationalSchemaData = [];
+
+        if (
+          representationalSchema &&
+          Array.isArray(representationalSchema) &&
+          representationalSchema.length > 0
+        ) {
+          // Use provided representational schema
+          representationalSchemaData.push(
+            ...representationalSchema.map((item) => ({
+              personId: item.personId
+                ? mongoose.Types.ObjectId(item.personId)
+                : companyOwner._id,
+              role: item.role || ["Shareholder"],
+              companyId: item.companyId
+                ? mongoose.Types.ObjectId(item.companyId)
+                : undefined,
+            }))
+          );
+        } else {
+          // Default: company owner as shareholder
+          representationalSchemaData.push({
+            personId: companyOwner._id,
+            role: ["Shareholder"],
+          });
+        }
+
+        // Update company with shareholders and representational schema
+        newCompany.shareHolders = shareholders;
+        newCompany.representationalSchema = representationalSchemaData;
+        await newCompany.save();
+
+        // Update person with company references
+        companyOwner.shareHoldingCompanies = [newCompany._id];
+        companyOwner.representingCompanies = [newCompany._id];
+        await companyOwner.save();
+      }
+    }else{
+      if(companyId){
+        const company = await Company.findByIdAndUpdate(companyId,{
           clientId: authUser.user.id,
         });
-
-        // Add person as default shareHolder and all representative roles
-        await Company.updateOne(
-          { _id: companyId }, 
-          { 
-            $push: { 
-              shareHolders: {
-                personId: newPerson._id,
-                sharePercentage: 0,
-                sharesData: [{ totalShares: 0, class: "A", type: "Ordinary" }]
-              }
-            } 
-          }
-        );
-        await Company.updateOne(
-          { _id: companyId }, 
-          { 
-            $push: { 
-              representationalSchema: {
-                personId: newPerson._id,
-                role: ["Shareholder", "Director", "Judicial Representative", "Legal Representative", "Secretary"]
-              }
-            } 
-          }
-        );
       }
     }
 
     res.status(201).json({
       message: "Client created successfully (pending approval)",
       client: userRecord,
-    })
+    });
   } catch (error) {
-    console.error("Error creating client:", error)
+    console.error("Error creating client:", error);
     res.status(500).json({
       error: error.message || "Failed to create client",
-    })
+    });
   }
-}
+};
 
 exports.getEmail = async (req, res) => {
   try {
-    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(req.params.id)
+    const { data: authUser, error: authError } =
+      await supabase.auth.admin.getUserById(req.params.id);
 
     if (authError) {
-      throw authError
+      throw authError;
     }
 
     if (!authUser.user.email) {
-      throw new Error("Email not found for this user")
+      throw new Error("Email not found for this user");
     }
 
     res.status(200).json({
@@ -288,63 +370,63 @@ exports.getEmail = async (req, res) => {
       clientData: {
         email: authUser.user.email,
       },
-    })
+    });
   } catch (error) {
-    console.error("Error getting client email:", error)
+    console.error("Error getting client email:", error);
     res.status(500).json({
       error: error.message || "Failed to get client email",
-    })
+    });
   }
-}
+};
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { 
-      role, 
-      status, 
-      companyName, 
-      industry, 
-      search, 
-      limit = 100, 
+    const {
+      role,
+      status,
+      companyName,
+      industry,
+      search,
+      limit = 100,
       page = 1,
-      sortBy = 'created_at',
-      sortOrder = 'desc'
+      sortBy = "created_at",
+      sortOrder = "desc",
     } = req.query;
 
-    console.log('getAllUsers called with params:', req.query);
+    console.log("getAllUsers called with params:", req.query);
 
     // Calculate pagination
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Build the base query
-    let query = supabase
-      .from('profiles')
-      .select('*', { count: 'exact' });
+    let query = supabase.from("profiles").select("*", { count: "exact" });
 
     // Apply filters
     if (role) {
-      query = query.eq('role', role);
+      query = query.eq("role", role);
     }
-    
+
     if (status) {
-      query = query.eq('status', status);
+      query = query.eq("status", status);
     }
-    
+
     if (companyName) {
-      query = query.ilike('company_name', `%${companyName}%`);
+      query = query.ilike("company_name", `%${companyName}%`);
     }
-    
+
     if (industry) {
-      query = query.ilike('industry', `%${industry}%`);
+      query = query.ilike("industry", `%${industry}%`);
     }
-    
+
     if (search) {
       // For search, we'll use textSearch or multiple ilike conditions
-      query = query.or(`name.ilike.%${search}%,company_name.ilike.%${search}%,industry.ilike.%${search}%`);
+      query = query.or(
+        `name.ilike.%${search}%,company_name.ilike.%${search}%,industry.ilike.%${search}%`
+      );
     }
 
     // Apply sorting
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    query = query.order(sortBy, { ascending: sortOrder === "asc" });
 
     // Apply pagination
     query = query.range(offset, offset + parseInt(limit) - 1);
@@ -353,7 +435,7 @@ exports.getAllUsers = async (req, res) => {
     const { data: users, error: usersError, count } = await query;
 
     if (usersError) {
-      console.error('Supabase query error:', usersError);
+      console.error("Supabase query error:", usersError);
       throw usersError;
     }
 
@@ -363,15 +445,19 @@ exports.getAllUsers = async (req, res) => {
     const enrichedUsers = await Promise.all(
       (users || []).map(async (user) => {
         try {
-          const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.user_id);
-          
+          const { data: authUser, error: authError } =
+            await supabase.auth.admin.getUserById(user.user_id);
+
           if (authError) {
-            console.warn(`Could not fetch auth data for user ${user.user_id}:`, authError);
+            console.warn(
+              `Could not fetch auth data for user ${user.user_id}:`,
+              authError
+            );
             return {
               ...user,
-              email: 'Email not available',
+              email: "Email not available",
               last_sign_in_at: null,
-              email_confirmed_at: null
+              email_confirmed_at: null,
             };
           }
 
@@ -380,15 +466,15 @@ exports.getAllUsers = async (req, res) => {
             email: authUser.user.email,
             last_sign_in_at: authUser.user.last_sign_in_at,
             email_confirmed_at: authUser.user.email_confirmed_at,
-            created_at: authUser.user.created_at
+            created_at: authUser.user.created_at,
           };
         } catch (error) {
           console.warn(`Error enriching user ${user.user_id}:`, error);
           return {
             ...user,
-            email: 'Email not available',
+            email: "Email not available",
             last_sign_in_at: null,
-            email_confirmed_at: null
+            email_confirmed_at: null,
           };
         }
       })
@@ -409,7 +495,7 @@ exports.getAllUsers = async (req, res) => {
         totalCount,
         hasNextPage,
         hasPrevPage,
-        limit: parseInt(limit)
+        limit: parseInt(limit),
       },
       filters: {
         role,
@@ -418,10 +504,9 @@ exports.getAllUsers = async (req, res) => {
         industry,
         search,
         sortBy,
-        sortOrder
-      }
+        sortOrder,
+      },
     });
-
   } catch (error) {
     console.error("Error getting all users:", error);
     res.status(500).json({
@@ -429,7 +514,7 @@ exports.getAllUsers = async (req, res) => {
       error: error.message || "Failed to get users",
     });
   }
-}
+};
 
 exports.updateClassificationStatus = async (req, res) => {
   try {
@@ -437,38 +522,42 @@ exports.updateClassificationStatus = async (req, res) => {
     const { status } = req.body;
 
     // Validate status
-    const validStatuses = ["in-progress", "ready-for-review", "reviewed-approved"];
+    const validStatuses = [
+      "in-progress",
+      "ready-for-review",
+      "reviewed-approved",
+    ];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
-        error: "Invalid status. Must be one of: in-progress, ready-for-review, reviewed-approved"
+        error:
+          "Invalid status. Must be one of: in-progress, ready-for-review, reviewed-approved",
       });
     }
 
     // Update the classification section
     const updatedClassification = await ClassificationSection.findByIdAndUpdate(
       id,
-      { 
+      {
         status: status,
-        lastSyncAt: new Date()
+        lastSyncAt: new Date(),
       },
       { new: true }
-    ).populate('engagement', 'clientId name');
+    ).populate("engagement", "clientId name");
 
     if (!updatedClassification) {
       return res.status(404).json({
-        error: "Classification section not found"
+        error: "Classification section not found",
       });
     }
 
     res.status(200).json({
       message: "Classification status updated successfully",
-      classification: updatedClassification
+      classification: updatedClassification,
     });
-
   } catch (error) {
     console.error("Error updating classification status:", error);
     res.status(500).json({
-      error: error.message || "Failed to update classification status"
+      error: error.message || "Failed to update classification status",
     });
   }
 };
@@ -476,19 +565,25 @@ exports.updateClassificationStatus = async (req, res) => {
 exports.updateClientProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, companyName, companyNumber, industry, summary, email } = req.body;
+    const { name, companyName, companyNumber, industry, summary, email } =
+      req.body;
 
     console.log("Updating client profile:", id, req.body);
 
     // Update email in Supabase Auth if provided
     if (email) {
-      const { error: authError } = await supabase.auth.admin.updateUserById(id, {
-        email: email,
-      });
+      const { error: authError } = await supabase.auth.admin.updateUserById(
+        id,
+        {
+          email: email,
+        }
+      );
 
       if (authError) {
         console.error("Supabase auth update error:", authError);
-        return res.status(400).json({ error: "Failed to update email: " + authError.message });
+        return res
+          .status(400)
+          .json({ error: "Failed to update email: " + authError.message });
       }
       console.log("Email updated in auth:", email);
     }
@@ -520,12 +615,12 @@ exports.updateClientProfile = async (req, res) => {
     console.error("Error updating client:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
-}
+};
 
 exports.getClientById = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     console.log("Fetching client data for ID:", id);
 
     // Get profile data from Supabase
@@ -541,8 +636,9 @@ exports.getClientById = async (req, res) => {
     }
 
     // Get auth data (for email)
-    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(id);
-    
+    const { data: authUser, error: authError } =
+      await supabase.auth.admin.getUserById(id);
+
     if (authError) {
       console.warn("Could not fetch auth data for user:", authError);
       // Still return profile data even if auth fetch fails
@@ -550,7 +646,7 @@ exports.getClientById = async (req, res) => {
         success: true,
         client: {
           ...profileData,
-          email: 'Email not available',
+          email: "Email not available",
         },
       });
     }
@@ -567,7 +663,6 @@ exports.getClientById = async (req, res) => {
       success: true,
       client: clientData,
     });
-
   } catch (error) {
     console.error("Error fetching client:", error);
     res.status(500).json({
@@ -575,4 +670,4 @@ exports.getClientById = async (req, res) => {
       error: error.message || "Failed to fetch client data",
     });
   }
-}
+};

@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const brandingSettingsSchema = new mongoose.Schema({
+  organizationId: {
+    type: String,
+    required: true,
+    index: true
+  },
   organization_name: {
     type: String,
     required: true,
@@ -61,6 +66,9 @@ const brandingSettingsSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Create unique index on organizationId to ensure one branding per organization
+brandingSettingsSchema.index({ organizationId: 1 }, { unique: true });
 
 module.exports = mongoose.model('BrandingSettings', brandingSettingsSchema);
 
