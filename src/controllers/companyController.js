@@ -1,6 +1,28 @@
 const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Person = require("../models/Person");
+
+const SHARE_CLASSES = ["A", "B", "C", "Ordinary"];
+const SHARE_TYPES = ["Ordinary"];
+const DEFAULT_SHARE_TYPE = "Ordinary";
+const DEFAULT_TOTAL_SHARES_VALUE = 100;
+const SHARE_COMBINATIONS_COUNT = SHARE_CLASSES.length * SHARE_TYPES.length;
+
+const sumShareTotals = (sharesDataArray = []) => {
+  if (!Array.isArray(sharesDataArray)) {
+    return Number(sharesDataArray) || 0;
+  }
+
+  return sharesDataArray.reduce(
+    (sum, item) => sum + (Number(item?.totalShares) || 0),
+    0
+  );
+};
+
+const getTotalIssuedSharesValue = (totalSharesField) => {
+  return sumShareTotals(totalSharesField);
+};
+
 const normalizeOptionalString = (value) => {
   if (typeof value !== "string") {
     return undefined;
@@ -9,13 +31,11 @@ const normalizeOptionalString = (value) => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-// Helper function to create default sharesData array (6 combinations: 3 classes × 2 types)
+// Helper function to create default sharesData array covering every class/type combination
 const createDefaultSharesData = () => {
-  const ShareClassEnum = ["A", "B", "C"];
-  const ShareTypeEnum = ["Ordinary", "Preferred"];
   const combinations = [];
-  ShareClassEnum.forEach((shareClass) => {
-    ShareTypeEnum.forEach((shareType) => {
+  SHARE_CLASSES.forEach((shareClass) => {
+    SHARE_TYPES.forEach((shareType) => {
       combinations.push({
         totalShares: 0,
         class: shareClass,
@@ -29,14 +49,17 @@ const createDefaultSharesData = () => {
 // Helper function to calculate sharePercentage from sharesData array
 // Formula: sharePercentage = (sum of all sharesData.totalShares / company.totalShares) * 100
 const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
-  if (!Array.isArray(sharesDataArray) || companyTotalShares === 0) {
+  if (!Array.isArray(sharesDataArray)) {
     return 0;
   }
-  const totalShares = sharesDataArray.reduce(
-    (sum, item) => sum + (Number(item.totalShares) || 0),
-    0
-  );
-  return (totalShares / companyTotalShares) * 100;
+
+  const denominator = getTotalIssuedSharesValue(companyTotalShares);
+  if (denominator === 0) {
+    return 0;
+  }
+
+  const totalShares = sumShareTotals(sharesDataArray);
+  return (totalShares / denominator) * 100;
 };
 
 // Helper functions to update Person's company references
@@ -150,12 +173,15 @@ const updatePersonRepresentingCompanies = async (
 
 // Helper function to convert old sharesData format to new array format
 const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
-  // If already an array and has 6 items, return as is (but ensure it's valid, remove percentage if present)
-  if (Array.isArray(sharesData) && sharesData.length === 6) {
+  // If already an array and has all combinations, return as is (but ensure it's valid)
+  if (
+    Array.isArray(sharesData) &&
+    sharesData.length === SHARE_COMBINATIONS_COUNT
+  ) {
     return sharesData.map((item) => ({
       totalShares: Number(item.totalShares) || 0,
-      class: item.class || "A",
-      type: item.type || "Ordinary",
+      class: item.class || SHARE_CLASSES[0],
+      type: item.type || DEFAULT_SHARE_TYPE,
     }));
   }
 
@@ -166,13 +192,17 @@ const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
     !Array.isArray(sharesData)
   ) {
     const defaultArray = createDefaultSharesData();
-    const classIndex = ["A", "B", "C"].indexOf(sharesData.class || "A");
-    const typeIndex = ["Ordinary", "Preferred"].indexOf(
-      sharesData.type || "Ordinary"
+    const classIndex = SHARE_CLASSES.indexOf(
+      sharesData.class || SHARE_CLASSES[0]
     );
-    const index = classIndex * 2 + typeIndex;
+    const typeIndex = SHARE_TYPES.indexOf(
+      sharesData.type || DEFAULT_SHARE_TYPE
+    );
+    const safeClassIndex = classIndex >= 0 ? classIndex : 0;
+    const safeTypeIndex = typeIndex >= 0 ? typeIndex : 0;
+    const index = safeClassIndex * SHARE_TYPES.length + safeTypeIndex;
 
-    if (index >= 0 && index < 6) {
+    if (index >= 0 && index < SHARE_COMBINATIONS_COUNT) {
       // Calculate totalShares from percentage if needed
       const totalShares =
         sharesData.totalShares !== undefined
@@ -185,14 +215,14 @@ const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
 
       defaultArray[index] = {
         totalShares: totalShares,
-        class: sharesData.class || "A",
-        type: sharesData.type || "Ordinary",
+        class: sharesData.class || SHARE_CLASSES[safeClassIndex],
+        type: sharesData.type || SHARE_TYPES[safeTypeIndex],
       };
     }
     return defaultArray;
   }
 
-  // Default: return empty array of 6 items
+  // Default: return empty array of combinations
   return createDefaultSharesData();
 };
 
@@ -203,24 +233,37 @@ const mergeSharesData = (
   totalIssuedShares = 0,
   existingSharesData = null
 ) => {
-  const defaultArray = existingSharesData
-    ? convertToSharesDataArray(existingSharesData, totalIssuedShares)
-    : createDefaultSharesData();
-
   // If input is an array (new frontend format: {totalShares, shareClass}[])
-  if (Array.isArray(inputSharesData)) {
+  if (Array.isArray(inputSharesData) && inputSharesData.length > 0) {
+    // If there's no existing data, use the input array directly (only store what's provided)
+    if (!existingSharesData) {
+      return inputSharesData
+        .filter((item) => item && (item.shareClass || item.class))
+        .map((item) => ({
+          totalShares: Number(item.totalShares) || 0,
+          class: item.shareClass || item.class,
+          type: item.shareType || item.type || DEFAULT_SHARE_TYPE,
+        }))
+        .filter((item) => item.totalShares > 0); // Only include non-zero values
+    }
+
+    // If there's existing data, merge into the existing array
+    const defaultArray = convertToSharesDataArray(existingSharesData, totalIssuedShares);
     inputSharesData.forEach((item) => {
       if (item && (item.shareClass || item.class)) {
         // Support both shareClass (frontend) and class (backend)
         const shareClass = item.shareClass || item.class;
         // Support both shareType (frontend) and type (backend), default to "Ordinary"
-        const shareType = item.shareType || item.type || "Ordinary";
+        const shareType = item.shareType || item.type || DEFAULT_SHARE_TYPE;
 
-        const classIndex = ["A", "B", "C"].indexOf(shareClass);
-        const typeIndex = ["Ordinary", "Preferred"].indexOf(shareType);
-        const index = classIndex * 2 + typeIndex;
+        const classIndex = SHARE_CLASSES.indexOf(shareClass);
+        const typeIndex = SHARE_TYPES.indexOf(shareType);
+        if (classIndex === -1 || typeIndex === -1) {
+          return;
+        }
+        const index = classIndex * SHARE_TYPES.length + typeIndex;
 
-        if (index >= 0 && index < 6) {
+        if (index >= 0 && index < SHARE_COMBINATIONS_COUNT) {
           const totalShares = Number(item.totalShares) || 0;
 
           defaultArray[index] = {
@@ -235,7 +278,57 @@ const mergeSharesData = (
   }
 
   // If input is a single object (backward compatibility)
-  return convertToSharesDataArray(inputSharesData, totalIssuedShares);
+  if (inputSharesData && typeof inputSharesData === "object" && !Array.isArray(inputSharesData)) {
+    return convertToSharesDataArray(inputSharesData, totalIssuedShares);
+  }
+
+  // Fallback: create default array
+  return createDefaultSharesData();
+};
+
+const normalizeCompanyTotalShares = (totalSharesInput) => {
+  let normalizedShares = mergeSharesData(totalSharesInput);
+
+  // mergeSharesData already filters out zero values for new data
+  // But we need to ensure we have at least one entry
+  if (!Array.isArray(normalizedShares) || normalizedShares.length === 0) {
+    normalizedShares = [
+      {
+        totalShares: DEFAULT_TOTAL_SHARES_VALUE,
+        class: SHARE_CLASSES[0],
+        type: DEFAULT_SHARE_TYPE,
+      },
+    ];
+  }
+
+  // Ensure all entries have non-zero values (filter out any zeros that might have slipped through)
+  normalizedShares = normalizedShares.filter(
+    (item) => item && Number(item.totalShares) > 0
+  );
+
+  // If after filtering we have no shares, create a default
+  if (normalizedShares.length === 0) {
+    normalizedShares = [
+      {
+        totalShares: DEFAULT_TOTAL_SHARES_VALUE,
+        class: SHARE_CLASSES[0],
+        type: DEFAULT_SHARE_TYPE,
+      },
+    ];
+  }
+
+  let totalIssuedShares = sumShareTotals(normalizedShares);
+
+  if (totalIssuedShares === 0) {
+    normalizedShares[0] = {
+      totalShares: DEFAULT_TOTAL_SHARES_VALUE,
+      class: SHARE_CLASSES[0],
+      type: DEFAULT_SHARE_TYPE,
+    };
+    totalIssuedShares = DEFAULT_TOTAL_SHARES_VALUE;
+  }
+
+  return { normalizedShares, totalIssuedShares };
 };
 
 /**
@@ -363,7 +456,7 @@ exports.createCompany = async (req, res) => {
       supportingDocuments,
       timelineStart,
       shareHoldingCompanies,
-      totalShares, // ✅ <-- add
+      totalShares,
       industry,
       description,
     } = req.body;
@@ -375,10 +468,10 @@ exports.createCompany = async (req, res) => {
       });
     }
 
-    // Default totalShares to 100 if not provided or is 0 (minimum required by model)
-    const finalTotalShares =
-      totalShares && Number(totalShares) > 0 ? Number(totalShares) : 100;
-    const totalIssuedShares = finalTotalShares;
+    const {
+      normalizedShares: normalizedTotalShares,
+      totalIssuedShares,
+    } = normalizeCompanyTotalShares(totalShares);
 
     // Normalize shareHoldingCompanies to use sharesData array structure
     // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
@@ -419,7 +512,7 @@ exports.createCompany = async (req, res) => {
       address,
       supportingDocuments: supportingDocuments || [],
       companyStartedAt: timelineStart ? new Date(timelineStart) : undefined,
-      totalShares: finalTotalShares,
+      totalShares: normalizedTotalShares,
       industry: normalizedIndustry,
       description: trimmedDescription,
       shareHoldingCompanies: formattedShareholdings,
@@ -454,6 +547,15 @@ exports.updateCompany = async (req, res) => {
   try {
     const { clientId, companyId } = req.params;
     const updateData = req.body;
+
+    const existingCompany = await Company.findOne({ _id: companyId, clientId });
+
+    if (!existingCompany) {
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
+      });
+    }
 
     // Remove fields that shouldn't be directly updated
     delete updateData.clientId;
@@ -496,18 +598,34 @@ exports.updateCompany = async (req, res) => {
         : [];
     }
 
+    let totalSharesMeta = null;
+    const ensureTotalSharesMeta = () => {
+      if (totalSharesMeta) {
+        return totalSharesMeta;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updateData, "totalShares")) {
+        totalSharesMeta = normalizeCompanyTotalShares(updateData.totalShares);
+        updateData.totalShares = totalSharesMeta.normalizedShares;
+      } else {
+        totalSharesMeta = normalizeCompanyTotalShares(
+          existingCompany.totalShares
+        );
+      }
+
+      return totalSharesMeta;
+    };
+
+    // Ensure totalShares field is normalized if passed in request
+    if (Object.prototype.hasOwnProperty.call(updateData, "totalShares")) {
+      ensureTotalSharesMeta();
+    }
+
     // Handle shareHoldingCompanies update if provided
     // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
     if (updateData.shareHoldingCompanies) {
-      // Get existing company to preserve sharesData if not changing
-      const existingCompany = await Company.findOne({
-        _id: companyId,
-        clientId,
-      });
-      const totalIssuedShares =
-        Number(updateData.totalShares) ||
-        Number(existingCompany?.totalShares) ||
-        0;
+      const { totalIssuedShares } = ensureTotalSharesMeta();
+      const existingShareHoldings = existingCompany.shareHoldingCompanies || [];
 
       updateData.shareHoldingCompanies = Array.isArray(
         updateData.shareHoldingCompanies
@@ -518,15 +636,13 @@ exports.updateCompany = async (req, res) => {
 
             // Get existing sharesData if available
             let existingSharesData = null;
-            if (existingCompany) {
-              const existingShare = existingCompany.shareHoldingCompanies?.find(
-                (sh) =>
-                  (typeof sh.companyId === "object"
-                    ? sh.companyId?._id?.toString()
-                    : sh.companyId?.toString()) === companyId?.toString()
-              );
-              existingSharesData = existingShare?.sharesData;
-            }
+            const existingShare = existingShareHoldings.find(
+              (sh) =>
+                (typeof sh.companyId === "object"
+                  ? sh.companyId?._id?.toString()
+                  : sh.companyId?.toString()) === companyId?.toString()
+            );
+            existingSharesData = existingShare?.sharesData;
 
             // Merge input sharesData with existing or create new
             // Frontend format: {totalShares, shareClass}[] or {totalShares, shareClass, shareType}[]
@@ -1118,7 +1234,7 @@ exports.getCompanyHierarchy = async (req, res) => {
       }
 
       // Convert merged nodes to final array and calculate percentages
-      const parentTotalShares = company.totalShares || 0;
+      const parentTotalShares = getTotalIssuedSharesValue(company.totalShares);
 
       for (const [nodeId, nodeData] of mergedNodesMap.entries()) {
         // Add "Shareholder" role if node has shares
@@ -1192,7 +1308,7 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
     }
 
     const personIdStr = personId.toString();
-    const totalIssuedShares = company.totalShares || 0;
+    const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
     const sharePercentage = calculateSharePercentage(
       sharesDataArray,
@@ -1313,7 +1429,7 @@ exports.addShareHolderPersonNew = async (req, res) => {
         .json({ success: false, message: "Company not found" });
     }
 
-    const totalIssuedShares = company.totalShares || 0;
+    const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
     const sharePercentage = calculateSharePercentage(
       sharesDataArray,
@@ -1477,7 +1593,7 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
         .json({ success: false, message: "Company not found" });
     }
 
-    const totalIssuedShares = company.totalShares || 0;
+    const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
     const sharePercentage = calculateSharePercentage(
       sharesDataArray,
@@ -1585,7 +1701,7 @@ exports.addShareHolderCompanyNew = async (req, res) => {
         .json({ success: false, message: "Company not found" });
     }
 
-    const totalIssuedShares = company.totalShares || 0;
+    const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
     const sharePercentage = calculateSharePercentage(
       sharesDataArray,
