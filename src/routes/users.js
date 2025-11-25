@@ -4,7 +4,7 @@ const ec = require("../controllers/employeeController");
 const { requireAuth, requireRole } = require("../middlewares/auth");
 
 router.post("/create", requireAuth, requireRole("employee"), uc.createUser);
-// router.post("/create/:role", requireAuth, requireRole("admin"), ec.createEmployee);
+router.post("/create/:role", requireAuth, requireRole("admin"), ec.createEmployee);
 // router.post("/create/:role", ec.createEmployee);
 router.patch("/classification/:id/status", requireAuth,requireRole(["senior-employee","partner"]), uc.updateClassificationStatus);
 router.get("/", requireAuth, requireRole(["employee", "reviewer", "partner", "admin"]), uc.getAllUsers);

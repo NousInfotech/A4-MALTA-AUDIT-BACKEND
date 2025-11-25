@@ -1,6 +1,7 @@
 const Organization = require("../models/Organization");
 const Prompt = require("../models/Prompt");
 const { supabase } = require("../config/supabase");
+const { promptData } = require("../data/classifications/prompts");
 
 // Default prompts configuration for new organizations
 const defaultPromptsConfig = [
@@ -69,8 +70,8 @@ exports.createOrganization = async (req, res) => {
 
     // Validate input
     if (!title || !adminName || !adminEmail || !adminPassword) {
-      return res.status(400).json({ 
-        error: "Missing required fields: title, adminName, adminEmail, adminPassword" 
+      return res.status(400).json({
+        error: "Missing required fields: title, adminName, adminEmail, adminPassword"
       });
     }
 
@@ -115,7 +116,7 @@ exports.createOrganization = async (req, res) => {
 
     if (profileInsertError) {
       console.error("Error creating admin profile:", profileInsertError);
-      
+
       // If profile already exists (trigger DID fire), update it instead
       if (profileInsertError.code === '23505') { // Duplicate key error
         const { error: profileUpdateError } = await supabase
@@ -126,22 +127,22 @@ exports.createOrganization = async (req, res) => {
         if (profileUpdateError) {
           console.error("Error updating existing admin profile:", profileUpdateError);
           await Organization.findByIdAndDelete(organizationId);
-          return res.status(500).json({ 
-            error: `Failed to link admin to organization: ${profileUpdateError.message}` 
+          return res.status(500).json({
+            error: `Failed to link admin to organization: ${profileUpdateError.message}`
           });
         }
       } else {
         // Other error, cleanup and fail
         await Organization.findByIdAndDelete(organizationId);
         await supabase.auth.admin.deleteUser(adminUserId);
-        return res.status(500).json({ 
-          error: `Failed to create admin profile: ${profileInsertError.message}` 
+        return res.status(500).json({
+          error: `Failed to create admin profile: ${profileInsertError.message}`
         });
       }
     }
 
     // 4. Seed default prompts for the organization
-    // await seedDefaultPrompts(organizationId);
+    await seedDefaultPrompts(organizationId);
 
     res.status(201).json({
       message: "Organization created successfully",
@@ -331,8 +332,8 @@ exports.getOrganizationAnalytics = async (req, res) => {
 async function seedDefaultPrompts(organizationId) {
   try {
     // Get all existing prompts to use as templates
-    const existingPrompts = await Prompt.find().select('-_id -createdAt -updatedAt -__v');
-    
+    const existingPrompts = promptData;
+
     if (existingPrompts.length > 0) {
       // Clone existing prompts for new organization
       const newPrompts = existingPrompts.map(prompt => ({
