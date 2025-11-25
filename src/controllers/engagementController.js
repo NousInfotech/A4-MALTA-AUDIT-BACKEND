@@ -2,6 +2,7 @@ const WorkingPaper = require("../models/WorkingPaper");
 const msExcel = require("../services/microsoftExcelService");
 const Engagement = require("../models/Engagement");
 const EngagementLibrary = require("../models/EngagementLibrary");
+const EngagementFolder = require("../models/EngagementFolder");
 const { supabase } = require("../config/supabase");
 const sheetService = require("../services/googleSheetsService");
 const TrialBalance = require("../models/TrialBalance");
@@ -700,7 +701,12 @@ exports.getLibraryFiles = async (req, res, next) => {
       fileName: file.url.split("/").pop()?.split("?")[0] || "Unknown",
     }));
 
-    res.json(filesWithNames);
+    // Get folders for this engagement
+    const folders = await EngagementFolder.find({
+      engagement: engagementId,
+    }).populate('parentId', 'name path').sort({ createdAt: -1 });
+
+    res.json({ files: filesWithNames, folders });
   } catch (err) {
     next(err);
   }
@@ -3483,9 +3489,27 @@ exports.assignAuditor = async (req, res, next) => {
       });
     }
 
+    // Fetch auditor name from Supabase profiles
+    let auditorName = "Unknown User";
+    try {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("name, email")
+        .eq("user_id", auditorId)
+        .single();
+
+      if (!error && profile) {
+        auditorName = profile.name || profile.email || "Unknown User";
+      }
+    } catch (err) {
+      console.error("Error fetching auditor name:", err);
+      // Continue with default name if fetch fails
+    }
+
     // Add auditor to the array
     const newAuditor = {
       auditorId,
+      auditorName,
       assignedBy,
       assignedAt: new Date(),
     };
@@ -3624,6 +3648,184 @@ exports.getAuditorEngagements = async (req, res, next) => {
       engagements: formattedEngagements,
       totalEngagements: formattedEngagements.length,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Helper function to build full path from parent hierarchy
+async function buildEngagementFolderPath(folderId) {
+  if (!folderId) return "";
+  
+  const folder = await EngagementFolder.findById(folderId);
+  if (!folder) return "";
+  
+  const parentPath = folder.parentId 
+    ? await buildEngagementFolderPath(folder.parentId) 
+    : "";
+  
+  return parentPath ? `${parentPath}${folder.name}/` : `${folder.name}/`;
+}
+
+function sanitizeEngagementFolderName(name) {
+  const cleaned = (name || "").trim();
+  const valid = cleaned.replace(/[^a-zA-Z0-9 _.-]/g, "");
+  if (!valid || /[\\/]/.test(valid)) {
+    throw new Error("Invalid folder name");
+  }
+  return valid;
+}
+
+// List folders for an engagement
+exports.listEngagementFolders = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const folders = await EngagementFolder.find({
+      engagement: engagementId,
+    }).populate('parentId', 'name path').sort({ createdAt: -1 });
+    
+    res.json(folders);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Create folder in engagement library
+exports.createEngagementFolder = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const rawName = req.body.name;
+    const name = sanitizeEngagementFolderName(rawName);
+    const parentId = req.body.parentId || null;
+    const category = req.body.category || "Others"; // Default category
+
+    // Check if parent exists (if parentId is provided)
+    if (parentId) {
+      const parent = await EngagementFolder.findOne({ _id: parentId, engagement: engagementId });
+      if (!parent) {
+        return res.status(404).json({ message: "Parent folder not found" });
+      }
+    }
+
+    // Check if folder with same name already exists in the same parent and engagement
+    const exists = await EngagementFolder.findOne({ name, parentId, engagement: engagementId });
+    if (exists) {
+      return res.status(409).json({ message: "Folder with this name already exists in the selected location" });
+    }
+
+    // Build full path including parent hierarchy
+    const parentPath = parentId ? await buildEngagementFolderPath(parentId) : "";
+    const fullPath = `${parentPath}${name}/`;
+    const storagePath = `${engagementId}/${category}/${fullPath}.keep`;
+
+    const { error: upErr } = await supabase.storage
+      .from("engagement-documents")
+      .upload(storagePath, Buffer.from(""), {
+        contentType: "text/plain",
+        upsert: false,
+      });
+    if (upErr && upErr.statusCode !== "409") throw upErr;
+    
+    const folder = await EngagementFolder.create({ 
+      name, 
+      path: fullPath,
+      parentId: parentId || null,
+      engagement: engagementId,
+      category,
+      createdBy: req.user?.name || req.user?.id,
+    });
+    
+    res.status(201).json(folder);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Rename folder
+exports.renameEngagementFolder = async (req, res, next) => {
+  try {
+    const { id: engagementId, folderId } = req.params;
+    const rawNewName = req.body.newName;
+    const newName = sanitizeEngagementFolderName(rawNewName);
+
+    const folder = await EngagementFolder.findOne({ _id: folderId, engagement: engagementId });
+    if (!folder) return res.status(404).json({ message: "Folder not found" });
+
+    if (newName === folder.name) return res.json(folder);
+
+    const dupe = await EngagementFolder.findOne({ name: newName, parentId: folder.parentId, engagement: engagementId });
+    if (dupe) return res.status(409).json({ message: "Target folder name already exists" });
+
+    const oldPrefix = `${engagementId}/${folder.category}/${folder.path}`;
+    const parentPath = folder.parentId ? await buildEngagementFolderPath(folder.parentId) : "";
+    const newPrefix = `${engagementId}/${folder.category}/${parentPath}${newName}/`;
+
+    const { data: items, error: listErr } = await supabase.storage
+      .from("engagement-documents")
+      .list(oldPrefix, { limit: 1000 });
+    if (listErr) throw listErr;
+
+    for (const item of items || []) {
+      if (item.name === ".keep") continue;
+      const oldPath = `${oldPrefix}${item.name}`;
+      const newPath = `${newPrefix}${item.name}`;
+      const { error: copyErr } = await supabase.storage.from("engagement-documents").copy(oldPath, newPath);
+      if (copyErr) throw copyErr;
+    }
+
+    const deletePaths = (items || []).filter(i => i.name !== ".keep").map((i) => `${oldPrefix}${i.name}`);
+    if (deletePaths.length) {
+      const { error: delErr } = await supabase.storage.from("engagement-documents").remove(deletePaths);
+      if (delErr) throw delErr;
+    }
+
+    await supabase.storage.from("engagement-documents").upload(`${newPrefix}.keep`, Buffer.from(""), {
+      contentType: "text/plain",
+      upsert: true,
+    });
+
+    folder.name = newName;
+    folder.path = `${parentPath}${newName}/`;
+    await folder.save();
+
+    res.json(folder);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete folder
+exports.deleteEngagementFolder = async (req, res, next) => {
+  try {
+    const { id: engagementId, folderId } = req.params;
+    const folder = await EngagementFolder.findOne({ _id: folderId, engagement: engagementId });
+    if (!folder) return res.status(404).json({ message: "Folder not found" });
+
+    // Check for subfolders
+    const subfolders = await EngagementFolder.find({ parentId: folderId, engagement: engagementId });
+    if (subfolders.length > 0) {
+      return res.status(400).json({ message: "Cannot delete folder with subfolders. Please delete subfolders first." });
+    }
+
+    // Check for files in this folder
+    const filesInFolder = await EngagementLibrary.find({ folderId, engagement: engagementId, url: { $ne: "" } });
+    if (filesInFolder.length > 0) {
+      return res.status(400).json({ message: "Cannot delete folder with files. Please move or delete files first." });
+    }
+
+    const prefix = `${engagementId}/${folder.category}/${folder.path}`;
+    const { data: items } = await supabase.storage
+      .from("engagement-documents")
+      .list(prefix, { limit: 1000 });
+
+    const pathsToDelete = (items || []).map((i) => `${prefix}${i.name}`);
+    if (pathsToDelete.length) {
+      const { error } = await supabase.storage.from("engagement-documents").remove(pathsToDelete);
+      if (error) throw error;
+    }
+
+    await EngagementFolder.deleteOne({ _id: folderId });
+    res.json({ message: "Folder deleted successfully" });
   } catch (err) {
     next(err);
   }
