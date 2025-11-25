@@ -135,6 +135,27 @@ const ReclassificationSchema = new Schema(
       type: [ReclassificationHistorySchema],
       default: [],
     },
+    evidenceFiles: {
+      type: [{
+        fileName: {
+          type: String,
+          required: true,
+        },
+        fileUrl: {
+          type: String,
+          required: true,
+        },
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        uploadedBy: {
+          userId: String,
+          userName: String,
+        },
+      }],
+      default: [],
+    },
     createdAt: {
       type: Date,
       default: Date.now,

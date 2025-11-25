@@ -29,6 +29,17 @@ router.get(
 router.get("/etb/:etbId", requireAuth, reclassificationController.getReclassificationsByETB);
 
 /**
+ * @route   GET /api/reclassifications/engagement/:engagementId/export
+ * @desc    Export reclassifications to Excel
+ * @access  Protected
+ */
+router.get(
+  "/engagement/:engagementId/export",
+  requireAuth,
+  reclassificationController.exportReclassifications
+);
+
+/**
  * @route   GET /api/reclassifications/:id
  * @desc    Get a single reclassification by ID
  * @access  Protected
@@ -69,6 +80,20 @@ router.delete("/:id", requireAuth, reclassificationController.deleteReclassifica
  * @access  Protected
  */
 router.get("/:id/history", requireAuth, reclassificationController.getReclassificationHistory);
+
+/**
+ * @route   POST /api/reclassifications/:id/evidence
+ * @desc    Add evidence file to a reclassification
+ * @access  Protected
+ */
+router.post("/:id/evidence", requireAuth, reclassificationController.addEvidenceFile);
+
+/**
+ * @route   DELETE /api/reclassifications/:id/evidence/:evidenceId
+ * @desc    Remove evidence file from a reclassification
+ * @access  Protected
+ */
+router.delete("/:id/evidence/:evidenceId", requireAuth, reclassificationController.removeEvidenceFile);
 
 module.exports = router;
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const XLSX = require("xlsx");
 const Adjustment = require("../models/Adjustment");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
@@ -854,6 +855,257 @@ exports.getAdjustmentHistory = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to fetch adjustment history",
+    });
+  }
+};
+
+/**
+ * Export adjustments to Excel
+ * GET /api/adjustments/engagement/:engagementId/export
+ */
+exports.exportAdjustments = async (req, res) => {
+  try {
+    const { engagementId } = req.params;
+
+    const adjustments = await Adjustment.find({ engagementId }).sort({
+      createdAt: -1,
+    });
+
+    if (adjustments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No adjustments found for this engagement",
+      });
+    }
+
+    // Prepare Excel data
+    const headers = [
+      "Adjustment No",
+      "Type",
+      "Debit/Credit",
+      "Description",
+      "Account Code",
+      "Account Name",
+      "Amount",
+      "Details",
+      "Status",
+      "Posted By",
+      "Posted Date",
+      "Created Date",
+      "Linked Evidence Filenames",
+    ];
+
+    const rows = [];
+
+    for (const adj of adjustments) {
+      // Get posted user and date from history
+      const postedHistory = adj.history?.find((h) => h.action === "posted");
+      const postedBy = postedHistory?.userName || "N/A";
+      const postedDate = postedHistory?.timestamp
+        ? new Date(postedHistory.timestamp).toLocaleDateString()
+        : "N/A";
+      const createdDate = adj.createdAt
+        ? new Date(adj.createdAt).toLocaleDateString()
+        : "N/A";
+
+      // Get evidence filenames
+      const evidenceFilenames = adj.evidenceFiles
+        ?.map((f) => f.fileName)
+        .join("; ") || "None";
+
+      // Create a row for each entry
+      if (adj.entries && adj.entries.length > 0) {
+        for (const entry of adj.entries) {
+          const type = entry.dr > 0 ? "Debit" : "Credit";
+          const amount = entry.dr > 0 ? entry.dr : entry.cr;
+
+          rows.push([
+            adj.adjustmentNo,
+            "Adjustment",
+            type,
+            adj.description || "",
+            entry.code,
+            entry.accountName,
+            amount,
+            entry.details || "",
+            adj.status,
+            postedBy,
+            postedDate,
+            createdDate,
+            evidenceFilenames,
+          ]);
+        }
+      } else {
+        // If no entries, still create a row with adjustment info
+        rows.push([
+          adj.adjustmentNo,
+          "Adjustment",
+          "N/A",
+          adj.description || "",
+          "",
+          "",
+          0,
+          "",
+          adj.status,
+          postedBy,
+          postedDate,
+          createdDate,
+          evidenceFilenames,
+        ]);
+      }
+    }
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Set column widths
+    ws["!cols"] = [
+      { wch: 15 }, // Adjustment No
+      { wch: 12 }, // Type
+      { wch: 12 }, // Debit/Credit
+      { wch: 30 }, // Description
+      { wch: 12 }, // Account Code
+      { wch: 25 }, // Account Name
+      { wch: 15 }, // Amount
+      { wch: 30 }, // Details
+      { wch: 10 }, // Status
+      { wch: 15 }, // Posted By
+      { wch: 12 }, // Posted Date
+      { wch: 12 }, // Created Date
+      { wch: 40 }, // Linked Evidence Filenames
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Adjustments");
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    // Set response headers
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="adjustments_${engagementId}_${new Date().toISOString().split("T")[0]}.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting adjustments:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export adjustments",
+    });
+  }
+};
+
+/**
+ * Add evidence file to an adjustment
+ * POST /api/adjustments/:id/evidence
+ */
+exports.addEvidenceFile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileName, fileUrl } = req.body;
+
+    if (!fileName || !fileUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "fileName and fileUrl are required",
+      });
+    }
+
+    const adjustment = await Adjustment.findById(id);
+
+    if (!adjustment) {
+      return res.status(404).json({
+        success: false,
+        message: "Adjustment not found",
+      });
+    }
+
+    // Extract user info
+    let userId = "system";
+    let userName = "System";
+    if (req && req.user) {
+      userId = req.user.id || req.user._id || "system";
+      userName = req.user.name || req.user.email || "Unknown User";
+    }
+
+    // Add evidence file
+    if (!adjustment.evidenceFiles) {
+      adjustment.evidenceFiles = [];
+    }
+
+    adjustment.evidenceFiles.push({
+      fileName,
+      fileUrl,
+      uploadedAt: new Date(),
+      uploadedBy: {
+        userId,
+        userName,
+      },
+    });
+
+    await adjustment.save();
+
+    return res.status(200).json({
+      success: true,
+      data: adjustment,
+      message: "Evidence file added successfully",
+    });
+  } catch (error) {
+    console.error("Error adding evidence file:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to add evidence file",
+    });
+  }
+};
+
+/**
+ * Remove evidence file from an adjustment
+ * DELETE /api/adjustments/:id/evidence/:evidenceId
+ */
+exports.removeEvidenceFile = async (req, res) => {
+  try {
+    const { id, evidenceId } = req.params;
+
+    const adjustment = await Adjustment.findById(id);
+
+    if (!adjustment) {
+      return res.status(404).json({
+        success: false,
+        message: "Adjustment not found",
+      });
+    }
+
+    if (!adjustment.evidenceFiles || adjustment.evidenceFiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No evidence files found",
+      });
+    }
+
+    // Remove evidence file
+    adjustment.evidenceFiles = adjustment.evidenceFiles.filter(
+      (file) => file._id.toString() !== evidenceId
+    );
+
+    await adjustment.save();
+
+    return res.status(200).json({
+      success: true,
+      data: adjustment,
+      message: "Evidence file removed successfully",
+    });
+  } catch (error) {
+    console.error("Error removing evidence file:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to remove evidence file",
     });
   }
 };
