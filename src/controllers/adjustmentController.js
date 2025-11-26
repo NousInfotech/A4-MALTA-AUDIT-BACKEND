@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 const Adjustment = require("../models/Adjustment");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
@@ -955,31 +956,91 @@ exports.exportAdjustments = async (req, res) => {
       }
     }
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    // Create workbook with ExcelJS for styling
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Adjustments");
 
-    // Set column widths
-    ws["!cols"] = [
-      { wch: 15 }, // Adjustment No
-      { wch: 12 }, // Type
-      { wch: 12 }, // Debit/Credit
-      { wch: 30 }, // Description
-      { wch: 12 }, // Account Code
-      { wch: 25 }, // Account Name
-      { wch: 15 }, // Amount
-      { wch: 30 }, // Details
-      { wch: 10 }, // Status
-      { wch: 15 }, // Posted By
-      { wch: 12 }, // Posted Date
-      { wch: 12 }, // Created Date
-      { wch: 40 }, // Linked Evidence Filenames
+    // Define column widths
+    worksheet.columns = [
+      { width: 15 }, // Adjustment No
+      { width: 12 }, // Type
+      { width: 12 }, // Debit/Credit
+      { width: 30 }, // Description
+      { width: 12 }, // Account Code
+      { width: 25 }, // Account Name
+      { width: 15 }, // Amount
+      { width: 30 }, // Details
+      { width: 10 }, // Status
+      { width: 15 }, // Posted By
+      { width: 12 }, // Posted Date
+      { width: 12 }, // Created Date
+      { width: 40 }, // Linked Evidence Filenames
     ];
 
-    XLSX.utils.book_append_sheet(wb, ws, "Adjustments");
+    // Style for header row - highlighted background, black text, bold
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true, color: { argb: "FF000000" } }; // Black text, bold
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD3D3D3" }, // Light gray background
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 20;
+
+    // Enable auto filter (adds filter icons to headers)
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: headers.length },
+    };
+
+    // Add data rows with styling and alternating row colors
+    rows.forEach((row, rowIndex) => {
+      const dataRow = worksheet.addRow(row);
+      const isEvenRow = rowIndex % 2 === 0;
+      
+      // Apply alternating row background colors
+      const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5"; // White for even, light grey for odd
+      dataRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: rowBgColor },
+      };
+      
+      row.forEach((cellValue, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1);
+        
+        // Check if value is a number (excluding "None" and empty strings)
+        const isNumeric = typeof cellValue === "number" || 
+          (typeof cellValue === "string" && cellValue.trim() !== "" && 
+           cellValue !== "None" && !isNaN(Number(cellValue)) && 
+           cellValue.trim() !== "");
+        
+        if (isNumeric) {
+          // Numbers: black text
+          cell.font = { color: { argb: "FF000000" } };
+          if (typeof cellValue === "number") {
+            cell.numFmt = "#,##0"; // Format numbers with commas
+          } else {
+            // Convert string number to actual number
+            const numValue = Number(cellValue);
+            cell.value = numValue;
+            cell.numFmt = "#,##0";
+          }
+        } else {
+          // Strings: blue text
+          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+        }
+        cell.alignment = { vertical: "middle" };
+        if (colIndex === 6) { // Amount column - right align
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+        }
+      });
+      dataRow.height = 18;
+    });
 
     // Generate buffer
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const buffer = await workbook.xlsx.writeBuffer();
 
     // Set response headers
     res.setHeader(

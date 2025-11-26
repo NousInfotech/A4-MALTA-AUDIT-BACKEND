@@ -12,6 +12,7 @@ const Adjustment = require("../models/Adjustment");
 const Reclassification = require("../models/Reclassification");
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 const archiver = require("archiver");
 const https = require("https");
 const http = require("http");
@@ -3924,24 +3925,90 @@ exports.exportETB = async (req, res) => {
       ];
     });
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([etbHeaders, ...etbRows]);
-    ws["!cols"] = [
-      { wch: 15 }, // Code
-      { wch: 30 }, // Account Name
-      { wch: 18 }, // Opening Balances
-      { wch: 15 }, // Adjustments
-      { wch: 18 }, // Reclassifications
-      { wch: 18 }, // Final Balances
-      { wch: 20 }, // Grouping1
-      { wch: 20 }, // Grouping2
-      { wch: 20 }, // Grouping3
-      { wch: 20 }, // Grouping4
-      { wch: 40 }, // Linked Files
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, "Extended Trial Balance");
+    // Create workbook with ExcelJS for styling
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Extended Trial Balance");
 
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    // Define column widths
+    worksheet.columns = [
+      { width: 15 }, // Code
+      { width: 30 }, // Account Name
+      { width: 18 }, // Opening Balances
+      { width: 15 }, // Adjustments
+      { width: 18 }, // Reclassifications
+      { width: 18 }, // Final Balances
+      { width: 20 }, // Grouping1
+      { width: 20 }, // Grouping2
+      { width: 20 }, // Grouping3
+      { width: 20 }, // Grouping4
+      { width: 40 }, // Linked Files
+    ];
+
+    // Style for header row - highlighted background, black text, bold
+    const headerRow = worksheet.addRow(etbHeaders);
+    headerRow.font = { bold: true, color: { argb: "FF000000" } }; // Black text, bold
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD3D3D3" }, // Light gray background
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 20;
+
+    // Enable auto filter (adds filter icons to headers)
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: etbHeaders.length },
+    };
+
+    // Add data rows with styling and alternating row colors
+    etbRows.forEach((row, rowIndex) => {
+      const dataRow = worksheet.addRow(row);
+      const isEvenRow = rowIndex % 2 === 0;
+      
+      // Apply alternating row background colors
+      const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5"; // White for even, light grey for odd
+      dataRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: rowBgColor },
+      };
+      
+      row.forEach((cellValue, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1);
+        
+        // Check if value is a number (excluding "None" and empty strings)
+        const isNumeric = typeof cellValue === "number" || 
+          (typeof cellValue === "string" && cellValue.trim() !== "" && 
+           cellValue !== "None" && !isNaN(Number(cellValue)) && 
+           cellValue.trim() !== "");
+        
+        if (isNumeric) {
+          // Numbers: black text
+          cell.font = { color: { argb: "FF000000" } };
+          if (typeof cellValue === "number") {
+            cell.numFmt = "#,##0"; // Format numbers with commas
+          } else {
+            // Convert string number to actual number
+            const numValue = Number(cellValue);
+            cell.value = numValue;
+            cell.numFmt = "#,##0";
+          }
+        } else {
+          // Strings: blue text
+          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+        }
+        cell.alignment = { vertical: "middle" };
+        // Right align numeric columns (Opening Balances, Adjustments, Reclassifications, Final Balances)
+        if ([2, 3, 4, 5].includes(colIndex)) {
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+        }
+      });
+      dataRow.height = 18;
+    });
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader(
       "Content-Type",
@@ -4011,11 +4078,13 @@ exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
       x += colWidths[i];
     });
 
-    y += rowHeight;
+    y += rowHeight + 5; // Add spacing after header
     doc.moveTo(50, y).lineTo(950, y).stroke();
+    y += 5; // Add spacing before first data row
 
     // Data rows
     doc.font("Helvetica");
+    doc.fontSize(7);
     etb.rows.forEach((row, index) => {
       if (y > 500) {
         // New page
@@ -4023,14 +4092,16 @@ exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
         y = 50;
         // Redraw headers
         x = startX;
-        doc.font("Helvetica-Bold");
+        doc.fontSize(8).font("Helvetica-Bold");
         headers.forEach((header, i) => {
           doc.text(header, x, y, { width: colWidths[i], align: "left" });
           x += colWidths[i];
         });
-        y += rowHeight;
+        y += rowHeight + 5; // Add spacing after header
         doc.moveTo(50, y).lineTo(950, y).stroke();
+        y += 5; // Add spacing before first data row
         doc.font("Helvetica");
+        doc.fontSize(7);
       }
 
       const linkedFileNames = row.linkedExcelFiles
@@ -4049,16 +4120,35 @@ exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
         row.grouping2 || "",
         row.grouping3 || "",
         row.grouping4 || "",
-        linkedFileNames.substring(0, 30), // Truncate long file names
+        linkedFileNames,
       ];
 
+      // Calculate maximum height needed for this row
+      let maxHeight = rowHeight;
       x = startX;
       rowData.forEach((cell, i) => {
-        doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+        const cellText = String(cell);
+        const textHeight = doc.heightOfString(cellText, {
+          width: colWidths[i],
+          align: "left",
+        });
+        maxHeight = Math.max(maxHeight, textHeight);
+      });
+
+      // Draw all cells at the same y position
+      x = startX;
+      rowData.forEach((cell, i) => {
+        const cellText = String(cell);
+        doc.text(cellText, x, y, {
+          width: colWidths[i],
+          align: "left",
+          height: maxHeight,
+        });
         x += colWidths[i];
       });
 
-      y += rowHeight;
+      // Move y position by the actual height used plus padding
+      y += maxHeight + 3;
     });
 
     doc.end();
@@ -4184,26 +4274,91 @@ exports.exportAdjustments = async (req, res) => {
       }
     }
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([adjHeaders, ...adjRows]);
-    ws["!cols"] = [
-      { wch: 15 }, // Adjustment No
-      { wch: 12 }, // Type
-      { wch: 12 }, // Debit/Credit
-      { wch: 30 }, // Description
-      { wch: 12 }, // Account Code
-      { wch: 25 }, // Account Name
-      { wch: 15 }, // Amount
-      { wch: 30 }, // Details
-      { wch: 10 }, // Status
-      { wch: 15 }, // Posted By
-      { wch: 12 }, // Posted Date
-      { wch: 12 }, // Created Date
-      { wch: 40 }, // Linked Evidence Filenames
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, "Adjustments");
+    // Create workbook with ExcelJS for styling
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Adjustments");
 
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    // Define column widths
+    worksheet.columns = [
+      { width: 15 }, // Adjustment No
+      { width: 12 }, // Type
+      { width: 12 }, // Debit/Credit
+      { width: 30 }, // Description
+      { width: 12 }, // Account Code
+      { width: 25 }, // Account Name
+      { width: 15 }, // Amount
+      { width: 30 }, // Details
+      { width: 10 }, // Status
+      { width: 15 }, // Posted By
+      { width: 12 }, // Posted Date
+      { width: 12 }, // Created Date
+      { width: 40 }, // Linked Evidence Filenames
+    ];
+
+    // Style for header row - highlighted background, black text, bold
+    const headerRow = worksheet.addRow(adjHeaders);
+    headerRow.font = { bold: true, color: { argb: "FF000000" } }; // Black text, bold
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD3D3D3" }, // Light gray background
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 20;
+
+    // Enable auto filter (adds filter icons to headers)
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: adjHeaders.length },
+    };
+
+    // Add data rows with styling and alternating row colors
+    adjRows.forEach((row, rowIndex) => {
+      const dataRow = worksheet.addRow(row);
+      const isEvenRow = rowIndex % 2 === 0;
+      
+      // Apply alternating row background colors
+      const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5"; // White for even, light grey for odd
+      dataRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: rowBgColor },
+      };
+      
+      row.forEach((cellValue, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1);
+        
+        // Check if value is a number (excluding "None" and empty strings)
+        const isNumeric = typeof cellValue === "number" || 
+          (typeof cellValue === "string" && cellValue.trim() !== "" && 
+           cellValue !== "None" && !isNaN(Number(cellValue)) && 
+           cellValue.trim() !== "");
+        
+        if (isNumeric) {
+          // Numbers: black text
+          cell.font = { color: { argb: "FF000000" } };
+          if (typeof cellValue === "number") {
+            cell.numFmt = "#,##0"; // Format numbers with commas
+          } else {
+            // Convert string number to actual number
+            const numValue = Number(cellValue);
+            cell.value = numValue;
+            cell.numFmt = "#,##0";
+          }
+        } else {
+          // Strings: blue text
+          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+        }
+        cell.alignment = { vertical: "middle" };
+        if (colIndex === 6) { // Amount column - right align
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+        }
+      });
+      dataRow.height = 18;
+    });
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader(
       "Content-Type",
@@ -4272,10 +4427,12 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
       x += colWidths[i];
     });
 
-    y += rowHeight;
+    y += rowHeight + 5; // Add spacing after header
     doc.moveTo(50, y).lineTo(950, y).stroke();
+    y += 5; // Add spacing before first data row
 
     doc.font("Helvetica");
+    doc.fontSize(7);
     adjustments.forEach((adj) => {
       const postedHistory = adj.history?.find((h) => h.action === "posted");
       const postedBy = postedHistory?.userName || "N/A";
@@ -4295,14 +4452,16 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
             doc.addPage();
             y = 50;
             x = startX;
-            doc.font("Helvetica-Bold");
+            doc.fontSize(8).font("Helvetica-Bold");
             headers.forEach((header, i) => {
               doc.text(header, x, y, { width: colWidths[i], align: "left" });
               x += colWidths[i];
             });
-            y += rowHeight;
+            y += rowHeight + 5; // Add spacing after header
             doc.moveTo(50, y).lineTo(950, y).stroke();
+            y += 5; // Add spacing before first data row
             doc.font("Helvetica");
+            doc.fontSize(7);
           }
 
           const type = entry.dr > 0 ? "Debit" : "Credit";
@@ -4312,25 +4471,44 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
             adj.adjustmentNo,
             "Adj",
             type,
-            (adj.description || "").substring(0, 30),
+            adj.description || "",
             entry.code || "",
-            (entry.accountName || "").substring(0, 30),
+            entry.accountName || "",
             amount.toLocaleString(),
-            (entry.details || "").substring(0, 30),
+            entry.details || "",
             adj.status,
-            postedBy.substring(0, 15),
+            postedBy,
             postedDate,
             createdDate,
-            evidenceFilenames.substring(0, 30),
+            evidenceFilenames,
           ];
 
+          // Calculate maximum height needed for this row
+          let maxHeight = rowHeight;
           x = startX;
           rowData.forEach((cell, i) => {
-            doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+            const cellText = String(cell);
+            const textHeight = doc.heightOfString(cellText, {
+              width: colWidths[i],
+              align: "left",
+            });
+            maxHeight = Math.max(maxHeight, textHeight);
+          });
+
+          // Draw all cells at the same y position
+          x = startX;
+          rowData.forEach((cell, i) => {
+            const cellText = String(cell);
+            doc.text(cellText, x, y, {
+              width: colWidths[i],
+              align: "left",
+              height: maxHeight,
+            });
             x += colWidths[i];
           });
 
-          y += rowHeight;
+          // Move y position by the actual height used plus padding
+          y += maxHeight + 3;
         });
       }
     });
@@ -4462,25 +4640,90 @@ exports.exportReclassifications = async (req, res) => {
       }
     }
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([rclsHeaders, ...rclsRows]);
-    ws["!cols"] = [
-      { wch: 18 }, // Reclassification No
-      { wch: 15 }, // From Account Code
-      { wch: 25 }, // From Account Name
-      { wch: 15 }, // To Account Code
-      { wch: 25 }, // To Account Name
-      { wch: 15 }, // Amount
-      { wch: 30 }, // Reason
-      { wch: 10 }, // Status
-      { wch: 15 }, // Posted By
-      { wch: 12 }, // Posted Date
-      { wch: 12 }, // Created Date
-      { wch: 40 }, // Linked Evidence Filenames
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, "Reclassifications");
+    // Create workbook with ExcelJS for styling
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Reclassifications");
 
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    // Define column widths
+    worksheet.columns = [
+      { width: 18 }, // Reclassification No
+      { width: 15 }, // From Account Code
+      { width: 25 }, // From Account Name
+      { width: 15 }, // To Account Code
+      { width: 25 }, // To Account Name
+      { width: 15 }, // Amount
+      { width: 30 }, // Reason
+      { width: 10 }, // Status
+      { width: 15 }, // Posted By
+      { width: 12 }, // Posted Date
+      { width: 12 }, // Created Date
+      { width: 40 }, // Linked Evidence Filenames
+    ];
+
+    // Style for header row - highlighted background, black text, bold
+    const headerRow = worksheet.addRow(rclsHeaders);
+    headerRow.font = { bold: true, color: { argb: "FF000000" } }; // Black text, bold
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD3D3D3" }, // Light gray background
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 20;
+
+    // Enable auto filter (adds filter icons to headers)
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: rclsHeaders.length },
+    };
+
+    // Add data rows with styling and alternating row colors
+    rclsRows.forEach((row, rowIndex) => {
+      const dataRow = worksheet.addRow(row);
+      const isEvenRow = rowIndex % 2 === 0;
+      
+      // Apply alternating row background colors
+      const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5"; // White for even, light grey for odd
+      dataRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: rowBgColor },
+      };
+      
+      row.forEach((cellValue, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1);
+        
+        // Check if value is a number (excluding "None" and empty strings)
+        const isNumeric = typeof cellValue === "number" || 
+          (typeof cellValue === "string" && cellValue.trim() !== "" && 
+           cellValue !== "None" && !isNaN(Number(cellValue)) && 
+           cellValue.trim() !== "");
+        
+        if (isNumeric) {
+          // Numbers: black text
+          cell.font = { color: { argb: "FF000000" } };
+          if (typeof cellValue === "number") {
+            cell.numFmt = "#,##0"; // Format numbers with commas
+          } else {
+            // Convert string number to actual number
+            const numValue = Number(cellValue);
+            cell.value = numValue;
+            cell.numFmt = "#,##0";
+          }
+        } else {
+          // Strings: blue text
+          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+        }
+        cell.alignment = { vertical: "middle" };
+        if (colIndex === 5) { // Amount column - right align
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+        }
+      });
+      dataRow.height = 18;
+    });
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader(
       "Content-Type",
@@ -4548,10 +4791,12 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
       x += colWidths[i];
     });
 
-    y += rowHeight;
+    y += rowHeight + 5; // Add spacing after header
     doc.moveTo(50, y).lineTo(950, y).stroke();
+    y += 5; // Add spacing before first data row
 
     doc.font("Helvetica");
+    doc.fontSize(7);
     reclassifications.forEach((rc) => {
       const postedHistory = rc.history?.find((h) => h.action === "posted");
       const postedBy = postedHistory?.userName || "N/A";
@@ -4575,38 +4820,59 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
               doc.addPage();
               y = 50;
               x = startX;
-              doc.font("Helvetica-Bold");
+              doc.fontSize(8).font("Helvetica-Bold");
               headers.forEach((header, i) => {
                 doc.text(header, x, y, { width: colWidths[i], align: "left" });
                 x += colWidths[i];
               });
-              y += rowHeight;
+              y += rowHeight + 5; // Add spacing after header
               doc.moveTo(50, y).lineTo(950, y).stroke();
+              y += 5; // Add spacing before first data row
               doc.font("Helvetica");
+              doc.fontSize(7);
             }
 
             const rowData = [
               rc.reclassificationNo,
               drEntry.code || "",
-              (drEntry.accountName || "").substring(0, 30),
+              drEntry.accountName || "",
               crEntry.code || "",
-              (crEntry.accountName || "").substring(0, 30),
+              crEntry.accountName || "",
               drEntry.dr.toLocaleString(),
-              (rc.description || drEntry.details || crEntry.details || "").substring(0, 30),
+              rc.description || drEntry.details || crEntry.details || "",
               rc.status,
-              postedBy.substring(0, 15),
+              postedBy,
               postedDate,
               createdDate,
-              evidenceFilenames.substring(0, 30),
+              evidenceFilenames,
             ];
 
+            // Calculate maximum height needed for this row
+            let maxHeight = rowHeight;
             x = startX;
             rowData.forEach((cell, i) => {
-              doc.fontSize(7).text(String(cell), x, y, { width: colWidths[i], align: "left" });
+              const cellText = String(cell);
+              const textHeight = doc.heightOfString(cellText, {
+                width: colWidths[i],
+                align: "left",
+              });
+              maxHeight = Math.max(maxHeight, textHeight);
+            });
+
+            // Draw all cells at the same y position
+            x = startX;
+            rowData.forEach((cell, i) => {
+              const cellText = String(cell);
+              doc.text(cellText, x, y, {
+                width: colWidths[i],
+                align: "left",
+                height: maxHeight,
+              });
               x += colWidths[i];
             });
 
-            y += rowHeight;
+            // Move y position by the actual height used plus padding
+            y += maxHeight + 3;
           }
         });
       });
