@@ -211,10 +211,18 @@ exports.createUser = async (req, res) => {
         }
 
         // Validate totalShares if provided
+        // totalShares can be a number or an array
+        let totalSharesValue = shareHolderData?.totalShares;
+        
+        // If totalSharesArray is provided, use that instead and calculate sum
+        if (shareHolderData?.totalSharesArray && Array.isArray(shareHolderData.totalSharesArray) && shareHolderData.totalSharesArray.length > 0) {
+          totalSharesValue = shareHolderData.totalSharesArray.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
+        }
+        
         if (
-          shareHolderData?.totalShares &&
-          (isNaN(shareHolderData.totalShares) ||
-            shareHolderData.totalShares < 0)
+          totalSharesValue !== undefined &&
+          totalSharesValue !== null &&
+          (isNaN(totalSharesValue) || totalSharesValue < 0)
         ) {
           await supabase.auth.admin.deleteUser(authUser.user.id);
           await supabase
@@ -236,6 +244,19 @@ exports.createUser = async (req, res) => {
           organizationId: req.user.organizationId,
         });
 
+        // Determine totalShares - use array if provided, otherwise use number or default
+        let companyTotalShares = 100; // default
+        if (shareHolderData?.totalSharesArray && Array.isArray(shareHolderData.totalSharesArray) && shareHolderData.totalSharesArray.length > 0) {
+          companyTotalShares = shareHolderData.totalSharesArray;
+        } else if (shareHolderData?.totalShares && !isNaN(shareHolderData.totalShares) && shareHolderData.totalShares > 0) {
+          // Convert number to array format for backward compatibility
+          companyTotalShares = [{
+            totalShares: Number(shareHolderData.totalShares),
+            class: "Ordinary",
+            type: "Ordinary"
+          }];
+        }
+
         // Create the company
         const newCompany = await Company.create({
           clientId: authUser.user.id,
@@ -245,12 +266,18 @@ exports.createUser = async (req, res) => {
           address: address,
           industry: industry,
           description: summary,
-          totalShares: shareHolderData?.totalShares || 100,
+          totalShares: companyTotalShares,
         });
 
         // Prepare shareholders array
         const shareholders = [];
-        const companyTotalShares = shareHolderData?.totalShares || 100;
+        // Calculate company total shares sum for percentage calculations
+        let companyTotalSharesSum = 100;
+        if (Array.isArray(newCompany.totalShares) && newCompany.totalShares.length > 0) {
+          companyTotalSharesSum = newCompany.totalShares.reduce((sum, item) => sum + (Number(item.totalShares) || 0), 0);
+        } else if (typeof newCompany.totalShares === 'number') {
+          companyTotalSharesSum = newCompany.totalShares;
+        }
 
         // Add company owner as shareholder if shareHolderData exists
         if (

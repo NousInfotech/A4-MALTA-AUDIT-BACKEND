@@ -454,20 +454,19 @@ exports.createPerson = async (req, res) => {
  */
 exports.updatePerson = async (req, res) => {
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
     const updateData = { ...req.body };
 
     // Separate person fields from company relationship fields
     const { roles, sharesData, ...personFields } = updateData;
 
     // Remove fields that shouldn't be directly updated
-    delete personFields.clientId;
     delete personFields.createdAt;
     personFields.updatedAt = new Date();
 
     // Update person
     const person = await Person.findOneAndUpdate(
-      { _id: personId, clientId },
+      { _id: personId },
       { $set: personFields },
       { new: true, runValidators: true }
     );
