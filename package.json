@@ -37,7 +37,8 @@
     "speakeasy": "^2.0.0",
     "strip-json-comments": "^5.0.3",
     "supabase": "^2.33.9",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.0"

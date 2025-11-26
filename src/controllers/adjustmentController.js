@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 const Adjustment = require("../models/Adjustment");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 
@@ -878,108 +879,139 @@ exports.exportAdjustments = async (req, res) => {
       });
     }
 
-    // Prepare Excel data
+    // Prepare Excel data - matching UI table columns: Code, Account, DR, CR, Linked Files
     const headers = [
-      "Adjustment No",
-      "Type",
-      "Debit/Credit",
-      "Description",
-      "Account Code",
-      "Account Name",
-      "Amount",
-      "Details",
-      "Status",
-      "Posted By",
-      "Posted Date",
-      "Created Date",
-      "Linked Evidence Filenames",
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
     ];
 
     const rows = [];
 
     for (const adj of adjustments) {
-      // Get posted user and date from history
-      const postedHistory = adj.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = adj.createdAt
-        ? new Date(adj.createdAt).toLocaleDateString()
-        : "N/A";
-
-      // Get evidence filenames
-      const evidenceFilenames = adj.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
+      // Get evidence file info (fileName and fileUrl) for this adjustment
+      const evidenceFiles = adj.evidenceFiles && adj.evidenceFiles.length > 0
+        ? adj.evidenceFiles.filter(f => f.fileName && f.fileUrl).map(f => ({
+            fileName: f.fileName,
+            fileUrl: f.fileUrl
+          }))
+        : [];
+      
       // Create a row for each entry
       if (adj.entries && adj.entries.length > 0) {
         for (const entry of adj.entries) {
-          const type = entry.dr > 0 ? "Debit" : "Credit";
-          const amount = entry.dr > 0 ? entry.dr : entry.cr;
-
           rows.push([
-            adj.adjustmentNo,
-            "Adjustment",
-            type,
-            adj.description || "",
-            entry.code,
-            entry.accountName,
-            amount,
-            entry.details || "",
-            adj.status,
-            postedBy,
-            postedDate,
-            createdDate,
-            evidenceFilenames,
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFiles.length > 0 ? evidenceFiles : null,
           ]);
         }
-      } else {
-        // If no entries, still create a row with adjustment info
-        rows.push([
-          adj.adjustmentNo,
-          "Adjustment",
-          "N/A",
-          adj.description || "",
-          "",
-          "",
-          0,
-          "",
-          adj.status,
-          postedBy,
-          postedDate,
-          createdDate,
-          evidenceFilenames,
-        ]);
       }
     }
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    // Create workbook with ExcelJS for styling
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Adjustments");
 
-    // Set column widths
-    ws["!cols"] = [
-      { wch: 15 }, // Adjustment No
-      { wch: 12 }, // Type
-      { wch: 12 }, // Debit/Credit
-      { wch: 30 }, // Description
-      { wch: 12 }, // Account Code
-      { wch: 25 }, // Account Name
-      { wch: 15 }, // Amount
-      { wch: 30 }, // Details
-      { wch: 10 }, // Status
-      { wch: 15 }, // Posted By
-      { wch: 12 }, // Posted Date
-      { wch: 12 }, // Created Date
-      { wch: 40 }, // Linked Evidence Filenames
+    // Define column widths
+    worksheet.columns = [
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
+      { width: 50 }, // Linked Files
     ];
 
-    XLSX.utils.book_append_sheet(wb, ws, "Adjustments");
+    // Style for header row - highlighted background, black text, bold
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true, color: { argb: "FF000000" } }; // Black text, bold
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD3D3D3" }, // Light gray background
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 20;
+
+    // Enable auto filter (adds filter icons to headers)
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: headers.length },
+    };
+
+    // Add data rows with styling and alternating row colors
+    rows.forEach((row, rowIndex) => {
+      const dataRow = worksheet.addRow(row);
+      const isEvenRow = rowIndex % 2 === 0;
+      
+      // Apply alternating row background colors
+      const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5"; // White for even, light grey for odd
+      dataRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: rowBgColor },
+      };
+      
+      row.forEach((cellValue, colIndex) => {
+        const cell = dataRow.getCell(colIndex + 1);
+        
+        // Linked Files column (index 4) - add hyperlinks with file names
+        if (colIndex === 4) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+          if (cellValue && Array.isArray(cellValue) && cellValue.length > 0) {
+            // cellValue is an array of {fileName, fileUrl} objects
+            const fileNames = cellValue.map(f => f.fileName).filter(Boolean);
+            const firstFileUrl = cellValue[0]?.fileUrl;
+            
+            if (fileNames.length > 0 && firstFileUrl) {
+              // Display file names separated by "; "
+              const displayText = fileNames.join("; ");
+              cell.value = {
+                text: displayText,
+                hyperlink: firstFileUrl,
+              };
+              cell.font = { color: { argb: "FF0000FF" }, underline: true };
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
+          } else {
+            cell.value = "None";
+            cell.font = { color: { argb: "FF0000FF" } };
+          }
+        }
+        // DR and CR columns (index 2 and 3)
+        else if (colIndex === 2 || colIndex === 3) {
+          // Right align for DR/CR columns
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          
+          // Check if value is "-" or a number
+          if (cellValue === "-" || cellValue === "") {
+            // Strings: blue text
+            cell.font = { color: { argb: "FF0000FF" } };
+            cell.value = "-";
+          } else {
+            // Numbers: black text
+            cell.font = { color: { argb: "FF000000" } };
+            const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
+            cell.value = numValue;
+            cell.numFmt = "#,##0"; // Format numbers with commas
+          }
+        } else {
+          // Code and Account columns (index 0 and 1) - left align, blue text
+          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+        }
+      });
+      dataRow.height = 18;
+    });
 
     // Generate buffer
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const buffer = await workbook.xlsx.writeBuffer();
 
     // Set response headers
     res.setHeader(
