@@ -879,80 +879,37 @@ exports.exportAdjustments = async (req, res) => {
       });
     }
 
-    // Prepare Excel data
+    // Prepare Excel data - matching UI table columns: Code, Account, DR, CR, Linked Files
     const headers = [
-      "Adjustment No",
-      "Type",
-      "Debit/Credit",
-      "Description",
-      "Account Code",
-      "Account Name",
-      "Amount",
-      "Details",
-      "Status",
-      "Posted By",
-      "Posted Date",
-      "Created Date",
-      "Linked Evidence Filenames",
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
     ];
 
     const rows = [];
 
     for (const adj of adjustments) {
-      // Get posted user and date from history
-      const postedHistory = adj.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = adj.createdAt
-        ? new Date(adj.createdAt).toLocaleDateString()
-        : "N/A";
-
-      // Get evidence filenames
-      const evidenceFilenames = adj.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
+      // Get evidence file info (fileName and fileUrl) for this adjustment
+      const evidenceFiles = adj.evidenceFiles && adj.evidenceFiles.length > 0
+        ? adj.evidenceFiles.filter(f => f.fileName && f.fileUrl).map(f => ({
+            fileName: f.fileName,
+            fileUrl: f.fileUrl
+          }))
+        : [];
+      
       // Create a row for each entry
       if (adj.entries && adj.entries.length > 0) {
         for (const entry of adj.entries) {
-          const type = entry.dr > 0 ? "Debit" : "Credit";
-          const amount = entry.dr > 0 ? entry.dr : entry.cr;
-
           rows.push([
-            adj.adjustmentNo,
-            "Adjustment",
-            type,
-            adj.description || "",
-            entry.code,
-            entry.accountName,
-            amount,
-            entry.details || "",
-            adj.status,
-            postedBy,
-            postedDate,
-            createdDate,
-            evidenceFilenames,
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFiles.length > 0 ? evidenceFiles : null,
           ]);
         }
-      } else {
-        // If no entries, still create a row with adjustment info
-        rows.push([
-          adj.adjustmentNo,
-          "Adjustment",
-          "N/A",
-          adj.description || "",
-          "",
-          "",
-          0,
-          "",
-          adj.status,
-          postedBy,
-          postedDate,
-          createdDate,
-          evidenceFilenames,
-        ]);
       }
     }
 
@@ -962,19 +919,11 @@ exports.exportAdjustments = async (req, res) => {
 
     // Define column widths
     worksheet.columns = [
-      { width: 15 }, // Adjustment No
-      { width: 12 }, // Type
-      { width: 12 }, // Debit/Credit
-      { width: 30 }, // Description
-      { width: 12 }, // Account Code
-      { width: 25 }, // Account Name
-      { width: 15 }, // Amount
-      { width: 30 }, // Details
-      { width: 10 }, // Status
-      { width: 15 }, // Posted By
-      { width: 12 }, // Posted Date
-      { width: 12 }, // Created Date
-      { width: 40 }, // Linked Evidence Filenames
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
+      { width: 50 }, // Linked Files
     ];
 
     // Style for header row - highlighted background, black text, bold
@@ -1010,30 +959,52 @@ exports.exportAdjustments = async (req, res) => {
       row.forEach((cellValue, colIndex) => {
         const cell = dataRow.getCell(colIndex + 1);
         
-        // Check if value is a number (excluding "None" and empty strings)
-        const isNumeric = typeof cellValue === "number" || 
-          (typeof cellValue === "string" && cellValue.trim() !== "" && 
-           cellValue !== "None" && !isNaN(Number(cellValue)) && 
-           cellValue.trim() !== "");
-        
-        if (isNumeric) {
-          // Numbers: black text
-          cell.font = { color: { argb: "FF000000" } };
-          if (typeof cellValue === "number") {
-            cell.numFmt = "#,##0"; // Format numbers with commas
+        // Linked Files column (index 4) - add hyperlinks with file names
+        if (colIndex === 4) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+          if (cellValue && Array.isArray(cellValue) && cellValue.length > 0) {
+            // cellValue is an array of {fileName, fileUrl} objects
+            const fileNames = cellValue.map(f => f.fileName).filter(Boolean);
+            const firstFileUrl = cellValue[0]?.fileUrl;
+            
+            if (fileNames.length > 0 && firstFileUrl) {
+              // Display file names separated by "; "
+              const displayText = fileNames.join("; ");
+              cell.value = {
+                text: displayText,
+                hyperlink: firstFileUrl,
+              };
+              cell.font = { color: { argb: "FF0000FF" }, underline: true };
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
           } else {
-            // Convert string number to actual number
-            const numValue = Number(cellValue);
+            cell.value = "None";
+            cell.font = { color: { argb: "FF0000FF" } };
+          }
+        }
+        // DR and CR columns (index 2 and 3)
+        else if (colIndex === 2 || colIndex === 3) {
+          // Right align for DR/CR columns
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          
+          // Check if value is "-" or a number
+          if (cellValue === "-" || cellValue === "") {
+            // Strings: blue text
+            cell.font = { color: { argb: "FF0000FF" } };
+            cell.value = "-";
+          } else {
+            // Numbers: black text
+            cell.font = { color: { argb: "FF000000" } };
+            const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
             cell.value = numValue;
-            cell.numFmt = "#,##0";
+            cell.numFmt = "#,##0"; // Format numbers with commas
           }
         } else {
-          // Strings: blue text
+          // Code and Account columns (index 0 and 1) - left align, blue text
           cell.font = { color: { argb: "FF0000FF" } }; // Blue text
-        }
-        cell.alignment = { vertical: "middle" };
-        if (colIndex === 6) { // Amount column - right align
-          cell.alignment = { vertical: "middle", horizontal: "right" };
+          cell.alignment = { vertical: "middle", horizontal: "left" };
         }
       });
       dataRow.height = 18;

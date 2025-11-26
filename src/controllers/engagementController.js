@@ -3873,7 +3873,7 @@ exports.exportETB = async (req, res) => {
       .populate({
         path: "rows.linkedExcelFiles",
         model: "Workbook",
-        select: "name",
+        select: "name webUrl",
       })
       .lean();
 
@@ -3904,11 +3904,12 @@ exports.exportETB = async (req, res) => {
     ];
 
     const etbRows = etb.rows.map((row) => {
-      // Get linked file names
-      const linkedFileNames = row.linkedExcelFiles
-        ?.map((file) => file.name || "")
-        .filter(Boolean)
-        .join("; ") || "None";
+      // Get linked file URLs and names
+      const linkedFiles = row.linkedExcelFiles
+        ?.filter(file => file && (file.name || file.webUrl))
+        .map(file => file.webUrl || file.name || "")
+        .filter(Boolean) || [];
+      const linkedFilesValue = linkedFiles.length > 0 ? linkedFiles.join("; ") : "None";
 
       return [
         row.code || "",
@@ -3921,7 +3922,7 @@ exports.exportETB = async (req, res) => {
         row.grouping2 || "",
         row.grouping3 || "",
         row.grouping4 || "",
-        linkedFileNames,
+        linkedFilesValue,
       ];
     });
 
@@ -3977,31 +3978,65 @@ exports.exportETB = async (req, res) => {
       row.forEach((cellValue, colIndex) => {
         const cell = dataRow.getCell(colIndex + 1);
         
-        // Check if value is a number (excluding "None" and empty strings)
-        const isNumeric = typeof cellValue === "number" || 
-          (typeof cellValue === "string" && cellValue.trim() !== "" && 
-           cellValue !== "None" && !isNaN(Number(cellValue)) && 
-           cellValue.trim() !== "");
-        
-        if (isNumeric) {
-          // Numbers: black text
-          cell.font = { color: { argb: "FF000000" } };
-          if (typeof cellValue === "number") {
-            cell.numFmt = "#,##0"; // Format numbers with commas
+        // Linked Files column (index 10) - add hyperlinks
+        if (colIndex === 10) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+          if (cellValue && cellValue !== "None" && cellValue.trim() !== "") {
+            // Check if it's a URL or multiple URLs separated by "; "
+            const urls = cellValue.split("; ").filter(url => url && url.trim() !== "");
+            if (urls.length > 0) {
+              // If single URL, create hyperlink
+              if (urls.length === 1) {
+                cell.value = {
+                  text: urls[0],
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              } else {
+                // Multiple URLs - show as text with multiple hyperlinks (ExcelJS limitation: one hyperlink per cell)
+                // Show first URL as hyperlink, others as text
+                cell.value = {
+                  text: cellValue,
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              }
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
           } else {
-            // Convert string number to actual number
-            const numValue = Number(cellValue);
-            cell.value = numValue;
-            cell.numFmt = "#,##0";
+            cell.value = "None";
+            cell.font = { color: { argb: "FF0000FF" } };
           }
-        } else {
-          // Strings: blue text
-          cell.font = { color: { argb: "FF0000FF" } }; // Blue text
         }
-        cell.alignment = { vertical: "middle" };
-        // Right align numeric columns (Opening Balances, Adjustments, Reclassifications, Final Balances)
-        if ([2, 3, 4, 5].includes(colIndex)) {
-          cell.alignment = { vertical: "middle", horizontal: "right" };
+        // Check if value is a number (excluding "None" and empty strings)
+        else {
+          const isNumeric = typeof cellValue === "number" || 
+            (typeof cellValue === "string" && cellValue.trim() !== "" && 
+             cellValue !== "None" && !isNaN(Number(cellValue)) && 
+             cellValue.trim() !== "");
+          
+          if (isNumeric) {
+            // Numbers: black text
+            cell.font = { color: { argb: "FF000000" } };
+            if (typeof cellValue === "number") {
+              cell.numFmt = "#,##0"; // Format numbers with commas
+            } else {
+              // Convert string number to actual number
+              const numValue = Number(cellValue);
+              cell.value = numValue;
+              cell.numFmt = "#,##0";
+            }
+          } else {
+            // Strings: blue text
+            cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+          }
+          cell.alignment = { vertical: "middle" };
+          // Right align numeric columns (Opening Balances, Adjustments, Reclassifications, Final Balances)
+          if ([2, 3, 4, 5].includes(colIndex)) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+          }
         }
       });
       dataRow.height = 18;
@@ -4203,74 +4238,35 @@ exports.exportAdjustments = async (req, res) => {
       return await exports.exportAdjustmentsAsPDF(req, res, adjustments, sanitizedEngagementName);
     }
 
-    // Excel export
+    // Excel export - matching UI table columns: Code, Account, DR, CR, Linked Files
     const adjHeaders = [
-      "Adjustment No",
-      "Type",
-      "Debit/Credit",
-      "Description",
-      "Account Code",
-      "Account Name",
-      "Amount",
-      "Details",
-      "Status",
-      "Posted By",
-      "Posted Date",
-      "Created Date",
-      "Linked Evidence Filenames",
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
     ];
 
     const adjRows = [];
     for (const adj of adjustments) {
-      const postedHistory = adj.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = adj.createdAt
-        ? new Date(adj.createdAt).toLocaleDateString()
-        : "N/A";
-      const evidenceFilenames = adj.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
+      // Get evidence file info (fileName and fileUrl) for this adjustment
+      const evidenceFiles = adj.evidenceFiles && adj.evidenceFiles.length > 0
+        ? adj.evidenceFiles.filter(f => f.fileName && f.fileUrl).map(f => ({
+            fileName: f.fileName,
+            fileUrl: f.fileUrl
+          }))
+        : [];
+      
       if (adj.entries && adj.entries.length > 0) {
         for (const entry of adj.entries) {
-          const type = entry.dr > 0 ? "Debit" : "Credit";
-          const amount = entry.dr > 0 ? entry.dr : entry.cr;
-
           adjRows.push([
-            adj.adjustmentNo,
-            "Adjustment",
-            type,
-            adj.description || "",
-            entry.code,
-            entry.accountName,
-            amount,
-            entry.details || "",
-            adj.status,
-            postedBy,
-            postedDate,
-            createdDate,
-            evidenceFilenames,
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFiles.length > 0 ? evidenceFiles : null,
           ]);
         }
-      } else {
-        adjRows.push([
-          adj.adjustmentNo,
-          "Adjustment",
-          "N/A",
-          adj.description || "",
-          "",
-          "",
-          0,
-          "",
-          adj.status,
-          postedBy,
-          postedDate,
-          createdDate,
-          evidenceFilenames,
-        ]);
       }
     }
 
@@ -4280,19 +4276,10 @@ exports.exportAdjustments = async (req, res) => {
 
     // Define column widths
     worksheet.columns = [
-      { width: 15 }, // Adjustment No
-      { width: 12 }, // Type
-      { width: 12 }, // Debit/Credit
-      { width: 30 }, // Description
-      { width: 12 }, // Account Code
-      { width: 25 }, // Account Name
-      { width: 15 }, // Amount
-      { width: 30 }, // Details
-      { width: 10 }, // Status
-      { width: 15 }, // Posted By
-      { width: 12 }, // Posted Date
-      { width: 12 }, // Created Date
-      { width: 40 }, // Linked Evidence Filenames
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
     ];
 
     // Style for header row - highlighted background, black text, bold
@@ -4328,30 +4315,59 @@ exports.exportAdjustments = async (req, res) => {
       row.forEach((cellValue, colIndex) => {
         const cell = dataRow.getCell(colIndex + 1);
         
-        // Check if value is a number (excluding "None" and empty strings)
-        const isNumeric = typeof cellValue === "number" || 
-          (typeof cellValue === "string" && cellValue.trim() !== "" && 
-           cellValue !== "None" && !isNaN(Number(cellValue)) && 
-           cellValue.trim() !== "");
-        
-        if (isNumeric) {
-          // Numbers: black text
-          cell.font = { color: { argb: "FF000000" } };
-          if (typeof cellValue === "number") {
-            cell.numFmt = "#,##0"; // Format numbers with commas
+        // Linked Files column (index 4) - add hyperlinks
+        if (colIndex === 4) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+          if (cellValue && cellValue !== "None" && cellValue.trim() !== "") {
+            // Check if it's a URL or multiple URLs separated by "; "
+            const urls = cellValue.split("; ").filter(url => url && url.trim() !== "");
+            if (urls.length > 0) {
+              // If single URL, create hyperlink
+              if (urls.length === 1) {
+                cell.value = {
+                  text: urls[0],
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              } else {
+                // Multiple URLs - show as text with multiple hyperlinks (ExcelJS limitation: one hyperlink per cell)
+                // Show first URL as hyperlink, others as text
+                cell.value = {
+                  text: cellValue,
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              }
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
           } else {
-            // Convert string number to actual number
-            const numValue = Number(cellValue);
+            cell.value = "None";
+            cell.font = { color: { argb: "FF0000FF" } };
+          }
+        }
+        // DR and CR columns (index 2 and 3)
+        else if (colIndex === 2 || colIndex === 3) {
+          // Right align for DR/CR columns
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          
+          // Check if value is "-" or a number
+          if (cellValue === "-" || cellValue === "") {
+            // Strings: blue text
+            cell.font = { color: { argb: "FF0000FF" } };
+            cell.value = "-";
+          } else {
+            // Numbers: black text
+            cell.font = { color: { argb: "FF000000" } };
+            const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
             cell.value = numValue;
-            cell.numFmt = "#,##0";
+            cell.numFmt = "#,##0"; // Format numbers with commas
           }
         } else {
-          // Strings: blue text
+          // Code and Account columns (index 0 and 1) - left align, blue text
           cell.font = { color: { argb: "FF0000FF" } }; // Blue text
-        }
-        cell.alignment = { vertical: "middle" };
-        if (colIndex === 6) { // Amount column - right align
-          cell.alignment = { vertical: "middle", horizontal: "right" };
+          cell.alignment = { vertical: "middle", horizontal: "left" };
         }
       });
       dataRow.height = 18;
@@ -4402,28 +4418,19 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
     const startX = 50;
     let y = 120;
     const rowHeight = 20;
-    const colWidths = [60, 50, 50, 100, 50, 100, 60, 80, 50, 60, 60, 60, 100];
+    const colWidths = [100, 250, 100, 100]; // Code, Account, DR, CR
 
     const headers = [
-      "Adj No",
-      "Type",
-      "D/C",
-      "Description",
       "Code",
       "Account",
-      "Amount",
-      "Details",
-      "Status",
-      "Posted By",
-      "Posted",
-      "Created",
-      "Evidence",
+      "DR",
+      "CR",
     ];
 
     doc.fontSize(8).font("Helvetica-Bold");
     let x = startX;
     headers.forEach((header, i) => {
-      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
       x += colWidths[i];
     });
 
@@ -4454,7 +4461,7 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
             x = startX;
             doc.fontSize(8).font("Helvetica-Bold");
             headers.forEach((header, i) => {
-              doc.text(header, x, y, { width: colWidths[i], align: "left" });
+              doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
               x += colWidths[i];
             });
             y += rowHeight + 5; // Add spacing after header
@@ -4464,23 +4471,11 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
             doc.fontSize(7);
           }
 
-          const type = entry.dr > 0 ? "Debit" : "Credit";
-          const amount = entry.dr > 0 ? entry.dr : entry.cr;
-
           const rowData = [
-            adj.adjustmentNo,
-            "Adj",
-            type,
-            adj.description || "",
             entry.code || "",
             entry.accountName || "",
-            amount.toLocaleString(),
-            entry.details || "",
-            adj.status,
-            postedBy,
-            postedDate,
-            createdDate,
-            evidenceFilenames,
+            entry.dr > 0 ? entry.dr.toLocaleString() : "-",
+            entry.cr > 0 ? entry.cr.toLocaleString() : "-",
           ];
 
           // Calculate maximum height needed for this row
@@ -4501,7 +4496,7 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
             const cellText = String(cell);
             doc.text(cellText, x, y, {
               width: colWidths[i],
-              align: "left",
+              align: i >= 2 ? "right" : "left", // DR and CR right-aligned
               height: maxHeight,
             });
             x += colWidths[i];
@@ -4567,76 +4562,32 @@ exports.exportReclassifications = async (req, res) => {
       return await exports.exportReclassificationsAsPDF(req, res, reclassifications, sanitizedEngagementName);
     }
 
-    // Excel export
+    // Excel export - matching UI table columns: Code, Account, DR, CR, Linked Files
     const rclsHeaders = [
-      "Reclassification No",
-      "From Account Code",
-      "From Account Name",
-      "To Account Code",
-      "To Account Name",
-      "Amount",
-      "Reason",
-      "Status",
-      "Posted By",
-      "Posted Date",
-      "Created Date",
-      "Linked Evidence Filenames",
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
     ];
 
     const rclsRows = [];
     for (const rc of reclassifications) {
-      const postedHistory = rc.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = rc.createdAt
-        ? new Date(rc.createdAt).toLocaleDateString()
-        : "N/A";
-      const evidenceFilenames = rc.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
-      const drEntries = rc.entries.filter((e) => e.dr > 0);
-      const crEntries = rc.entries.filter((e) => e.cr > 0);
-
-      for (const drEntry of drEntries) {
-        for (const crEntry of crEntries) {
-          if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
-            rclsRows.push([
-              rc.reclassificationNo,
-              drEntry.code,
-              drEntry.accountName,
-              crEntry.code,
-              crEntry.accountName,
-              drEntry.dr,
-              rc.description || drEntry.details || crEntry.details || "",
-              rc.status,
-              postedBy,
-              postedDate,
-              createdDate,
-              evidenceFilenames,
-            ]);
-            break;
-          }
+      // Get evidence file URLs for this reclassification
+      const evidenceFileLinks = rc.evidenceFiles && rc.evidenceFiles.length > 0
+        ? rc.evidenceFiles.map(f => f.fileUrl).filter(Boolean)
+        : [];
+      
+      if (rc.entries && rc.entries.length > 0) {
+        for (const entry of rc.entries) {
+          rclsRows.push([
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFileLinks.length > 0 ? evidenceFileLinks.join("; ") : "None",
+          ]);
         }
-      }
-
-      if (rc.entries.length === 0) {
-        rclsRows.push([
-          rc.reclassificationNo,
-          "",
-          "",
-          "",
-          "",
-          0,
-          rc.description || "",
-          rc.status,
-          postedBy,
-          postedDate,
-          createdDate,
-          evidenceFilenames,
-        ]);
       }
     }
 
@@ -4646,18 +4597,11 @@ exports.exportReclassifications = async (req, res) => {
 
     // Define column widths
     worksheet.columns = [
-      { width: 18 }, // Reclassification No
-      { width: 15 }, // From Account Code
-      { width: 25 }, // From Account Name
-      { width: 15 }, // To Account Code
-      { width: 25 }, // To Account Name
-      { width: 15 }, // Amount
-      { width: 30 }, // Reason
-      { width: 10 }, // Status
-      { width: 15 }, // Posted By
-      { width: 12 }, // Posted Date
-      { width: 12 }, // Created Date
-      { width: 40 }, // Linked Evidence Filenames
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
+      { width: 50 }, // Linked Files
     ];
 
     // Style for header row - highlighted background, black text, bold
@@ -4693,30 +4637,59 @@ exports.exportReclassifications = async (req, res) => {
       row.forEach((cellValue, colIndex) => {
         const cell = dataRow.getCell(colIndex + 1);
         
-        // Check if value is a number (excluding "None" and empty strings)
-        const isNumeric = typeof cellValue === "number" || 
-          (typeof cellValue === "string" && cellValue.trim() !== "" && 
-           cellValue !== "None" && !isNaN(Number(cellValue)) && 
-           cellValue.trim() !== "");
-        
-        if (isNumeric) {
-          // Numbers: black text
-          cell.font = { color: { argb: "FF000000" } };
-          if (typeof cellValue === "number") {
-            cell.numFmt = "#,##0"; // Format numbers with commas
+        // Linked Files column (index 4) - add hyperlinks
+        if (colIndex === 4) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+          if (cellValue && cellValue !== "None" && cellValue.trim() !== "") {
+            // Check if it's a URL or multiple URLs separated by "; "
+            const urls = cellValue.split("; ").filter(url => url && url.trim() !== "");
+            if (urls.length > 0) {
+              // If single URL, create hyperlink
+              if (urls.length === 1) {
+                cell.value = {
+                  text: urls[0],
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              } else {
+                // Multiple URLs - show as text with multiple hyperlinks (ExcelJS limitation: one hyperlink per cell)
+                // Show first URL as hyperlink, others as text
+                cell.value = {
+                  text: cellValue,
+                  hyperlink: urls[0],
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              }
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
           } else {
-            // Convert string number to actual number
-            const numValue = Number(cellValue);
+            cell.value = "None";
+            cell.font = { color: { argb: "FF0000FF" } };
+          }
+        }
+        // DR and CR columns (index 2 and 3)
+        else if (colIndex === 2 || colIndex === 3) {
+          // Right align for DR/CR columns
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          
+          // Check if value is "-" or a number
+          if (cellValue === "-" || cellValue === "") {
+            // Strings: blue text
+            cell.font = { color: { argb: "FF0000FF" } };
+            cell.value = "-";
+          } else {
+            // Numbers: black text
+            cell.font = { color: { argb: "FF000000" } };
+            const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
             cell.value = numValue;
-            cell.numFmt = "#,##0";
+            cell.numFmt = "#,##0"; // Format numbers with commas
           }
         } else {
-          // Strings: blue text
+          // Code and Account columns (index 0 and 1) - left align, blue text
           cell.font = { color: { argb: "FF0000FF" } }; // Blue text
-        }
-        cell.alignment = { vertical: "middle" };
-        if (colIndex === 5) { // Amount column - right align
-          cell.alignment = { vertical: "middle", horizontal: "right" };
+          cell.alignment = { vertical: "middle", horizontal: "left" };
         }
       });
       dataRow.height = 18;
@@ -4767,27 +4740,19 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
     const startX = 50;
     let y = 120;
     const rowHeight = 20;
-    const colWidths = [70, 60, 100, 60, 100, 60, 100, 50, 60, 60, 60, 100];
+    const colWidths = [100, 250, 100, 100]; // Code, Account, DR, CR
 
     const headers = [
-      "Rcls No",
-      "From Code",
-      "From Account",
-      "To Code",
-      "To Account",
-      "Amount",
-      "Reason",
-      "Status",
-      "Posted By",
-      "Posted",
-      "Created",
-      "Evidence",
+      "Code",
+      "Account",
+      "DR",
+      "CR",
     ];
 
     doc.fontSize(8).font("Helvetica-Bold");
     let x = startX;
     headers.forEach((header, i) => {
-      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
       x += colWidths[i];
     });
 
@@ -4810,42 +4775,30 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
         ?.map((f) => f.fileName)
         .join("; ") || "None";
 
-      const drEntries = rc.entries.filter((e) => e.dr > 0);
-      const crEntries = rc.entries.filter((e) => e.cr > 0);
+      if (rc.entries && rc.entries.length > 0) {
+        rc.entries.forEach((entry) => {
+          if (y > 500) {
+            doc.addPage();
+            y = 50;
+            x = startX;
+            doc.fontSize(8).font("Helvetica-Bold");
+            headers.forEach((header, i) => {
+              doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+              x += colWidths[i];
+            });
+            y += rowHeight + 5; // Add spacing after header
+            doc.moveTo(50, y).lineTo(950, y).stroke();
+            y += 5; // Add spacing before first data row
+            doc.font("Helvetica");
+            doc.fontSize(7);
+          }
 
-      drEntries.forEach((drEntry) => {
-        crEntries.forEach((crEntry) => {
-          if (drEntry.dr === crEntry.cr || drEntries.length === 1 || crEntries.length === 1) {
-            if (y > 500) {
-              doc.addPage();
-              y = 50;
-              x = startX;
-              doc.fontSize(8).font("Helvetica-Bold");
-              headers.forEach((header, i) => {
-                doc.text(header, x, y, { width: colWidths[i], align: "left" });
-                x += colWidths[i];
-              });
-              y += rowHeight + 5; // Add spacing after header
-              doc.moveTo(50, y).lineTo(950, y).stroke();
-              y += 5; // Add spacing before first data row
-              doc.font("Helvetica");
-              doc.fontSize(7);
-            }
-
-            const rowData = [
-              rc.reclassificationNo,
-              drEntry.code || "",
-              drEntry.accountName || "",
-              crEntry.code || "",
-              crEntry.accountName || "",
-              drEntry.dr.toLocaleString(),
-              rc.description || drEntry.details || crEntry.details || "",
-              rc.status,
-              postedBy,
-              postedDate,
-              createdDate,
-              evidenceFilenames,
-            ];
+          const rowData = [
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr.toLocaleString() : "-",
+            entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+          ];
 
             // Calculate maximum height needed for this row
             let maxHeight = rowHeight;
@@ -4859,23 +4812,22 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
               maxHeight = Math.max(maxHeight, textHeight);
             });
 
-            // Draw all cells at the same y position
-            x = startX;
-            rowData.forEach((cell, i) => {
-              const cellText = String(cell);
-              doc.text(cellText, x, y, {
-                width: colWidths[i],
-                align: "left",
-                height: maxHeight,
-              });
-              x += colWidths[i];
+          // Draw all cells at the same y position
+          x = startX;
+          rowData.forEach((cell, i) => {
+            const cellText = String(cell);
+            doc.text(cellText, x, y, {
+              width: colWidths[i],
+              align: i >= 2 ? "right" : "left", // DR and CR right-aligned
+              height: maxHeight,
             });
+            x += colWidths[i];
+          });
 
-            // Move y position by the actual height used plus padding
-            y += maxHeight + 3;
-          }
+          // Move y position by the actual height used plus padding
+          y += maxHeight + 3;
         });
-      });
+      }
     });
 
     doc.end();
@@ -4887,6 +4839,903 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
         message: error.message || "Failed to export reclassifications as PDF",
       });
     }
+  }
+};
+
+/**
+ * Helper function to generate ETB PDF buffer
+ */
+async function generateETBPDFBuffer(etb, sanitizedEngagementName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const buffers = [];
+      
+      doc.on("data", buffers.push.bind(buffers));
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+      doc.on("error", reject);
+
+      // Header
+      doc.fontSize(18).text("Extended Trial Balance", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+      doc.moveDown(1);
+
+      // Table headers
+      const startX = 50;
+      let y = 120;
+      const rowHeight = 20;
+      const colWidths = [50, 120, 70, 60, 70, 70, 60, 60, 60, 60, 100];
+
+      const headers = [
+        "Code",
+        "Account Name",
+        "Opening",
+        "Adjustments",
+        "Reclass",
+        "Final",
+        "Group1",
+        "Group2",
+        "Group3",
+        "Group4",
+        "Linked Files",
+      ];
+
+      doc.fontSize(8).font("Helvetica-Bold");
+      let x = startX;
+      headers.forEach((header, i) => {
+        doc.text(header, x, y, { width: colWidths[i], align: "left" });
+        x += colWidths[i];
+      });
+
+      y += rowHeight + 5;
+      doc.moveTo(50, y).lineTo(950, y).stroke();
+      y += 5;
+
+      doc.font("Helvetica");
+      doc.fontSize(7);
+
+      etb.rows.forEach((row) => {
+        if (y > 500) {
+          doc.addPage();
+          y = 50;
+          x = startX;
+          doc.fontSize(8).font("Helvetica-Bold");
+          headers.forEach((header, i) => {
+            doc.text(header, x, y, { width: colWidths[i], align: "left" });
+            x += colWidths[i];
+          });
+          y += rowHeight + 5;
+          doc.moveTo(50, y).lineTo(950, y).stroke();
+          y += 5;
+          doc.font("Helvetica");
+          doc.fontSize(7);
+        }
+
+        const linkedFileNames = (row.linkedExcelFiles && Array.isArray(row.linkedExcelFiles) && row.linkedExcelFiles.length > 0)
+          ? row.linkedExcelFiles.map((file) => (file && file.name) ? file.name : "").filter(Boolean).join("; ") || "None"
+          : "None";
+
+        const rowData = [
+          row.code || "",
+          row.accountName || "",
+          (row.priorYear || 0).toLocaleString(),
+          (row.adjustments || 0).toLocaleString(),
+          (row.reclassification || 0).toLocaleString(),
+          (row.finalBalance || 0).toLocaleString(),
+          row.grouping1 || "",
+          row.grouping2 || "",
+          row.grouping3 || "",
+          row.grouping4 || "",
+          linkedFileNames,
+        ];
+
+        let maxHeight = rowHeight;
+        x = startX;
+        rowData.forEach((cell, i) => {
+          const cellText = String(cell);
+          const textHeight = doc.heightOfString(cellText, {
+            width: colWidths[i],
+            align: "left",
+          });
+          maxHeight = Math.max(maxHeight, textHeight);
+        });
+
+        x = startX;
+        rowData.forEach((cell, i) => {
+          const cellText = String(cell);
+          doc.text(cellText, x, y, {
+            width: colWidths[i],
+            align: i >= 2 && i <= 5 ? "right" : "left",
+            height: maxHeight,
+          });
+          x += colWidths[i];
+        });
+
+        y += maxHeight + 3;
+      });
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
+ * Helper function to generate Adjustments PDF buffer
+ */
+async function generateAdjustmentsPDFBuffer(adjustments, sanitizedEngagementName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const buffers = [];
+      
+      doc.on("data", buffers.push.bind(buffers));
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+      doc.on("error", reject);
+
+      doc.fontSize(18).text("Adjustments", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+      doc.moveDown(1);
+
+      const startX = 50;
+      let y = 120;
+      const rowHeight = 20;
+      const colWidths = [100, 250, 100, 100];
+
+      const headers = ["Code", "Account", "DR", "CR"];
+
+      doc.fontSize(8).font("Helvetica-Bold");
+      let x = startX;
+      headers.forEach((header, i) => {
+        doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+        x += colWidths[i];
+      });
+
+      y += rowHeight + 5;
+      doc.moveTo(50, y).lineTo(950, y).stroke();
+      y += 5;
+
+      doc.font("Helvetica");
+      doc.fontSize(7);
+
+      adjustments.forEach((adj) => {
+        if (adj.entries && adj.entries.length > 0) {
+          adj.entries.forEach((entry) => {
+            if (y > 500) {
+              doc.addPage();
+              y = 50;
+              x = startX;
+              doc.fontSize(8).font("Helvetica-Bold");
+              headers.forEach((header, i) => {
+                doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+                x += colWidths[i];
+              });
+              y += rowHeight + 5;
+              doc.moveTo(50, y).lineTo(950, y).stroke();
+              y += 5;
+              doc.font("Helvetica");
+              doc.fontSize(7);
+            }
+
+            const rowData = [
+              entry.code || "",
+              entry.accountName || "",
+              entry.dr > 0 ? entry.dr.toLocaleString() : "-",
+              entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+            ];
+
+            let maxHeight = rowHeight;
+            x = startX;
+            rowData.forEach((cell, i) => {
+              const cellText = String(cell);
+              const textHeight = doc.heightOfString(cellText, {
+                width: colWidths[i],
+                align: "left",
+              });
+              maxHeight = Math.max(maxHeight, textHeight);
+            });
+
+            x = startX;
+            rowData.forEach((cell, i) => {
+              const cellText = String(cell);
+              doc.text(cellText, x, y, {
+                width: colWidths[i],
+                align: i >= 2 ? "right" : "left",
+                height: maxHeight,
+              });
+              x += colWidths[i];
+            });
+
+            y += maxHeight + 3;
+          });
+        }
+      });
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
+ * Helper function to generate Reclassifications PDF buffer
+ */
+async function generateReclassificationsPDFBuffer(reclassifications, sanitizedEngagementName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const buffers = [];
+      
+      doc.on("data", buffers.push.bind(buffers));
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+      doc.on("error", reject);
+
+      doc.fontSize(18).text("Reclassifications", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
+      doc.moveDown(1);
+
+      const startX = 50;
+      let y = 120;
+      const rowHeight = 20;
+      const colWidths = [100, 250, 100, 100];
+
+      const headers = ["Code", "Account", "DR", "CR"];
+
+      doc.fontSize(8).font("Helvetica-Bold");
+      let x = startX;
+      headers.forEach((header, i) => {
+        doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+        x += colWidths[i];
+      });
+
+      y += rowHeight + 5;
+      doc.moveTo(50, y).lineTo(950, y).stroke();
+      y += 5;
+
+      doc.font("Helvetica");
+      doc.fontSize(7);
+
+      reclassifications.forEach((rc) => {
+        if (rc.entries && rc.entries.length > 0) {
+          rc.entries.forEach((entry) => {
+            if (y > 500) {
+              doc.addPage();
+              y = 50;
+              x = startX;
+              doc.fontSize(8).font("Helvetica-Bold");
+              headers.forEach((header, i) => {
+                doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+                x += colWidths[i];
+              });
+              y += rowHeight + 5;
+              doc.moveTo(50, y).lineTo(950, y).stroke();
+              y += 5;
+              doc.font("Helvetica");
+              doc.fontSize(7);
+            }
+
+            const rowData = [
+              entry.code || "",
+              entry.accountName || "",
+              entry.dr > 0 ? entry.dr.toLocaleString() : "-",
+              entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+            ];
+
+            let maxHeight = rowHeight;
+            x = startX;
+            rowData.forEach((cell, i) => {
+              const cellText = String(cell);
+              const textHeight = doc.heightOfString(cellText, {
+                width: colWidths[i],
+                align: "left",
+              });
+              maxHeight = Math.max(maxHeight, textHeight);
+            });
+
+            x = startX;
+            rowData.forEach((cell, i) => {
+              const cellText = String(cell);
+              doc.text(cellText, x, y, {
+                width: colWidths[i],
+                align: i >= 2 ? "right" : "left",
+                height: maxHeight,
+              });
+              x += colWidths[i];
+            });
+
+            y += maxHeight + 3;
+          });
+        }
+      });
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
+ * Export Combined PDFs as ZIP
+ * Generates separate PDF files for ETB, Adjustments, and Reclassifications, then zips them
+ */
+exports.exportCombinedAsPDF = async (req, res, engagementId, sanitizedEngagementName) => {
+  try {
+    // Get all data
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId })
+      .populate({
+        path: "rows.linkedExcelFiles",
+        model: "Workbook",
+        select: "name",
+      })
+      .lean();
+
+    const adjustments = await Adjustment.find({ engagementId }).sort({ createdAt: -1 }).lean();
+    const reclassifications = await Reclassification.find({ engagementId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Generate PDF buffers
+    const [etbBuffer, adjustmentsBuffer, reclassificationsBuffer] = await Promise.all([
+      etb && etb.rows && etb.rows.length > 0
+        ? generateETBPDFBuffer(etb, sanitizedEngagementName)
+        : null,
+      adjustments && adjustments.length > 0
+        ? generateAdjustmentsPDFBuffer(adjustments, sanitizedEngagementName)
+        : null,
+      reclassifications && reclassifications.length > 0
+        ? generateReclassificationsPDFBuffer(reclassifications, sanitizedEngagementName)
+        : null,
+    ]);
+
+    // Create ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 },
+    });
+
+    // Set response headers
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_Combined_Reports.pdf.zip"`
+    );
+
+    archive.pipe(res);
+
+    // Add PDFs to archive with engagementId as prefix
+    if (etbBuffer) {
+      archive.append(etbBuffer, { name: `${engagementId}_Extended Trial Balance.pdf` });
+    }
+    if (adjustmentsBuffer) {
+      archive.append(adjustmentsBuffer, { name: `${engagementId}_Adjustments.pdf` });
+    }
+    if (reclassificationsBuffer) {
+      archive.append(reclassificationsBuffer, {
+        name: `${engagementId}_Reclassifications.pdf`,
+      });
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+  } catch (error) {
+    console.error("Error exporting combined PDFs:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export combined PDFs",
+      });
+    }
+  }
+};
+
+/**
+ * Export Combined Excel with Extended Trial Balance, Adjustments, and Reclassifications as multiple sheets
+ * GET /api/engagements/:id/export/combined?format=xlsx|pdf
+ */
+exports.exportCombined = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { format } = req.query; // 'xlsx' or 'pdf'
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // If format is PDF, export as ZIP with separate PDF files
+    if (format === "pdf") {
+      return await exports.exportCombinedAsPDF(req, res, engagementId, sanitizedEngagementName);
+    }
+
+    // Create workbook with ExcelJS
+    const workbook = new ExcelJS.Workbook();
+
+    // Create worksheets first (order determines tab order)
+    const etbWorksheet = workbook.addWorksheet("Extended Trial Balance");
+    const adjWorksheet = workbook.addWorksheet("Adjustments");
+    const rclsWorksheet = workbook.addWorksheet("Reclassifications");
+
+    // Maps to track first row number for each account code (populated when building sheets)
+    const adjCodeToRowMap = new Map();
+    const rclsCodeToRowMap = new Map();
+
+    // ========== Build Sheet 2: Adjustments first (to populate map) ==========
+    const adjustments = await Adjustment.find({ engagementId }).sort({ createdAt: -1 }).lean();
+    const adjHeaders = [
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
+    ];
+
+    adjWorksheet.columns = [
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
+      { width: 50 }, // Linked Files
+    ];
+
+    const adjRows = [];
+    
+    for (const adj of adjustments) {
+      // Get evidence file info (fileName and fileUrl) for this adjustment
+      const evidenceFiles = adj.evidenceFiles && adj.evidenceFiles.length > 0
+        ? adj.evidenceFiles.filter(f => f.fileName && f.fileUrl).map(f => ({
+            fileName: f.fileName,
+            fileUrl: f.fileUrl
+          }))
+        : [];
+      
+      if (adj.entries && adj.entries.length > 0) {
+        for (const entry of adj.entries) {
+          const rowNum = adjRows.length + 2; // +2 because row 1 is header, rows start at 2
+          const code = entry.code || "";
+          
+          // Track first occurrence of each code
+          if (code && !adjCodeToRowMap.has(code)) {
+            adjCodeToRowMap.set(code, rowNum);
+          }
+          
+          adjRows.push([
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFiles.length > 0 ? evidenceFiles : null,
+          ]);
+        }
+      }
+    }
+
+    if (adjRows.length > 0) {
+      // Style header row
+      const adjHeaderRow = adjWorksheet.addRow(adjHeaders);
+      adjHeaderRow.font = { bold: true, color: { argb: "FF000000" } };
+      adjHeaderRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD3D3D3" },
+      };
+      adjHeaderRow.alignment = { vertical: "middle", horizontal: "center" };
+      adjHeaderRow.height = 20;
+
+      // Enable auto filter
+      adjWorksheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: adjHeaders.length },
+      };
+
+      // Add data rows with styling
+      adjRows.forEach((row, rowIndex) => {
+        const dataRow = adjWorksheet.addRow(row);
+        const isEvenRow = rowIndex % 2 === 0;
+        const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5";
+        dataRow.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: rowBgColor },
+        };
+
+        row.forEach((cellValue, colIndex) => {
+          const cell = dataRow.getCell(colIndex + 1);
+          
+          // Linked Files column (index 4) - add hyperlinks with file names
+          if (colIndex === 4) {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+            if (cellValue && Array.isArray(cellValue) && cellValue.length > 0) {
+              // cellValue is an array of {fileName, fileUrl} objects
+              const fileNames = cellValue.map(f => f.fileName).filter(Boolean);
+              const firstFileUrl = cellValue[0]?.fileUrl;
+              
+              if (fileNames.length > 0 && firstFileUrl) {
+                // Display file names separated by "; "
+                const displayText = fileNames.join("; ");
+                cell.value = {
+                  text: displayText,
+                  hyperlink: firstFileUrl,
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              } else {
+                cell.value = "None";
+                cell.font = { color: { argb: "FF0000FF" } };
+              }
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
+          }
+          // DR and CR columns (index 2 and 3)
+          else if (colIndex === 2 || colIndex === 3) {
+            // Right align for DR/CR columns
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            
+            // Check if value is "-" or a number
+            if (cellValue === "-" || cellValue === "") {
+              // Strings: blue text
+              cell.font = { color: { argb: "FF0000FF" } };
+              cell.value = "-";
+            } else {
+              // Numbers: black text
+              cell.font = { color: { argb: "FF000000" } };
+              const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
+              cell.value = numValue;
+              cell.numFmt = "#,##0"; // Format numbers with commas
+            }
+          } else {
+            // Code and Account columns (index 0 and 1) - left align, blue text
+            cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+          }
+        });
+        dataRow.height = 18;
+      });
+    } else {
+      const emptyRow = adjWorksheet.addRow(["No adjustments data available"]);
+      emptyRow.font = { color: { argb: "FF000000" } };
+    }
+
+    // ========== Sheet 3: Reclassifications ==========
+    const reclassifications = await Reclassification.find({ engagementId })
+      .sort({ createdAt: -1 })
+      .lean();
+    const rclsHeaders = [
+      "Code",
+      "Account",
+      "DR",
+      "CR",
+      "Linked Files",
+    ];
+
+    rclsWorksheet.columns = [
+      { width: 15 }, // Code
+      { width: 30 }, // Account
+      { width: 15 }, // DR
+      { width: 15 }, // CR
+      { width: 50 }, // Linked Files
+    ];
+
+    const rclsRows = [];
+    
+    for (const rc of reclassifications) {
+      // Get evidence file info (fileName and fileUrl) for this reclassification
+      const evidenceFiles = rc.evidenceFiles && rc.evidenceFiles.length > 0
+        ? rc.evidenceFiles.filter(f => f.fileName && f.fileUrl).map(f => ({
+            fileName: f.fileName,
+            fileUrl: f.fileUrl
+          }))
+        : [];
+      
+      if (rc.entries && rc.entries.length > 0) {
+        for (const entry of rc.entries) {
+          const rowNum = rclsRows.length + 2; // +2 because row 1 is header, rows start at 2
+          const code = entry.code || "";
+          
+          // Track first occurrence of each code
+          if (code && !rclsCodeToRowMap.has(code)) {
+            rclsCodeToRowMap.set(code, rowNum);
+          }
+          
+          rclsRows.push([
+            entry.code || "",
+            entry.accountName || "",
+            entry.dr > 0 ? entry.dr : "-",
+            entry.cr > 0 ? entry.cr : "-",
+            evidenceFiles.length > 0 ? evidenceFiles : null,
+          ]);
+        }
+      }
+    }
+
+    if (rclsRows.length > 0) {
+      // Style header row
+      const rclsHeaderRow = rclsWorksheet.addRow(rclsHeaders);
+      rclsHeaderRow.font = { bold: true, color: { argb: "FF000000" } };
+      rclsHeaderRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD3D3D3" },
+      };
+      rclsHeaderRow.alignment = { vertical: "middle", horizontal: "center" };
+      rclsHeaderRow.height = 20;
+
+      // Enable auto filter
+      rclsWorksheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: rclsHeaders.length },
+      };
+
+      // Add data rows with styling
+      rclsRows.forEach((row, rowIndex) => {
+        const dataRow = rclsWorksheet.addRow(row);
+        const isEvenRow = rowIndex % 2 === 0;
+        const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5";
+        dataRow.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: rowBgColor },
+        };
+
+        row.forEach((cellValue, colIndex) => {
+          const cell = dataRow.getCell(colIndex + 1);
+          
+          // Linked Files column (index 4) - add hyperlinks with file names
+          if (colIndex === 4) {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+            if (cellValue && Array.isArray(cellValue) && cellValue.length > 0) {
+              // cellValue is an array of {fileName, fileUrl} objects
+              const fileNames = cellValue.map(f => f.fileName).filter(Boolean);
+              const firstFileUrl = cellValue[0]?.fileUrl;
+              
+              if (fileNames.length > 0 && firstFileUrl) {
+                // Display file names separated by "; "
+                const displayText = fileNames.join("; ");
+                cell.value = {
+                  text: displayText,
+                  hyperlink: firstFileUrl,
+                };
+                cell.font = { color: { argb: "FF0000FF" }, underline: true };
+              } else {
+                cell.value = "None";
+                cell.font = { color: { argb: "FF0000FF" } };
+              }
+            } else {
+              cell.value = "None";
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
+          }
+          // DR and CR columns (index 2 and 3)
+          else if (colIndex === 2 || colIndex === 3) {
+            // Right align for DR/CR columns
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            
+            // Check if value is "-" or a number
+            if (cellValue === "-" || cellValue === "") {
+              // Strings: blue text
+              cell.font = { color: { argb: "FF0000FF" } };
+              cell.value = "-";
+            } else {
+              // Numbers: black text
+              cell.font = { color: { argb: "FF000000" } };
+              const numValue = typeof cellValue === "number" ? cellValue : Number(cellValue);
+              cell.value = numValue;
+              cell.numFmt = "#,##0"; // Format numbers with commas
+            }
+          } else {
+            // Code and Account columns (index 0 and 1) - left align, blue text
+            cell.font = { color: { argb: "FF0000FF" } }; // Blue text
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+          }
+        });
+        dataRow.height = 18;
+      });
+    } else {
+      const emptyRow = rclsWorksheet.addRow(["No reclassifications data available"]);
+      emptyRow.font = { color: { argb: "FF000000" } };
+    }
+
+    // ========== Build Sheet 1: Extended Trial Balance (using maps for hyperlinks) ==========
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId })
+      .populate({
+        path: "rows.linkedExcelFiles",
+        model: "Workbook",
+        select: "name",
+      })
+      .lean();
+
+    const etbHeaders = [
+      "Code",
+      "Account Name",
+      "Opening Balances",
+      "Adjustments",
+      "Reclassifications",
+      "Final Balances",
+      "Grouping1",
+      "Grouping2",
+      "Grouping3",
+      "Grouping4",
+      "Linked Files",
+    ];
+
+    etbWorksheet.columns = [
+      { width: 15 }, { width: 30 }, { width: 18 }, { width: 15 },
+      { width: 18 }, { width: 18 }, { width: 20 }, { width: 20 },
+      { width: 20 }, { width: 20 }, { width: 40 },
+    ];
+
+    if (etb && etb.rows && etb.rows.length > 0) {
+      const etbRows = etb.rows.map((row) => {
+        const linkedFileNames = row.linkedExcelFiles
+          ?.map((file) => file.name || "")
+          .filter(Boolean)
+          .join("; ") || "None";
+        return [
+          row.code || "",
+          row.accountName || "",
+          row.priorYear || 0,
+          row.adjustments || 0,
+          row.reclassification || 0,
+          row.finalBalance || 0,
+          row.grouping1 || "",
+          row.grouping2 || "",
+          row.grouping3 || "",
+          row.grouping4 || "",
+          linkedFileNames,
+        ];
+      });
+
+      // Style header row
+      const etbHeaderRow = etbWorksheet.addRow(etbHeaders);
+      etbHeaderRow.font = { bold: true, color: { argb: "FF000000" } };
+      etbHeaderRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD3D3D3" },
+      };
+      etbHeaderRow.alignment = { vertical: "middle", horizontal: "center" };
+      etbHeaderRow.height = 20;
+
+      // Enable auto filter
+      etbWorksheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: etbHeaders.length },
+      };
+
+      // Add data rows with styling and hyperlinks
+      etbRows.forEach((row, rowIndex) => {
+        const dataRow = etbWorksheet.addRow(row);
+        const isEvenRow = rowIndex % 2 === 0;
+        const rowBgColor = isEvenRow ? "FFFFFFFF" : "FFF5F5F5";
+        dataRow.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: rowBgColor },
+        };
+
+        const etbRow = etb.rows[rowIndex];
+        const accountCode = etbRow?.code || "";
+
+        row.forEach((cellValue, colIndex) => {
+          const cell = dataRow.getCell(colIndex + 1);
+          const isNumeric = typeof cellValue === "number" ||
+            (typeof cellValue === "string" && cellValue.trim() !== "" &&
+             cellValue !== "None" && !isNaN(Number(cellValue)) &&
+             cellValue.trim() !== "");
+          
+          // Column 3 (index 3) is Adjustments, Column 4 (index 4) is Reclassifications
+          if (colIndex === 3 && isNumeric && cellValue !== 0 && accountCode) {
+            // Add hyperlink to Adjustments sheet
+            const targetRow = adjCodeToRowMap.get(accountCode);
+            if (targetRow) {
+              // ExcelJS internal hyperlink format: #SheetName!CellReference
+              const cellRef = `#Adjustments!A${targetRow}`;
+              cell.value = {
+                text: typeof cellValue === "number" ? cellValue.toLocaleString() : String(cellValue),
+                hyperlink: cellRef,
+              };
+              cell.font = { color: { argb: "FF0000FF" }, underline: true }; // Blue, underlined
+              cell.numFmt = "#,##0";
+            } else {
+              // No hyperlink, just set value normally
+              cell.font = { color: { argb: "FF000000" } };
+              if (typeof cellValue === "number") {
+                cell.numFmt = "#,##0";
+              } else {
+                const numValue = Number(cellValue);
+                cell.value = numValue;
+                cell.numFmt = "#,##0";
+              }
+            }
+          } else if (colIndex === 4 && isNumeric && cellValue !== 0 && accountCode) {
+            // Add hyperlink to Reclassifications sheet
+            const targetRow = rclsCodeToRowMap.get(accountCode);
+            if (targetRow) {
+              // ExcelJS internal hyperlink format: #SheetName!CellReference
+              const cellRef = `#Reclassifications!A${targetRow}`;
+              cell.value = {
+                text: typeof cellValue === "number" ? cellValue.toLocaleString() : String(cellValue),
+                hyperlink: cellRef,
+              };
+              cell.font = { color: { argb: "FF0000FF" }, underline: true }; // Blue, underlined
+              cell.numFmt = "#,##0";
+            } else {
+              // No hyperlink, just set value normally
+              cell.font = { color: { argb: "FF000000" } };
+              if (typeof cellValue === "number") {
+                cell.numFmt = "#,##0";
+              } else {
+                const numValue = Number(cellValue);
+                cell.value = numValue;
+                cell.numFmt = "#,##0";
+              }
+            }
+          } else {
+            // Regular cell formatting
+            if (isNumeric) {
+              cell.font = { color: { argb: "FF000000" } };
+              if (typeof cellValue === "number") {
+                cell.numFmt = "#,##0";
+              } else {
+                const numValue = Number(cellValue);
+                cell.value = numValue;
+                cell.numFmt = "#,##0";
+              }
+            } else {
+              cell.font = { color: { argb: "FF0000FF" } };
+            }
+          }
+          
+          cell.alignment = { vertical: "middle" };
+          if ([2, 3, 4, 5].includes(colIndex)) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+          }
+        });
+        dataRow.height = 18;
+      });
+    } else {
+      // Empty sheet
+      const emptyRow = etbWorksheet.addRow(["No Extended Trial Balance data available"]);
+      emptyRow.font = { color: { argb: "FF000000" } };
+    }
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}.xlsx"`
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exporting combined Excel:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to export combined Excel file",
+    });
   }
 };
 

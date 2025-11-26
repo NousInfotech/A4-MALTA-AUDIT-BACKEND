@@ -87,6 +87,7 @@ router.get("/:id/etb", requireAuth, ec.getETB);
 
 // Export routes
 router.get("/:id/export/all", requireAuth, ec.exportAll); // Deprecated - kept for backward compatibility
+router.get("/:id/export/combined", requireAuth, ec.exportCombined);
 router.get("/:id/export/etb", requireAuth, ec.exportETB);
 router.get("/:id/export/adjustments", requireAuth, ec.exportAdjustments);
 router.get("/:id/export/reclassifications", requireAuth, ec.exportReclassifications);
