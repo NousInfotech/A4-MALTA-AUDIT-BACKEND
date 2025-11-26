@@ -84,11 +84,11 @@ const convertSharesDataToArray = (inputSharesData, totalIssuedShares = 0) => {
         inputSharesData.totalShares !== undefined
           ? Number(inputSharesData.totalShares)
           : inputSharesData.percentage
-          ? Math.round(
+            ? Math.round(
               ((Number(inputSharesData.percentage) || 0) / 100) *
-                totalIssuedShares
+              totalIssuedShares
             )
-          : 0;
+            : 0;
 
       defaultArray[index] = {
         totalShares: totalShares,
@@ -142,7 +142,6 @@ exports.getAllPersons = async (req, res) => {
             (id) => new mongoose.Types.ObjectId(id)
           );
           persons = await Person.find({
-            clientId,
             organizationId: organizationId,
             _id: { $in: personObjectIds },
           }).sort({ createdAt: -1 });
@@ -168,8 +167,8 @@ exports.getAllPersons = async (req, res) => {
               const roleArray = Array.isArray(rs.role)
                 ? rs.role
                 : rs.role
-                ? [rs.role]
-                : [];
+                  ? [rs.role]
+                  : [];
               return [...acc, ...roleArray];
             }, []);
 
@@ -183,7 +182,7 @@ exports.getAllPersons = async (req, res) => {
       }
     } else {
       // If no companyId, return all persons for the client
-      persons = await Person.find({ clientId, organizationId }).sort({
+      persons = await Person.find({ organizationId }).sort({
         createdAt: -1,
       });
     }
@@ -213,7 +212,7 @@ exports.getPersonById = async (req, res) => {
 
     const person = await Person.findOne({
       _id: personId,
-      clientId,
+      organizationId: req.user.organizationId,
     });
 
     if (!person) {
@@ -247,8 +246,8 @@ exports.getPersonById = async (req, res) => {
           const roleArray = Array.isArray(rs.role)
             ? rs.role
             : rs.role
-            ? [rs.role]
-            : [];
+              ? [rs.role]
+              : [];
           return [...acc, ...roleArray];
         }, []);
 
