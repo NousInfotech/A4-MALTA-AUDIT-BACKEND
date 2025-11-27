@@ -463,6 +463,7 @@ exports.createCompany = async (req, res) => {
       description,
     } = req.body;
 
+    // Required validation
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -470,42 +471,48 @@ exports.createCompany = async (req, res) => {
       });
     }
 
-    const {
-      normalizedShares: normalizedTotalShares,
-      totalIssuedShares,
-    } = normalizeCompanyTotalShares(totalShares);
+    // Optional totalShares handling
+    let normalizedTotalShares = [];
+    let totalIssuedShares = 0;
 
-    // Normalize shareHoldingCompanies to use sharesData array structure
-    // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
-    const formattedShareholdings = Array.isArray(shareHoldingCompanies)
-      ? shareHoldingCompanies.map((s) => {
-          const companyId =
-            typeof s.companyId === "object" ? s.companyId._id : s.companyId;
+    if (totalShares) {
+      const normalized = normalizeCompanyTotalShares(totalShares);
+      normalizedTotalShares = normalized.normalizedShares || [];
+      totalIssuedShares = normalized.totalIssuedShares || 0;
+    }
 
-          // Convert sharesData to array format
-          // Frontend format: {totalShares, shareClass}[] or {totalShares, shareClass, shareType}[]
-          const sharesDataArray = mergeSharesData(
-            s.sharesData || s,
-            totalIssuedShares
-          );
+    // Optional shareHoldingCompanies handling
+    const formattedShareholdings =
+      Array.isArray(shareHoldingCompanies) && totalIssuedShares > 0
+        ? shareHoldingCompanies.map((s) => {
+            const companyId =
+              typeof s.companyId === "object" ? s.companyId._id : s.companyId;
 
-          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(
-            sharesDataArray,
-            totalIssuedShares
-          );
+            const sharesDataArray = mergeSharesData(
+              s.sharesData || s,
+              totalIssuedShares
+            );
 
-          return {
-            companyId: companyId,
-            sharePercentage: sharePercentage,
-            sharesData: sharesDataArray,
-          };
-        })
-      : [];
+            const sharePercentage =
+              totalIssuedShares > 0
+                ? calculateSharePercentage(
+                    sharesDataArray,
+                    totalIssuedShares
+                  )
+                : 0;
+
+            return {
+              companyId,
+              sharePercentage,
+              sharesData: sharesDataArray,
+            };
+          })
+        : [];
 
     const normalizedIndustry = normalizeOptionalString(industry);
     const trimmedDescription = normalizeOptionalString(description);
 
+    // Create Company
     const company = new Company({
       clientId,
       name,
@@ -518,10 +525,9 @@ exports.createCompany = async (req, res) => {
       industry: normalizedIndustry,
       description: trimmedDescription,
       shareHoldingCompanies: formattedShareholdings,
-      shareHolders: [], // Will be populated separately when persons are added
-      representationalSchema: [], // Will be populated separately when persons are added
-      representationalCompany: [], // Will be populated separately when companies are added
-      // Note: status and timelineEnd are not in the model, ignoring them
+      shareHolders: [],
+      representationalSchema: [],
+      representationalCompany: [],
     });
 
     await company.save();
@@ -540,6 +546,7 @@ exports.createCompany = async (req, res) => {
     });
   }
 };
+
 
 /**
  * Update a company

@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Person = require("../models/Person");
 const Company = require("../models/Company");
 const KnowYourClient = require("../models/KnowYourClient");
+const { ObjectId } = mongoose.Types;
 
 // Helper function to create default sharesData array (6 combinations: 3 classes × 2 types)
 const createDefaultSharesData = () => {
