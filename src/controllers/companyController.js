@@ -275,7 +275,8 @@ const mergeSharesData = (
         }
       }
     });
-    return defaultArray;
+    // Filter out entries with totalShares = 0 before returning
+    return defaultArray.filter((item) => item && Number(item.totalShares) > 0);
   }
 
   // If input is a single object (backward compatibility)
@@ -859,13 +860,14 @@ exports.updateCompany = async (req, res) => {
  * DELETE /api/client/:clientId/company/:companyId
  */
 exports.deleteCompany = async (req, res) => {
+  const organizationId = new ObjectId(req.user.organizationId);
   try {
     const { companyId } = req.params;
 
     // Find the company first
     const company = await Company.findOne({
       _id: companyId,
-      organizationId: new ObjectId(req.user.organizationId),
+      organizationId: organizationId,
     });
 
     if (!company) {
@@ -905,7 +907,7 @@ exports.deleteCompany = async (req, res) => {
     // Remove this company from any shareholding relationships in other companies
     await Company.updateMany(
       {
-        clientId,
+        organizationId: organizationId,
         "shareHoldingCompanies.companyId": companyId,
       },
       {
@@ -918,7 +920,7 @@ exports.deleteCompany = async (req, res) => {
     // Remove this company from representationalCompany in other companies
     await Company.updateMany(
       {
-        clientId,
+        organizationId: organizationId,
         "representationalCompany.companyId": companyId,
       },
       {
@@ -932,7 +934,7 @@ exports.deleteCompany = async (req, res) => {
       // Remove these persons from representational schemas in other companies
       await Company.updateMany(
         {
-          clientId,
+          organizationId: organizationId,
           _id: { $ne: companyId },
         },
         {
@@ -947,7 +949,7 @@ exports.deleteCompany = async (req, res) => {
       // Remove these persons from shareHolders in other companies
       await Company.updateMany(
         {
-          clientId,
+          organizationId: organizationId,
           _id: { $ne: companyId },
         },
         {
@@ -968,7 +970,7 @@ exports.deleteCompany = async (req, res) => {
 
       for (const personObjectId of personObjectIds) {
         const stillReferenced = await Company.exists({
-          clientId,
+          organizationId: organizationId,
           $or: [
             { "shareHolders.personId": personObjectId },
             { "representationalSchema.personId": personObjectId },
@@ -982,7 +984,7 @@ exports.deleteCompany = async (req, res) => {
 
       if (removablePersonIds.length > 0) {
         await Person.deleteMany({
-          clientId,
+          organizationId: organizationId,
           _id: { $in: removablePersonIds },
         });
       }

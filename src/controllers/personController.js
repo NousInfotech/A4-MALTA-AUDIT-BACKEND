@@ -634,13 +634,14 @@ exports.updatePerson = async (req, res) => {
  * DELETE /api/client/:clientId/company/:companyId/person/:personId (for backward compatibility)
  */
 exports.deletePerson = async (req, res) => {
+  const organizationId = new ObjectId(req.user.organizationId);
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
 
     // Find person first (before deletion) to get company references
     const person = await Person.findOne({
       _id: personId,
-      clientId,
+      organizationId: organizationId,
     });
 
     if (!person) {
@@ -681,7 +682,7 @@ exports.deletePerson = async (req, res) => {
     // Now delete the person (Person's arrays will be deleted with the document)
     await Person.findOneAndDelete({
       _id: personId,
-      clientId,
+      organizationId: organizationId,
     });
 
     await KnowYourClient.updateMany(
