@@ -861,6 +861,68 @@ exports.updateCompany = async (req, res) => {
     });
   }
 };
+/**
+ * Update a company's clientId
+ * PUT /api/client/:clientId/company/:companyId/primary
+ */
+exports.updateCompanyClientId = async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const { clientId } = req.body;
+    const organizationId = new ObjectId(req.user.organizationId);
+
+    if (!clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Client ID is required",
+      });
+    }
+
+    const company = await Company.findOne({
+      _id: companyId,
+      organizationId,
+    });
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
+      });
+    }
+
+    if (company.clientId === clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Company already has this client ID",
+      });
+    }
+
+    if (company.clientId !== "non-primary") {
+      return res.status(400).json({
+        success: false,
+        message: `Company already belongs to ${company.clientId}`,
+      });
+    }
+
+    company.clientId = clientId;
+    await company.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Company updated successfully",
+      data: company,
+    });
+
+  } catch (error) {
+    console.error("Error updating company:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update company",
+      error: error.message,
+    });
+  }
+};
+
 
 /**
  * Delete a company
@@ -2238,7 +2300,6 @@ exports.searchCompaniesGlobal = async (req, res) => {
       ];
     }
 
-    console.log(searchQuery);
 
     const companies = await Company.find(searchQuery)
       .select("_id name registrationNumber")
