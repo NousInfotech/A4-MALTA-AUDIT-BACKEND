@@ -668,7 +668,7 @@ exports.getEngagements = async (req, res) => {
 
   const engagements = await Engagement.find({
     organization: req.user.organizationId,
-    clientId: clientId ? new ObjectId(clientId) : undefined,
+    clientId: clientId,
   })
     .skip(skip)
     .limit(limit)
