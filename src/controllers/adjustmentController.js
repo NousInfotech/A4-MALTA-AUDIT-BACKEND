@@ -771,7 +771,15 @@ exports.deleteAdjustment = async (req, res) => {
     // Save the history before deletion
     await adjustment.save({ session });
 
-    // Delete the adjustment
+    // Delete evidence files (they are subdocuments, so they'll be deleted automatically,
+    // but we log this for clarity and to ensure proper cleanup)
+    if (adjustment.evidenceFiles && adjustment.evidenceFiles.length > 0) {
+      console.log(`Deleting ${adjustment.evidenceFiles.length} evidence file(s) for adjustment ${id}`);
+      // Evidence files are subdocuments, so they'll be automatically deleted when the parent document is deleted
+      // No explicit deletion needed, but we log it for audit purposes
+    }
+
+    // Delete the adjustment (this will also automatically delete all evidence files as subdocuments)
     await Adjustment.findByIdAndDelete(id).session(session);
 
     await session.commitTransaction();

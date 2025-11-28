@@ -745,6 +745,15 @@ exports.deleteReclassification = async (req, res) => {
     // Save the history before deletion
     await reclassification.save({ session });
 
+    // Delete evidence files (they are subdocuments, so they'll be deleted automatically,
+    // but we log this for clarity and to ensure proper cleanup)
+    if (reclassification.evidenceFiles && reclassification.evidenceFiles.length > 0) {
+      console.log(`Deleting ${reclassification.evidenceFiles.length} evidence file(s) for reclassification ${id}`);
+      // Evidence files are subdocuments, so they'll be automatically deleted when the parent document is deleted
+      // No explicit deletion needed, but we log it for audit purposes
+    }
+
+    // Delete the reclassification (this will also automatically delete all evidence files as subdocuments)
     await Reclassification.findByIdAndDelete(id).session(session);
 
     await session.commitTransaction();
