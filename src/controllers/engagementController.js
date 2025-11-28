@@ -4069,7 +4069,18 @@ exports.exportETB = async (req, res) => {
  */
 exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
   try {
-    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+    const doc = new PDFDocument({ 
+      margin: 50, 
+      size: "A4", 
+      layout: "landscape",
+      info: {
+        Title: `${sanitizedEngagementName} - Extended Trial Balance`,
+        Author: "Audit System",
+        Subject: "Extended Trial Balance Report",
+        Creator: "Audit System",
+        Producer: "Audit System"
+      }
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -4079,70 +4090,202 @@ exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
 
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(18).text("Extended Trial Balance", { align: "center" });
+    // Add company header
+    doc.fillColor('#1a5276')
+       .fontSize(24)
+       .font('Helvetica-Bold')
+       .text('Extended Trial Balance', { align: 'center' });
+    
+    // Add engagement name with underline
     doc.moveDown(0.5);
-    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-    doc.moveDown(1);
-
-    // Table headers
+    doc.fillColor('#34495e')
+       .fontSize(14)
+       .font('Helvetica')
+       .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+    
+    // Add date
+    doc.moveDown(0.3);
+    doc.fillColor('#7f8c8d')
+       .fontSize(10)
+       .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    
+    // Add a decorative line
+    doc.moveDown(0.5);
+    doc.strokeColor('#1a5276')
+       .lineWidth(1)
+       .moveTo(50, doc.y)
+       .lineTo(750, doc.y)
+       .stroke();
+    
+    doc.moveDown(0.8);
+    
+    // Calculate available width for the table (page width minus margins)
+    const pageWidth = doc.page.width - 100; // 50px margin on each side
+    
+    // Define column widths as percentages of available width (total = 100%)
+    const colPercentages = [0.07, 0.17, 0.11, 0.09, 0.09, 0.11, 0.07, 0.07, 0.07, 0.07, 0.12];
+    let colWidths = colPercentages.map(pct => pageWidth * pct);
+    
+    // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+    const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+    if (Math.abs(totalWidth - pageWidth) > 0.01) {
+      const adjustmentFactor = pageWidth / totalWidth;
+      colWidths = colWidths.map(width => width * adjustmentFactor);
+      // Fine-tune: adjust last column to ensure exact match
+      const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+      colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+    }
+    
+    // Table headers with background color
     const startX = 50;
-    let y = 120;
-    const rowHeight = 20;
-    const colWidths = [50, 120, 70, 60, 70, 70, 60, 60, 60, 60, 100];
+    let y = doc.y;
+    const rowHeight = 25;
 
     // Headers
     const headers = [
       "Code",
       "Account Name",
-      "Opening",
+      "Opening Balances",
       "Adjustments",
-      "Reclass",
-      "Final",
-      "Group1",
-      "Group2",
-      "Group3",
-      "Group4",
+      "Reclassifications",
+      "Final Balances",
+      "Grouping1",
+      "Grouping2",
+      "Grouping3",
+      "Grouping4",
       "Linked Files",
     ];
 
-    doc.fontSize(8).font("Helvetica-Bold");
+    // Draw header background
+    doc.fillColor('#eaf2f8')
+       .rect(startX, y, pageWidth, rowHeight)
+       .fill();
+    
+    // Draw header borders
+    doc.strokeColor('#1a5276')
+       .lineWidth(0.5);
+    
+    // Draw vertical lines for headers
+    // Draw left border
+    doc.moveTo(startX, y)
+       .lineTo(startX, y + rowHeight)
+       .stroke();
+    
+    // Draw vertical lines after each column (column separators)
     let x = startX;
+    for (let i = 0; i < colWidths.length - 1; i++) {
+      x += colWidths[i];
+      // Draw vertical separator line
+      doc.moveTo(x, y)
+         .lineTo(x, y + rowHeight)
+         .stroke();
+    }
+    
+    // Draw right border at exactly startX + pageWidth
+    doc.moveTo(startX + pageWidth, y)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
+    
+    // Draw horizontal lines for headers
+    doc.moveTo(startX, y)
+       .lineTo(startX + pageWidth, y)
+       .stroke();
+    
+    doc.moveTo(startX, y + rowHeight)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
+
+    doc.fillColor('#1a5276')
+       .fontSize(9)
+       .font('Helvetica-Bold');
+    
+    x = startX;
     headers.forEach((header, i) => {
-      doc.text(header, x, y, { width: colWidths[i], align: "left" });
+      // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
       x += colWidths[i];
     });
 
-    y += rowHeight + 5; // Add spacing after header
-    doc.moveTo(50, y).lineTo(950, y).stroke();
-    y += 5; // Add spacing before first data row
+    y += rowHeight + 2; // Add spacing after header
 
-    // Data rows
-    doc.font("Helvetica");
-    doc.fontSize(7);
+    // Data rows with alternating colors and dynamic height
+    doc.font('Helvetica');
     etb.rows.forEach((row, index) => {
-      if (y > 500) {
-        // New page
+      // Check if we need a new page
+      if (y > 450) {
         doc.addPage();
         y = 50;
-        // Redraw headers
+        
+        // Redraw headers on new page
+        doc.fillColor('#eaf2f8')
+           .rect(startX, y, pageWidth, rowHeight)
+           .fill();
+        
+        doc.strokeColor('#1a5276')
+           .lineWidth(0.5);
+        
+        // Draw left border
+        doc.moveTo(startX, y)
+           .lineTo(startX, y + rowHeight)
+           .stroke();
+        
+        // Draw vertical lines after each column (column separators)
+        let x = startX;
+        for (let i = 0; i < colWidths.length - 1; i++) {
+          x += colWidths[i];
+          // Draw vertical separator line
+          doc.moveTo(x, y)
+             .lineTo(x, y + rowHeight)
+             .stroke();
+        }
+        
+        // Draw right border at exactly startX + pageWidth
+        doc.moveTo(startX + pageWidth, y)
+           .lineTo(startX + pageWidth, y + rowHeight)
+           .stroke();
+        
+        doc.moveTo(startX, y)
+           .lineTo(startX + pageWidth, y)
+           .stroke();
+        
+        doc.moveTo(startX, y + rowHeight)
+           .lineTo(startX + pageWidth, y + rowHeight)
+           .stroke();
+
+        doc.fillColor('#1a5276')
+           .fontSize(9)
+           .font('Helvetica-Bold');
+        
         x = startX;
-        doc.fontSize(8).font("Helvetica-Bold");
         headers.forEach((header, i) => {
-          doc.text(header, x, y, { width: colWidths[i], align: "left" });
+          // Center text horizontally in header cells with padding
+          const headerTextHeight = doc.heightOfString(header, {
+            width: colWidths[i] - 6, // 3px padding on each side
+            align: 'center'
+          });
+          const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+          doc.text(header, x + 3, headerTextY, { 
+            width: colWidths[i] - 6, // 3px padding on each side
+            align: 'center' 
+          });
           x += colWidths[i];
         });
-        y += rowHeight + 5; // Add spacing after header
-        doc.moveTo(50, y).lineTo(950, y).stroke();
-        y += 5; // Add spacing before first data row
-        doc.font("Helvetica");
-        doc.fontSize(7);
+        
+        y += rowHeight + 2;
       }
 
-      const linkedFileNames = row.linkedExcelFiles
-        ?.map((file) => file.name || "")
-        .filter(Boolean)
-        .join("; ") || "None";
+      // Get linked file names
+      const linkedFileNames = (row.linkedExcelFiles && Array.isArray(row.linkedExcelFiles) && row.linkedExcelFiles.length > 0)
+        ? row.linkedExcelFiles.map((file) => (file && file.name) ? file.name : "").filter(Boolean).join("; ") || "None"
+        : "None";
 
       const rowData = [
         row.code || "",
@@ -4158,33 +4301,114 @@ exports.exportETBAsPDF = async (req, res, etb, sanitizedEngagementName) => {
         linkedFileNames,
       ];
 
-      // Calculate maximum height needed for this row
+      // Calculate the maximum height needed for this row
       let maxHeight = rowHeight;
       x = startX;
-      rowData.forEach((cell, i) => {
+      
+      // Calculate text height for each cell
+      const textHeights = rowData.map((cell, i) => {
         const cellText = String(cell);
-        const textHeight = doc.heightOfString(cellText, {
-          width: colWidths[i],
-          align: "left",
+        // Add padding to reduce effective width for text calculation
+        const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+        return doc.heightOfString(cellText, {
+          width: effectiveWidth,
+          align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center',
         });
-        maxHeight = Math.max(maxHeight, textHeight);
       });
+      
+      // Find the maximum text height
+      maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
-      // Draw all cells at the same y position
+      // Draw row background with alternating colors
+      if (index % 2 === 0) {
+        doc.fillColor('#ffffff');
+      } else {
+        doc.fillColor('#f8f9f9');
+      }
+      doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+      // Draw row borders
+      doc.strokeColor('#d6eaf8')
+         .lineWidth(0.5);
+      
+      // Draw left border
+      doc.moveTo(startX, y)
+         .lineTo(startX, y + maxHeight)
+         .stroke();
+      
+      // Draw vertical lines after each column (column separators)
+      x = startX;
+      for (let i = 0; i < colWidths.length - 1; i++) {
+        x += colWidths[i];
+        // Draw vertical separator line
+        doc.moveTo(x, y)
+           .lineTo(x, y + maxHeight)
+           .stroke();
+      }
+      
+      // Draw right border at exactly startX + pageWidth
+      doc.moveTo(startX + pageWidth, y)
+         .lineTo(startX + pageWidth, y + maxHeight)
+         .stroke();
+      
+      // Draw horizontal borders
+      doc.moveTo(startX, y)
+         .lineTo(startX + pageWidth, y)
+         .stroke();
+      
+      doc.moveTo(startX, y + maxHeight)
+         .lineTo(startX + pageWidth, y + maxHeight)
+         .stroke();
+
+      // Add row data with proper alignment
       x = startX;
       rowData.forEach((cell, i) => {
         const cellText = String(cell);
-        doc.text(cellText, x, y, {
-          width: colWidths[i],
-          align: "left",
-          height: maxHeight,
+        
+        // Set text color based on content type
+        if (i >= 2 && i <= 5) {
+          // Numeric columns - black text
+          doc.fillColor('#2c3e50');
+        } else {
+          // Text columns - blue text
+          doc.fillColor('#3498db');
+        }
+        
+        // Set font size based on content length
+        if (cellText.length > 50) {
+          doc.fontSize(7);
+        } else {
+          doc.fontSize(8);
+        }
+        
+        // Calculate text position with vertical centering
+        const textHeight = doc.heightOfString(cellText, {
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center'
         });
+        const textY = y + (maxHeight - textHeight) / 2;
+        
+        // Add text with proper alignment
+        doc.text(cellText, x + 3, textY, {
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center'
+        });
+        
         x += colWidths[i];
       });
 
       // Move y position by the actual height used plus padding
-      y += maxHeight + 3;
+      y += maxHeight + 2;
     });
+
+    // Add footer
+    doc.fillColor('#7f8c8d')
+       .fontSize(8)
+       .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+    
+    doc.fillColor('#3498db')
+       .fontSize(8)
+       .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
     doc.end();
   } catch (error) {
@@ -4400,7 +4624,18 @@ exports.exportAdjustments = async (req, res) => {
  */
 exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngagementName) => {
   try {
-    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+    const doc = new PDFDocument({ 
+      margin: 50, 
+      size: "A4", 
+      layout: "landscape",
+      info: {
+        Title: `${sanitizedEngagementName} - Adjustments`,
+        Author: "Audit System",
+        Subject: "Adjustments Report",
+        Creator: "Audit System",
+        Producer: "Audit System"
+      }
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -4410,103 +4645,320 @@ exports.exportAdjustmentsAsPDF = async (req, res, adjustments, sanitizedEngageme
 
     doc.pipe(res);
 
-    doc.fontSize(18).text("Adjustments", { align: "center" });
+    // Add company header
+    doc.fillColor('#1a5276')
+       .fontSize(24)
+       .font('Helvetica-Bold')
+       .text('Adjustments', { align: 'center' });
+    
+    // Add engagement name with underline
     doc.moveDown(0.5);
-    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-    doc.moveDown(1);
-
+    doc.fillColor('#34495e')
+       .fontSize(14)
+       .font('Helvetica')
+       .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+    
+    // Add date
+    doc.moveDown(0.3);
+    doc.fillColor('#7f8c8d')
+       .fontSize(10)
+       .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    
+    // Add a decorative line
+    doc.moveDown(0.5);
+    doc.strokeColor('#1a5276')
+       .lineWidth(1)
+       .moveTo(50, doc.y)
+       .lineTo(750, doc.y)
+       .stroke();
+    
+    doc.moveDown(0.8);
+    
+    // Calculate available width for the table (page width minus margins)
+    const pageWidth = doc.page.width - 100; // 50px margin on each side
+    
+    // Define column widths as percentages of available width
+    const colPercentages = [0.12, 0.28, 0.20, 0.20, 0.20];
+    let colWidths = colPercentages.map(pct => pageWidth * pct);
+    
+    // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+    const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+    if (Math.abs(totalWidth - pageWidth) > 0.01) {
+      const adjustmentFactor = pageWidth / totalWidth;
+      colWidths = colWidths.map(width => width * adjustmentFactor);
+      // Fine-tune: adjust last column to ensure exact match
+      const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+      colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+    }
+    
+    // Table headers with background color
     const startX = 50;
-    let y = 120;
-    const rowHeight = 20;
-    const colWidths = [100, 250, 100, 100]; // Code, Account, DR, CR
+    let y = doc.y;
+    const rowHeight = 25;
+    
+    // Draw header background
+    doc.fillColor('#eaf2f8')
+       .rect(startX, y, pageWidth, rowHeight)
+       .fill();
+    
+    // Draw header borders
+    doc.strokeColor('#1a5276')
+       .lineWidth(0.5);
+    
+    // Draw vertical lines for headers (left border and column separators)
+    // Draw left border
+    doc.moveTo(startX, y)
+       .lineTo(startX, y + rowHeight)
+       .stroke();
+    
+    // Draw vertical lines after each column (column separators)
+    let x = startX;
+    for (let i = 0; i < colWidths.length - 1; i++) {
+      x += colWidths[i];
+      // Draw vertical separator line
+      doc.moveTo(x, y)
+         .lineTo(x, y + rowHeight)
+         .stroke();
+    }
+    
+    // Draw right border at exactly startX + pageWidth
+    doc.moveTo(startX + pageWidth, y)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
+    
+    // Draw horizontal lines for headers
+    doc.moveTo(startX, y)
+       .lineTo(startX + pageWidth, y)
+       .stroke();
+    
+    doc.moveTo(startX, y + rowHeight)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
 
+    // Headers
     const headers = [
       "Code",
       "Account",
       "DR",
       "CR",
+      "Linked Files",
     ];
 
-    doc.fontSize(8).font("Helvetica-Bold");
-    let x = startX;
+    doc.fillColor('#1a5276')
+       .fontSize(9)
+       .font('Helvetica-Bold');
+    
+    x = startX;
     headers.forEach((header, i) => {
-      doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+      // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
       x += colWidths[i];
     });
 
-    y += rowHeight + 5; // Add spacing after header
-    doc.moveTo(50, y).lineTo(950, y).stroke();
-    y += 5; // Add spacing before first data row
+    y += rowHeight + 2; // Add spacing after header
 
-    doc.font("Helvetica");
-    doc.fontSize(7);
+    // Data rows with alternating colors and dynamic height
+    doc.font('Helvetica');
+    let rowIndex = 0;
     adjustments.forEach((adj) => {
-      const postedHistory = adj.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = adj.createdAt
-        ? new Date(adj.createdAt).toLocaleDateString()
-        : "N/A";
-      const evidenceFilenames = adj.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
       if (adj.entries && adj.entries.length > 0) {
         adj.entries.forEach((entry) => {
-          if (y > 500) {
+          // Check if we need a new page
+          if (y > 450) {
             doc.addPage();
             y = 50;
+            
+            // Redraw headers on new page
+            doc.fillColor('#eaf2f8')
+               .rect(startX, y, pageWidth, rowHeight)
+               .fill();
+            
+            doc.strokeColor('#1a5276')
+               .lineWidth(0.5);
+            
+            // Draw left border
+            doc.moveTo(startX, y)
+               .lineTo(startX, y + rowHeight)
+               .stroke();
+            
+            // Draw vertical lines after each column (column separators)
+            let x = startX;
+            for (let i = 0; i < colWidths.length - 1; i++) {
+              x += colWidths[i];
+              // Draw vertical separator line
+              doc.moveTo(x, y)
+                 .lineTo(x, y + rowHeight)
+                 .stroke();
+            }
+            
+            // Draw right border at exactly startX + pageWidth
+            doc.moveTo(startX + pageWidth, y)
+               .lineTo(startX + pageWidth, y + rowHeight)
+               .stroke();
+            
+            doc.moveTo(startX, y)
+               .lineTo(startX + pageWidth, y)
+               .stroke();
+            
+            doc.moveTo(startX, y + rowHeight)
+               .lineTo(startX + pageWidth, y + rowHeight)
+               .stroke();
+
+            doc.fillColor('#1a5276')
+               .fontSize(9)
+               .font('Helvetica-Bold');
+            
             x = startX;
-            doc.fontSize(8).font("Helvetica-Bold");
             headers.forEach((header, i) => {
-              doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+              // Center text horizontally in header cells
+              // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
               x += colWidths[i];
             });
-            y += rowHeight + 5; // Add spacing after header
-            doc.moveTo(50, y).lineTo(950, y).stroke();
-            y += 5; // Add spacing before first data row
-            doc.font("Helvetica");
-            doc.fontSize(7);
+            
+            y += rowHeight + 2;
           }
+
+          // Get evidence file names
+          const evidenceFileNames = adj.evidenceFiles && adj.evidenceFiles.length > 0
+            ? adj.evidenceFiles.map(f => f.fileName).filter(Boolean).join("; ") || "None"
+            : "None";
 
           const rowData = [
             entry.code || "",
             entry.accountName || "",
             entry.dr > 0 ? entry.dr.toLocaleString() : "-",
             entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+            evidenceFileNames,
           ];
 
-          // Calculate maximum height needed for this row
+          // Calculate the maximum height needed for this row
           let maxHeight = rowHeight;
           x = startX;
-          rowData.forEach((cell, i) => {
+          
+          // Calculate text height for each cell
+          const textHeights = rowData.map((cell, i) => {
             const cellText = String(cell);
-            const textHeight = doc.heightOfString(cellText, {
-              width: colWidths[i],
-              align: "left",
+            // Add padding to reduce effective width for text calculation
+            const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+            return doc.heightOfString(cellText, {
+              width: effectiveWidth,
+              align: i < 2 ? 'left' : 'right',
             });
-            maxHeight = Math.max(maxHeight, textHeight);
           });
+          
+          // Find the maximum text height
+          maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
-          // Draw all cells at the same y position
+          // Draw row background with alternating colors
+          if (rowIndex % 2 === 0) {
+            doc.fillColor('#ffffff');
+          } else {
+            doc.fillColor('#f8f9f9');
+          }
+          doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+          // Draw row borders
+          doc.strokeColor('#d6eaf8')
+             .lineWidth(0.5);
+          
+          // Draw left border
+          doc.moveTo(startX, y)
+             .lineTo(startX, y + maxHeight)
+             .stroke();
+          
+          // Draw vertical lines after each column (column separators)
+          x = startX;
+          for (let i = 0; i < colWidths.length - 1; i++) {
+            x += colWidths[i];
+            // Draw vertical separator line
+            doc.moveTo(x, y)
+               .lineTo(x, y + maxHeight)
+               .stroke();
+          }
+          
+          // Draw right border at exactly startX + pageWidth
+          doc.moveTo(startX + pageWidth, y)
+             .lineTo(startX + pageWidth, y + maxHeight)
+             .stroke();
+          
+          // Draw horizontal borders
+          doc.moveTo(startX, y)
+             .lineTo(startX + pageWidth, y)
+             .stroke();
+          
+          doc.moveTo(startX, y + maxHeight)
+             .lineTo(startX + pageWidth, y + maxHeight)
+             .stroke();
+
+          // Add row data with proper alignment
           x = startX;
           rowData.forEach((cell, i) => {
             const cellText = String(cell);
-            doc.text(cellText, x, y, {
-              width: colWidths[i],
-              align: i >= 2 ? "right" : "left", // DR and CR right-aligned
-              height: maxHeight,
+            
+            // Set text color based on content type
+            if (i >= 2 && i <= 3) {
+              // Numeric columns - black text
+              doc.fillColor('#2c3e50');
+            } else {
+              // Text columns - blue text
+              doc.fillColor('#3498db');
+            }
+            
+            // Set font size based on content length
+            if (cellText.length > 30) {
+              doc.fontSize(7);
+            } else {
+              doc.fontSize(8);
+            }
+            
+            // Calculate text position with vertical centering
+            const textHeight = doc.heightOfString(cellText, {
+              width: colWidths[i] - 6, // 3px padding on each side
+              align: i < 2 ? 'left' : 'right'
             });
+            const textY = y + (maxHeight - textHeight) / 2;
+            
+            // Add text with proper alignment
+            doc.text(cellText, x + 3, textY, {
+              width: colWidths[i] - 6, // 3px padding on each side
+              align: i < 2 ? 'left' : 'right'
+            });
+            
             x += colWidths[i];
           });
 
           // Move y position by the actual height used plus padding
-          y += maxHeight + 3;
+          y += maxHeight + 2;
+          rowIndex++;
         });
       }
     });
+
+    // Add footer
+    doc.fillColor('#7f8c8d')
+       .fontSize(8)
+       .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+    
+    doc.fillColor('#3498db')
+       .fontSize(8)
+       .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
     doc.end();
   } catch (error) {
@@ -4722,7 +5174,18 @@ exports.exportReclassifications = async (req, res) => {
  */
 exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanitizedEngagementName) => {
   try {
-    const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+    const doc = new PDFDocument({ 
+      margin: 50, 
+      size: "A4", 
+      layout: "landscape",
+      info: {
+        Title: `${sanitizedEngagementName} - Reclassifications`,
+        Author: "Audit System",
+        Subject: "Reclassifications Report",
+        Creator: "Audit System",
+        Producer: "Audit System"
+      }
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -4732,103 +5195,320 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
 
     doc.pipe(res);
 
-    doc.fontSize(18).text("Reclassifications", { align: "center" });
+    // Add company header
+    doc.fillColor('#1a5276')
+       .fontSize(24)
+       .font('Helvetica-Bold')
+       .text('Reclassifications', { align: 'center' });
+    
+    // Add engagement name with underline
     doc.moveDown(0.5);
-    doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-    doc.moveDown(1);
-
+    doc.fillColor('#34495e')
+       .fontSize(14)
+       .font('Helvetica')
+       .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+    
+    // Add date
+    doc.moveDown(0.3);
+    doc.fillColor('#7f8c8d')
+       .fontSize(10)
+       .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    
+    // Add a decorative line
+    doc.moveDown(0.5);
+    doc.strokeColor('#1a5276')
+       .lineWidth(1)
+       .moveTo(50, doc.y)
+       .lineTo(750, doc.y)
+       .stroke();
+    
+    doc.moveDown(0.8);
+    
+    // Calculate available width for the table (page width minus margins)
+    const pageWidth = doc.page.width - 100; // 50px margin on each side
+    
+    // Define column widths as percentages of available width
+    const colPercentages = [0.12, 0.28, 0.20, 0.20, 0.20];
+    let colWidths = colPercentages.map(pct => pageWidth * pct);
+    
+    // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+    const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+    if (Math.abs(totalWidth - pageWidth) > 0.01) {
+      const adjustmentFactor = pageWidth / totalWidth;
+      colWidths = colWidths.map(width => width * adjustmentFactor);
+      // Fine-tune: adjust last column to ensure exact match
+      const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+      colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+    }
+    
+    // Table headers with background color
     const startX = 50;
-    let y = 120;
-    const rowHeight = 20;
-    const colWidths = [100, 250, 100, 100]; // Code, Account, DR, CR
+    let y = doc.y;
+    const rowHeight = 25;
+    
+    // Draw header background
+    doc.fillColor('#eaf2f8')
+       .rect(startX, y, pageWidth, rowHeight)
+       .fill();
+    
+    // Draw header borders
+    doc.strokeColor('#1a5276')
+       .lineWidth(0.5);
+    
+    // Draw vertical lines for headers (left border and column separators)
+    // Draw left border
+    doc.moveTo(startX, y)
+       .lineTo(startX, y + rowHeight)
+       .stroke();
+    
+    // Draw vertical lines after each column (column separators)
+    let x = startX;
+    for (let i = 0; i < colWidths.length - 1; i++) {
+      x += colWidths[i];
+      // Draw vertical separator line
+      doc.moveTo(x, y)
+         .lineTo(x, y + rowHeight)
+         .stroke();
+    }
+    
+    // Draw right border at exactly startX + pageWidth
+    doc.moveTo(startX + pageWidth, y)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
+    
+    // Draw horizontal lines for headers
+    doc.moveTo(startX, y)
+       .lineTo(startX + pageWidth, y)
+       .stroke();
+    
+    doc.moveTo(startX, y + rowHeight)
+       .lineTo(startX + pageWidth, y + rowHeight)
+       .stroke();
 
+    // Headers
     const headers = [
       "Code",
       "Account",
       "DR",
       "CR",
+      "Linked Files",
     ];
 
-    doc.fontSize(8).font("Helvetica-Bold");
-    let x = startX;
+    doc.fillColor('#1a5276')
+       .fontSize(9)
+       .font('Helvetica-Bold');
+    
+    x = startX;
     headers.forEach((header, i) => {
-      doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+      // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
       x += colWidths[i];
     });
 
-    y += rowHeight + 5; // Add spacing after header
-    doc.moveTo(50, y).lineTo(950, y).stroke();
-    y += 5; // Add spacing before first data row
+    y += rowHeight + 2; // Add spacing after header
 
-    doc.font("Helvetica");
-    doc.fontSize(7);
+    // Data rows with alternating colors and dynamic height
+    doc.font('Helvetica');
+    let rowIndex = 0;
     reclassifications.forEach((rc) => {
-      const postedHistory = rc.history?.find((h) => h.action === "posted");
-      const postedBy = postedHistory?.userName || "N/A";
-      const postedDate = postedHistory?.timestamp
-        ? new Date(postedHistory.timestamp).toLocaleDateString()
-        : "N/A";
-      const createdDate = rc.createdAt
-        ? new Date(rc.createdAt).toLocaleDateString()
-        : "N/A";
-      const evidenceFilenames = rc.evidenceFiles
-        ?.map((f) => f.fileName)
-        .join("; ") || "None";
-
       if (rc.entries && rc.entries.length > 0) {
         rc.entries.forEach((entry) => {
-          if (y > 500) {
+          // Check if we need a new page
+          if (y > 450) {
             doc.addPage();
             y = 50;
+            
+            // Redraw headers on new page
+            doc.fillColor('#eaf2f8')
+               .rect(startX, y, pageWidth, rowHeight)
+               .fill();
+            
+            doc.strokeColor('#1a5276')
+               .lineWidth(0.5);
+            
+            // Draw left border
+            doc.moveTo(startX, y)
+               .lineTo(startX, y + rowHeight)
+               .stroke();
+            
+            // Draw vertical lines after each column (column separators)
+            let x = startX;
+            for (let i = 0; i < colWidths.length - 1; i++) {
+              x += colWidths[i];
+              // Draw vertical separator line
+              doc.moveTo(x, y)
+                 .lineTo(x, y + rowHeight)
+                 .stroke();
+            }
+            
+            // Draw right border at exactly startX + pageWidth
+            doc.moveTo(startX + pageWidth, y)
+               .lineTo(startX + pageWidth, y + rowHeight)
+               .stroke();
+            
+            doc.moveTo(startX, y)
+               .lineTo(startX + pageWidth, y)
+               .stroke();
+            
+            doc.moveTo(startX, y + rowHeight)
+               .lineTo(startX + pageWidth, y + rowHeight)
+               .stroke();
+
+            doc.fillColor('#1a5276')
+               .fontSize(9)
+               .font('Helvetica-Bold');
+            
             x = startX;
-            doc.fontSize(8).font("Helvetica-Bold");
             headers.forEach((header, i) => {
-              doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+              // Center text horizontally in header cells
+              // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
               x += colWidths[i];
             });
-            y += rowHeight + 5; // Add spacing after header
-            doc.moveTo(50, y).lineTo(950, y).stroke();
-            y += 5; // Add spacing before first data row
-            doc.font("Helvetica");
-            doc.fontSize(7);
+            
+            y += rowHeight + 2;
           }
+
+          // Get evidence file names
+          const evidenceFileNames = rc.evidenceFiles && rc.evidenceFiles.length > 0
+            ? rc.evidenceFiles.map(f => f.fileName).filter(Boolean).join("; ") || "None"
+            : "None";
 
           const rowData = [
             entry.code || "",
             entry.accountName || "",
             entry.dr > 0 ? entry.dr.toLocaleString() : "-",
             entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+            evidenceFileNames,
           ];
 
-            // Calculate maximum height needed for this row
-            let maxHeight = rowHeight;
-            x = startX;
-            rowData.forEach((cell, i) => {
-              const cellText = String(cell);
-              const textHeight = doc.heightOfString(cellText, {
-                width: colWidths[i],
-                align: "left",
-              });
-              maxHeight = Math.max(maxHeight, textHeight);
+          // Calculate the maximum height needed for this row
+          let maxHeight = rowHeight;
+          x = startX;
+          
+          // Calculate text height for each cell
+          const textHeights = rowData.map((cell, i) => {
+            const cellText = String(cell);
+            // Add padding to reduce effective width for text calculation
+            const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+            return doc.heightOfString(cellText, {
+              width: effectiveWidth,
+              align: i < 2 ? 'left' : 'right',
             });
+          });
+          
+          // Find the maximum text height
+          maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
-          // Draw all cells at the same y position
+          // Draw row background with alternating colors
+          if (rowIndex % 2 === 0) {
+            doc.fillColor('#ffffff');
+          } else {
+            doc.fillColor('#f8f9f9');
+          }
+          doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+          // Draw row borders
+          doc.strokeColor('#d6eaf8')
+             .lineWidth(0.5);
+          
+          // Draw left border
+          doc.moveTo(startX, y)
+             .lineTo(startX, y + maxHeight)
+             .stroke();
+          
+          // Draw vertical lines after each column (column separators)
+          x = startX;
+          for (let i = 0; i < colWidths.length - 1; i++) {
+            x += colWidths[i];
+            // Draw vertical separator line
+            doc.moveTo(x, y)
+               .lineTo(x, y + maxHeight)
+               .stroke();
+          }
+          
+          // Draw right border at exactly startX + pageWidth
+          doc.moveTo(startX + pageWidth, y)
+             .lineTo(startX + pageWidth, y + maxHeight)
+             .stroke();
+          
+          // Draw horizontal borders
+          doc.moveTo(startX, y)
+             .lineTo(startX + pageWidth, y)
+             .stroke();
+          
+          doc.moveTo(startX, y + maxHeight)
+             .lineTo(startX + pageWidth, y + maxHeight)
+             .stroke();
+
+          // Add row data with proper alignment
           x = startX;
           rowData.forEach((cell, i) => {
             const cellText = String(cell);
-            doc.text(cellText, x, y, {
-              width: colWidths[i],
-              align: i >= 2 ? "right" : "left", // DR and CR right-aligned
-              height: maxHeight,
+            
+            // Set text color based on content type
+            if (i >= 2 && i <= 3) {
+              // Numeric columns - black text
+              doc.fillColor('#2c3e50');
+            } else {
+              // Text columns - blue text
+              doc.fillColor('#3498db');
+            }
+            
+            // Set font size based on content length
+            if (cellText.length > 30) {
+              doc.fontSize(7);
+            } else {
+              doc.fontSize(8);
+            }
+            
+            // Calculate text position with vertical centering
+            const textHeight = doc.heightOfString(cellText, {
+              width: colWidths[i] - 6, // 3px padding on each side
+              align: i < 2 ? 'left' : 'right'
             });
+            const textY = y + (maxHeight - textHeight) / 2;
+            
+            // Add text with proper alignment
+            doc.text(cellText, x + 3, textY, {
+              width: colWidths[i] - 6, // 3px padding on each side
+              align: i < 2 ? 'left' : 'right'
+            });
+            
             x += colWidths[i];
           });
 
           // Move y position by the actual height used plus padding
-          y += maxHeight + 3;
+          y += maxHeight + 2;
+          rowIndex++;
         });
       }
     });
+
+    // Add footer
+    doc.fillColor('#7f8c8d')
+       .fontSize(8)
+       .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+    
+    doc.fillColor('#3498db')
+       .fontSize(8)
+       .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
     doc.end();
   } catch (error) {
@@ -4848,70 +5528,205 @@ exports.exportReclassificationsAsPDF = async (req, res, reclassifications, sanit
 async function generateETBPDFBuffer(etb, sanitizedEngagementName) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const doc = new PDFDocument({ 
+        margin: 50, 
+        size: "A4", 
+        layout: "landscape",
+        info: {
+          Title: `${sanitizedEngagementName} - Extended Trial Balance`,
+          Author: "Audit System",
+          Subject: "Extended Trial Balance Report",
+          Creator: "Audit System",
+          Producer: "Audit System"
+        }
+      });
       const buffers = [];
       
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
       doc.on("error", reject);
 
-      // Header
-      doc.fontSize(18).text("Extended Trial Balance", { align: "center" });
+      // Add company header
+      doc.fillColor('#1a5276')
+         .fontSize(24)
+         .font('Helvetica-Bold')
+         .text('Extended Trial Balance', { align: 'center' });
+      
+      // Add engagement name with underline
       doc.moveDown(0.5);
-      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-      doc.moveDown(1);
-
-      // Table headers
+      doc.fillColor('#34495e')
+         .fontSize(14)
+         .font('Helvetica')
+         .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+      
+      // Add date
+      doc.moveDown(0.3);
+      doc.fillColor('#7f8c8d')
+         .fontSize(10)
+         .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+      
+      // Add a decorative line
+      doc.moveDown(0.5);
+      doc.strokeColor('#1a5276')
+         .lineWidth(1)
+         .moveTo(50, doc.y)
+         .lineTo(750, doc.y)
+         .stroke();
+      
+      doc.moveDown(0.8);
+      
+      // Calculate available width for the table (page width minus margins)
+      const pageWidth = doc.page.width - 100; // 50px margin on each side
+      
+      // Define column widths as percentages of available width
+      const colPercentages = [0.07, 0.17, 0.11, 0.09, 0.09, 0.11, 0.07, 0.07, 0.07, 0.07, 0.12];
+      let colWidths = colPercentages.map(pct => pageWidth * pct);
+      
+      // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+      const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+      if (Math.abs(totalWidth - pageWidth) > 0.01) {
+        const adjustmentFactor = pageWidth / totalWidth;
+        colWidths = colWidths.map(width => width * adjustmentFactor);
+        // Fine-tune: adjust last column to ensure exact match
+        const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+        colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+      }
+      
+      // Table headers with background color
       const startX = 50;
-      let y = 120;
-      const rowHeight = 20;
-      const colWidths = [50, 120, 70, 60, 70, 70, 60, 60, 60, 60, 100];
+      let y = doc.y;
+      const rowHeight = 25;
+
+      // Draw header background
+      doc.fillColor('#eaf2f8')
+         .rect(startX, y, pageWidth, rowHeight)
+         .fill();
+      
+      // Draw header borders
+      doc.strokeColor('#1a5276')
+         .lineWidth(0.5);
+      
+      // Draw vertical lines for headers (left border and column separators)
+      // Draw left border
+      doc.moveTo(startX, y)
+         .lineTo(startX, y + rowHeight)
+         .stroke();
+      
+      // Draw vertical lines after each column (column separators)
+      let x = startX;
+      for (let i = 0; i < colWidths.length - 1; i++) {
+        x += colWidths[i];
+        // Draw vertical separator line
+        doc.moveTo(x, y)
+           .lineTo(x, y + rowHeight)
+           .stroke();
+      }
+      
+      // Draw right border at exactly startX + pageWidth
+      doc.moveTo(startX + pageWidth, y)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
+      
+      // Draw horizontal lines for headers
+      doc.moveTo(startX, y)
+         .lineTo(startX + pageWidth, y)
+         .stroke();
+      
+      doc.moveTo(startX, y + rowHeight)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
 
       const headers = [
         "Code",
         "Account Name",
-        "Opening",
+        "Opening Balances",
         "Adjustments",
-        "Reclass",
-        "Final",
-        "Group1",
-        "Group2",
-        "Group3",
-        "Group4",
+        "Reclassifications",
+        "Final Balances",
+        "Grouping1",
+        "Grouping2",
+        "Grouping3",
+        "Grouping4",
         "Linked Files",
       ];
 
-      doc.fontSize(8).font("Helvetica-Bold");
-      let x = startX;
+      doc.fillColor('#1a5276')
+         .fontSize(9)
+         .font('Helvetica-Bold');
+      
+      x = startX;
       headers.forEach((header, i) => {
-        doc.text(header, x, y, { width: colWidths[i], align: "left" });
+        // Center text horizontally in header cells with padding
+        const headerTextHeight = doc.heightOfString(header, {
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center'
+        });
+        const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+        doc.text(header, x + 3, headerTextY, { 
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center' 
+        });
         x += colWidths[i];
       });
 
-      y += rowHeight + 5;
-      doc.moveTo(50, y).lineTo(950, y).stroke();
-      y += 5;
+      y += rowHeight + 2; // Add spacing after header
 
-      doc.font("Helvetica");
-      doc.fontSize(7);
-
-      etb.rows.forEach((row) => {
-        if (y > 500) {
+      // Data rows with alternating colors and dynamic height
+      doc.font('Helvetica');
+      etb.rows.forEach((row, index) => {
+        // Check if we need a new page
+        if (y > 450) {
           doc.addPage();
           y = 50;
+          
+          // Redraw headers on new page
+          doc.fillColor('#eaf2f8')
+             .rect(startX, y, pageWidth, rowHeight)
+             .fill();
+          
+          doc.strokeColor('#1a5276')
+             .lineWidth(0.5);
+          
+          let x = startX;
+          colWidths.forEach(width => {
+            doc.moveTo(x, y)
+               .lineTo(x, y + rowHeight)
+               .stroke();
+            x += width;
+          });
+          
+          doc.moveTo(startX, y)
+             .lineTo(startX + pageWidth, y)
+             .stroke();
+          
+          doc.moveTo(startX, y + rowHeight)
+             .lineTo(startX + pageWidth, y + rowHeight)
+             .stroke();
+
+          doc.fillColor('#1a5276')
+             .fontSize(9)
+             .font('Helvetica-Bold');
+          
           x = startX;
-          doc.fontSize(8).font("Helvetica-Bold");
           headers.forEach((header, i) => {
-            doc.text(header, x, y, { width: colWidths[i], align: "left" });
+            // Center text horizontally in header cells
+            // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
             x += colWidths[i];
           });
-          y += rowHeight + 5;
-          doc.moveTo(50, y).lineTo(950, y).stroke();
-          y += 5;
-          doc.font("Helvetica");
-          doc.fontSize(7);
+          
+          y += rowHeight + 2;
         }
 
+        // Get linked file names
         const linkedFileNames = (row.linkedExcelFiles && Array.isArray(row.linkedExcelFiles) && row.linkedExcelFiles.length > 0)
           ? row.linkedExcelFiles.map((file) => (file && file.name) ? file.name : "").filter(Boolean).join("; ") || "None"
           : "None";
@@ -4930,30 +5745,101 @@ async function generateETBPDFBuffer(etb, sanitizedEngagementName) {
           linkedFileNames,
         ];
 
+        // Calculate the maximum height needed for this row
         let maxHeight = rowHeight;
         x = startX;
-        rowData.forEach((cell, i) => {
+        
+        // Calculate text height for each cell
+        const textHeights = rowData.map((cell, i) => {
           const cellText = String(cell);
-          const textHeight = doc.heightOfString(cellText, {
-            width: colWidths[i],
-            align: "left",
+          // Add padding to reduce effective width for text calculation
+          const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+          return doc.heightOfString(cellText, {
+            width: effectiveWidth,
+            align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center',
           });
-          maxHeight = Math.max(maxHeight, textHeight);
         });
+        
+        // Find the maximum text height
+        maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
+        // Draw row background with alternating colors
+        if (index % 2 === 0) {
+          doc.fillColor('#ffffff');
+        } else {
+          doc.fillColor('#f8f9f9');
+        }
+        doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+        // Draw row borders
+        doc.strokeColor('#d6eaf8')
+           .lineWidth(0.5);
+        
+        x = startX;
+        colWidths.forEach(width => {
+          doc.moveTo(x, y)
+             .lineTo(x, y + maxHeight)
+             .stroke();
+          x += width;
+        });
+        
+        doc.moveTo(startX, y)
+           .lineTo(startX + pageWidth, y)
+           .stroke();
+        
+        doc.moveTo(startX, y + maxHeight)
+           .lineTo(startX + pageWidth, y + maxHeight)
+           .stroke();
+
+        // Add row data with proper alignment
         x = startX;
         rowData.forEach((cell, i) => {
           const cellText = String(cell);
-          doc.text(cellText, x, y, {
-            width: colWidths[i],
-            align: i >= 2 && i <= 5 ? "right" : "left",
-            height: maxHeight,
+          
+          // Set text color based on content type
+          if (i >= 2 && i <= 5) {
+            // Numeric columns - black text
+            doc.fillColor('#2c3e50');
+          } else {
+            // Text columns - blue text
+            doc.fillColor('#3498db');
+          }
+          
+          // Set font size based on content length
+          if (cellText.length > 50) {
+            doc.fontSize(7);
+          } else {
+            doc.fontSize(8);
+          }
+          
+          // Calculate text position with vertical centering
+          const textHeight = doc.heightOfString(cellText, {
+            width: colWidths[i] - 6, // 3px padding on each side
+            align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center'
           });
+          const textY = y + (maxHeight - textHeight) / 2;
+          
+          // Add text with proper alignment
+          doc.text(cellText, x + 3, textY, {
+            width: colWidths[i] - 6, // 3px padding on each side
+            align: i < 2 ? 'left' : (i >= 2 && i <= 5) ? 'right' : 'center'
+          });
+          
           x += colWidths[i];
         });
 
-        y += maxHeight + 3;
+        // Move y position by the actual height used plus padding
+        y += maxHeight + 2;
       });
+
+      // Add footer
+      doc.fillColor('#7f8c8d')
+         .fontSize(8)
+         .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+      
+      doc.fillColor('#3498db')
+         .fontSize(8)
+         .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
       doc.end();
     } catch (error) {
@@ -4968,91 +5854,306 @@ async function generateETBPDFBuffer(etb, sanitizedEngagementName) {
 async function generateAdjustmentsPDFBuffer(adjustments, sanitizedEngagementName) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const doc = new PDFDocument({ 
+        margin: 50, 
+        size: "A4", 
+        layout: "landscape",
+        info: {
+          Title: `${sanitizedEngagementName} - Adjustments`,
+          Author: "Audit System",
+          Subject: "Adjustments Report",
+          Creator: "Audit System",
+          Producer: "Audit System"
+        }
+      });
       const buffers = [];
       
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
       doc.on("error", reject);
 
-      doc.fontSize(18).text("Adjustments", { align: "center" });
+      // Add company header
+      doc.fillColor('#1a5276')
+         .fontSize(24)
+         .font('Helvetica-Bold')
+         .text('Adjustments', { align: 'center' });
+      
+      // Add engagement name with underline
       doc.moveDown(0.5);
-      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-      doc.moveDown(1);
-
+      doc.fillColor('#34495e')
+         .fontSize(14)
+         .font('Helvetica')
+         .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+      
+      // Add date
+      doc.moveDown(0.3);
+      doc.fillColor('#7f8c8d')
+         .fontSize(10)
+         .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+      
+      // Add a decorative line
+      doc.moveDown(0.5);
+      doc.strokeColor('#1a5276')
+         .lineWidth(1)
+         .moveTo(50, doc.y)
+         .lineTo(750, doc.y)
+         .stroke();
+      
+      doc.moveDown(0.8);
+      
+      // Calculate available width for the table (page width minus margins)
+      const pageWidth = doc.page.width - 100; // 50px margin on each side
+      
+      // Define column widths as percentages of available width
+      const colPercentages = [0.12, 0.28, 0.20, 0.20, 0.20];
+      let colWidths = colPercentages.map(pct => pageWidth * pct);
+      
+      // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+      const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+      if (Math.abs(totalWidth - pageWidth) > 0.01) {
+        const adjustmentFactor = pageWidth / totalWidth;
+        colWidths = colWidths.map(width => width * adjustmentFactor);
+        // Fine-tune: adjust last column to ensure exact match
+        const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+        colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+      }
+      
+      // Table headers with background color
       const startX = 50;
-      let y = 120;
-      const rowHeight = 20;
-      const colWidths = [100, 250, 100, 100];
-
-      const headers = ["Code", "Account", "DR", "CR"];
-
-      doc.fontSize(8).font("Helvetica-Bold");
+      let y = doc.y;
+      const rowHeight = 25;
+      
+      // Draw header background
+      doc.fillColor('#eaf2f8')
+         .rect(startX, y, pageWidth, rowHeight)
+         .fill();
+      
+      // Draw header borders
+      doc.strokeColor('#1a5276')
+         .lineWidth(0.5);
+      
+      // Draw vertical lines for headers (left border and column separators)
+      // Draw left border
+      doc.moveTo(startX, y)
+         .lineTo(startX, y + rowHeight)
+         .stroke();
+      
+      // Draw vertical lines after each column (column separators)
       let x = startX;
+      for (let i = 0; i < colWidths.length - 1; i++) {
+        x += colWidths[i];
+        // Draw vertical separator line
+        doc.moveTo(x, y)
+           .lineTo(x, y + rowHeight)
+           .stroke();
+      }
+      
+      // Draw right border at exactly startX + pageWidth
+      doc.moveTo(startX + pageWidth, y)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
+      
+      // Draw horizontal lines for headers
+      doc.moveTo(startX, y)
+         .lineTo(startX + pageWidth, y)
+         .stroke();
+      
+      doc.moveTo(startX, y + rowHeight)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
+
+      const headers = ["Code", "Account", "DR", "CR", "Linked Files"];
+
+      doc.fillColor('#1a5276')
+         .fontSize(9)
+         .font('Helvetica-Bold');
+      
+      x = startX;
       headers.forEach((header, i) => {
-        doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+        // Center text horizontally in header cells with padding
+        const headerTextHeight = doc.heightOfString(header, {
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center'
+        });
+        const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+        doc.text(header, x + 3, headerTextY, { 
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center' 
+        });
         x += colWidths[i];
       });
 
-      y += rowHeight + 5;
-      doc.moveTo(50, y).lineTo(950, y).stroke();
-      y += 5;
+      y += rowHeight + 2; // Add spacing after header
 
-      doc.font("Helvetica");
-      doc.fontSize(7);
-
+      // Data rows with alternating colors and dynamic height
+      doc.font('Helvetica');
+      let rowIndex = 0;
       adjustments.forEach((adj) => {
         if (adj.entries && adj.entries.length > 0) {
           adj.entries.forEach((entry) => {
-            if (y > 500) {
+            // Check if we need a new page
+            if (y > 450) {
               doc.addPage();
               y = 50;
+              
+              // Redraw headers on new page
+              doc.fillColor('#eaf2f8')
+                 .rect(startX, y, pageWidth, rowHeight)
+                 .fill();
+              
+              doc.strokeColor('#1a5276')
+                 .lineWidth(0.5);
+              
+              let x = startX;
+              colWidths.forEach(width => {
+                doc.moveTo(x, y)
+                   .lineTo(x, y + rowHeight)
+                   .stroke();
+                x += width;
+              });
+              
+              doc.moveTo(startX, y)
+                 .lineTo(startX + pageWidth, y)
+                 .stroke();
+              
+              doc.moveTo(startX, y + rowHeight)
+                 .lineTo(startX + pageWidth, y + rowHeight)
+                 .stroke();
+
+              doc.fillColor('#1a5276')
+                 .fontSize(9)
+                 .font('Helvetica-Bold');
+              
               x = startX;
-              doc.fontSize(8).font("Helvetica-Bold");
               headers.forEach((header, i) => {
-                doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+                // Center text horizontally in header cells
+                // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
                 x += colWidths[i];
               });
-              y += rowHeight + 5;
-              doc.moveTo(50, y).lineTo(950, y).stroke();
-              y += 5;
-              doc.font("Helvetica");
-              doc.fontSize(7);
+              
+              y += rowHeight + 2;
             }
+
+            // Get evidence file names
+            const evidenceFileNames = adj.evidenceFiles && adj.evidenceFiles.length > 0
+              ? adj.evidenceFiles.map(f => f.fileName).filter(Boolean).join("; ") || "None"
+              : "None";
 
             const rowData = [
               entry.code || "",
               entry.accountName || "",
               entry.dr > 0 ? entry.dr.toLocaleString() : "-",
               entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+              evidenceFileNames,
             ];
 
+            // Calculate the maximum height needed for this row
             let maxHeight = rowHeight;
             x = startX;
-            rowData.forEach((cell, i) => {
+            
+            // Calculate text height for each cell
+            const textHeights = rowData.map((cell, i) => {
               const cellText = String(cell);
-              const textHeight = doc.heightOfString(cellText, {
-                width: colWidths[i],
-                align: "left",
+              // Add padding to reduce effective width for text calculation
+              const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+              return doc.heightOfString(cellText, {
+                width: effectiveWidth,
+                align: i < 2 ? 'left' : 'right',
               });
-              maxHeight = Math.max(maxHeight, textHeight);
             });
+            
+            // Find the maximum text height
+            maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
+            // Draw row background with alternating colors
+            if (rowIndex % 2 === 0) {
+              doc.fillColor('#ffffff');
+            } else {
+              doc.fillColor('#f8f9f9');
+            }
+            doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+            // Draw row borders
+            doc.strokeColor('#d6eaf8')
+               .lineWidth(0.5);
+            
+            x = startX;
+            colWidths.forEach(width => {
+              doc.moveTo(x, y)
+                 .lineTo(x, y + maxHeight)
+                 .stroke();
+              x += width;
+            });
+            
+            doc.moveTo(startX, y)
+               .lineTo(startX + pageWidth, y)
+               .stroke();
+            
+            doc.moveTo(startX, y + maxHeight)
+               .lineTo(startX + pageWidth, y + maxHeight)
+               .stroke();
+
+            // Add row data with proper alignment
             x = startX;
             rowData.forEach((cell, i) => {
               const cellText = String(cell);
-              doc.text(cellText, x, y, {
-                width: colWidths[i],
-                align: i >= 2 ? "right" : "left",
-                height: maxHeight,
+              
+              // Set text color based on content type
+              if (i >= 2 && i <= 3) {
+                // Numeric columns - black text
+                doc.fillColor('#2c3e50');
+              } else {
+                // Text columns - blue text
+                doc.fillColor('#3498db');
+              }
+              
+              // Set font size based on content length
+              if (cellText.length > 30) {
+                doc.fontSize(7);
+              } else {
+                doc.fontSize(8);
+              }
+              
+              // Calculate text position with vertical centering
+              const textHeight = doc.heightOfString(cellText, {
+                width: colWidths[i] - 6, // 3px padding on each side
+                align: i < 2 ? 'left' : 'right'
               });
+              const textY = y + (maxHeight - textHeight) / 2;
+              
+              // Add text with proper alignment
+              doc.text(cellText, x + 3, textY, {
+                width: colWidths[i] - 6, // 3px padding on each side
+                align: i < 2 ? 'left' : 'right'
+              });
+              
               x += colWidths[i];
             });
 
-            y += maxHeight + 3;
+            // Move y position by the actual height used plus padding
+            y += maxHeight + 2;
+            rowIndex++;
           });
         }
       });
+
+      // Add footer
+      doc.fillColor('#7f8c8d')
+         .fontSize(8)
+         .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+      
+      doc.fillColor('#3498db')
+         .fontSize(8)
+         .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
       doc.end();
     } catch (error) {
@@ -5067,91 +6168,306 @@ async function generateAdjustmentsPDFBuffer(adjustments, sanitizedEngagementName
 async function generateReclassificationsPDFBuffer(reclassifications, sanitizedEngagementName) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: "A4", layout: "landscape" });
+      const doc = new PDFDocument({ 
+        margin: 50, 
+        size: "A4", 
+        layout: "landscape",
+        info: {
+          Title: `${sanitizedEngagementName} - Reclassifications`,
+          Author: "Audit System",
+          Subject: "Reclassifications Report",
+          Creator: "Audit System",
+          Producer: "Audit System"
+        }
+      });
       const buffers = [];
       
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", () => resolve(Buffer.concat(buffers)));
       doc.on("error", reject);
 
-      doc.fontSize(18).text("Reclassifications", { align: "center" });
+      // Add company header
+      doc.fillColor('#1a5276')
+         .fontSize(24)
+         .font('Helvetica-Bold')
+         .text('Reclassifications', { align: 'center' });
+      
+      // Add engagement name with underline
       doc.moveDown(0.5);
-      doc.fontSize(12).text(`Engagement: ${sanitizedEngagementName}`, { align: "center" });
-      doc.moveDown(1);
-
+      doc.fillColor('#34495e')
+         .fontSize(14)
+         .font('Helvetica')
+         .text(`Engagement: ${sanitizedEngagementName}`, { align: 'center' });
+      
+      // Add date
+      doc.moveDown(0.3);
+      doc.fillColor('#7f8c8d')
+         .fontSize(10)
+         .text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
+      
+      // Add a decorative line
+      doc.moveDown(0.5);
+      doc.strokeColor('#1a5276')
+         .lineWidth(1)
+         .moveTo(50, doc.y)
+         .lineTo(750, doc.y)
+         .stroke();
+      
+      doc.moveDown(0.8);
+      
+      // Calculate available width for the table (page width minus margins)
+      const pageWidth = doc.page.width - 100; // 50px margin on each side
+      
+      // Define column widths as percentages of available width
+      const colPercentages = [0.12, 0.28, 0.20, 0.20, 0.20];
+      let colWidths = colPercentages.map(pct => pageWidth * pct);
+      
+      // Normalize to ensure total equals exactly pageWidth (fix floating point precision)
+      const totalWidth = colWidths.reduce((sum, width) => sum + width, 0);
+      if (Math.abs(totalWidth - pageWidth) > 0.01) {
+        const adjustmentFactor = pageWidth / totalWidth;
+        colWidths = colWidths.map(width => width * adjustmentFactor);
+        // Fine-tune: adjust last column to ensure exact match
+        const recalculatedTotal = colWidths.reduce((sum, width) => sum + width, 0);
+        colWidths[colWidths.length - 1] += (pageWidth - recalculatedTotal);
+      }
+      
+      // Table headers with background color
       const startX = 50;
-      let y = 120;
-      const rowHeight = 20;
-      const colWidths = [100, 250, 100, 100];
-
-      const headers = ["Code", "Account", "DR", "CR"];
-
-      doc.fontSize(8).font("Helvetica-Bold");
+      let y = doc.y;
+      const rowHeight = 25;
+      
+      // Draw header background
+      doc.fillColor('#eaf2f8')
+         .rect(startX, y, pageWidth, rowHeight)
+         .fill();
+      
+      // Draw header borders
+      doc.strokeColor('#1a5276')
+         .lineWidth(0.5);
+      
+      // Draw vertical lines for headers (left border and column separators)
+      // Draw left border
+      doc.moveTo(startX, y)
+         .lineTo(startX, y + rowHeight)
+         .stroke();
+      
+      // Draw vertical lines after each column (column separators)
       let x = startX;
+      for (let i = 0; i < colWidths.length - 1; i++) {
+        x += colWidths[i];
+        // Draw vertical separator line
+        doc.moveTo(x, y)
+           .lineTo(x, y + rowHeight)
+           .stroke();
+      }
+      
+      // Draw right border at exactly startX + pageWidth
+      doc.moveTo(startX + pageWidth, y)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
+      
+      // Draw horizontal lines for headers
+      doc.moveTo(startX, y)
+         .lineTo(startX + pageWidth, y)
+         .stroke();
+      
+      doc.moveTo(startX, y + rowHeight)
+         .lineTo(startX + pageWidth, y + rowHeight)
+         .stroke();
+
+      const headers = ["Code", "Account", "DR", "CR", "Linked Files"];
+
+      doc.fillColor('#1a5276')
+         .fontSize(9)
+         .font('Helvetica-Bold');
+      
+      x = startX;
       headers.forEach((header, i) => {
-        doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+        // Center text horizontally in header cells with padding
+        const headerTextHeight = doc.heightOfString(header, {
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center'
+        });
+        const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+        doc.text(header, x + 3, headerTextY, { 
+          width: colWidths[i] - 6, // 3px padding on each side
+          align: 'center' 
+        });
         x += colWidths[i];
       });
 
-      y += rowHeight + 5;
-      doc.moveTo(50, y).lineTo(950, y).stroke();
-      y += 5;
+      y += rowHeight + 2; // Add spacing after header
 
-      doc.font("Helvetica");
-      doc.fontSize(7);
-
+      // Data rows with alternating colors and dynamic height
+      doc.font('Helvetica');
+      let rowIndex = 0;
       reclassifications.forEach((rc) => {
         if (rc.entries && rc.entries.length > 0) {
           rc.entries.forEach((entry) => {
-            if (y > 500) {
+            // Check if we need a new page
+            if (y > 450) {
               doc.addPage();
               y = 50;
+              
+              // Redraw headers on new page
+              doc.fillColor('#eaf2f8')
+                 .rect(startX, y, pageWidth, rowHeight)
+                 .fill();
+              
+              doc.strokeColor('#1a5276')
+                 .lineWidth(0.5);
+              
+              let x = startX;
+              colWidths.forEach(width => {
+                doc.moveTo(x, y)
+                   .lineTo(x, y + rowHeight)
+                   .stroke();
+                x += width;
+              });
+              
+              doc.moveTo(startX, y)
+                 .lineTo(startX + pageWidth, y)
+                 .stroke();
+              
+              doc.moveTo(startX, y + rowHeight)
+                 .lineTo(startX + pageWidth, y + rowHeight)
+                 .stroke();
+
+              doc.fillColor('#1a5276')
+                 .fontSize(9)
+                 .font('Helvetica-Bold');
+              
               x = startX;
-              doc.fontSize(8).font("Helvetica-Bold");
               headers.forEach((header, i) => {
-                doc.text(header, x, y, { width: colWidths[i], align: i >= 2 ? "right" : "left" });
+                // Center text horizontally in header cells
+                // Center text horizontally in header cells with padding
+      const headerTextHeight = doc.heightOfString(header, {
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center'
+      });
+      const headerTextY = y + (rowHeight - headerTextHeight) / 2;
+      doc.text(header, x + 3, headerTextY, { 
+        width: colWidths[i] - 6, // 3px padding on each side
+        align: 'center' 
+      });
                 x += colWidths[i];
               });
-              y += rowHeight + 5;
-              doc.moveTo(50, y).lineTo(950, y).stroke();
-              y += 5;
-              doc.font("Helvetica");
-              doc.fontSize(7);
+              
+              y += rowHeight + 2;
             }
+
+            // Get evidence file names
+            const evidenceFileNames = rc.evidenceFiles && rc.evidenceFiles.length > 0
+              ? rc.evidenceFiles.map(f => f.fileName).filter(Boolean).join("; ") || "None"
+              : "None";
 
             const rowData = [
               entry.code || "",
               entry.accountName || "",
               entry.dr > 0 ? entry.dr.toLocaleString() : "-",
               entry.cr > 0 ? entry.cr.toLocaleString() : "-",
+              evidenceFileNames,
             ];
 
+            // Calculate the maximum height needed for this row
             let maxHeight = rowHeight;
             x = startX;
-            rowData.forEach((cell, i) => {
+            
+            // Calculate text height for each cell
+            const textHeights = rowData.map((cell, i) => {
               const cellText = String(cell);
-              const textHeight = doc.heightOfString(cellText, {
-                width: colWidths[i],
-                align: "left",
+              // Add padding to reduce effective width for text calculation
+              const effectiveWidth = colWidths[i] - 6; // 3px padding on each side
+              return doc.heightOfString(cellText, {
+                width: effectiveWidth,
+                align: i < 2 ? 'left' : 'right',
               });
-              maxHeight = Math.max(maxHeight, textHeight);
             });
+            
+            // Find the maximum text height
+            maxHeight = Math.max(rowHeight, ...textHeights) + 6; // Add 6px for padding
 
+            // Draw row background with alternating colors
+            if (rowIndex % 2 === 0) {
+              doc.fillColor('#ffffff');
+            } else {
+              doc.fillColor('#f8f9f9');
+            }
+            doc.rect(startX, y, pageWidth, maxHeight).fill();
+
+            // Draw row borders
+            doc.strokeColor('#d6eaf8')
+               .lineWidth(0.5);
+            
+            x = startX;
+            colWidths.forEach(width => {
+              doc.moveTo(x, y)
+                 .lineTo(x, y + maxHeight)
+                 .stroke();
+              x += width;
+            });
+            
+            doc.moveTo(startX, y)
+               .lineTo(startX + pageWidth, y)
+               .stroke();
+            
+            doc.moveTo(startX, y + maxHeight)
+               .lineTo(startX + pageWidth, y + maxHeight)
+               .stroke();
+
+            // Add row data with proper alignment
             x = startX;
             rowData.forEach((cell, i) => {
               const cellText = String(cell);
-              doc.text(cellText, x, y, {
-                width: colWidths[i],
-                align: i >= 2 ? "right" : "left",
-                height: maxHeight,
+              
+              // Set text color based on content type
+              if (i >= 2 && i <= 3) {
+                // Numeric columns - black text
+                doc.fillColor('#2c3e50');
+              } else {
+                // Text columns - blue text
+                doc.fillColor('#3498db');
+              }
+              
+              // Set font size based on content length
+              if (cellText.length > 30) {
+                doc.fontSize(7);
+              } else {
+                doc.fontSize(8);
+              }
+              
+              // Calculate text position with vertical centering
+              const textHeight = doc.heightOfString(cellText, {
+                width: colWidths[i] - 6, // 3px padding on each side
+                align: i < 2 ? 'left' : 'right'
               });
+              const textY = y + (maxHeight - textHeight) / 2;
+              
+              // Add text with proper alignment
+              doc.text(cellText, x + 3, textY, {
+                width: colWidths[i] - 6, // 3px padding on each side
+                align: i < 2 ? 'left' : 'right'
+              });
+              
               x += colWidths[i];
             });
 
-            y += maxHeight + 3;
+            // Move y position by the actual height used plus padding
+            y += maxHeight + 2;
+            rowIndex++;
           });
         }
       });
+
+      // Add footer
+      doc.fillColor('#7f8c8d')
+         .fontSize(8)
+         .text(`Page ${doc.pageCount}`, 50, doc.page.height - 30, { align: 'center' });
+      
+      doc.fillColor('#3498db')
+         .fontSize(8)
+         .text('Generated by Audit System', 50, doc.page.height - 20, { align: 'center' });
 
       doc.end();
     } catch (error) {
