@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Person = require("../models/Person");
 const Company = require("../models/Company");
 const KnowYourClient = require("../models/KnowYourClient");
+const { ObjectId } = mongoose.Types;
 
 // Helper function to create default sharesData array (6 combinations: 3 classes × 2 types)
 const createDefaultSharesData = () => {
@@ -454,20 +455,19 @@ exports.createPerson = async (req, res) => {
  */
 exports.updatePerson = async (req, res) => {
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
     const updateData = { ...req.body };
 
     // Separate person fields from company relationship fields
     const { roles, sharesData, ...personFields } = updateData;
 
     // Remove fields that shouldn't be directly updated
-    delete personFields.clientId;
     delete personFields.createdAt;
     personFields.updatedAt = new Date();
 
     // Update person
     const person = await Person.findOneAndUpdate(
-      { _id: personId, clientId },
+      { _id: personId },
       { $set: personFields },
       { new: true, runValidators: true }
     );
@@ -635,13 +635,14 @@ exports.updatePerson = async (req, res) => {
  * DELETE /api/client/:clientId/company/:companyId/person/:personId (for backward compatibility)
  */
 exports.deletePerson = async (req, res) => {
+  const organizationId = new ObjectId(req.user.organizationId);
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
 
     // Find person first (before deletion) to get company references
     const person = await Person.findOne({
       _id: personId,
-      clientId,
+      organizationId: organizationId,
     });
 
     if (!person) {
@@ -682,7 +683,7 @@ exports.deletePerson = async (req, res) => {
     // Now delete the person (Person's arrays will be deleted with the document)
     await Person.findOneAndDelete({
       _id: personId,
-      clientId,
+      organizationId: organizationId,
     });
 
     await KnowYourClient.updateMany(

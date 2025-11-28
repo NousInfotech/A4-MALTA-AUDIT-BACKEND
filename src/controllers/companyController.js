@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { ObjectId } = mongoose.Types;
 const Company = require("../models/Company");
 const Person = require("../models/Person");
 
@@ -274,7 +275,8 @@ const mergeSharesData = (
         }
       }
     });
-    return defaultArray;
+    // Filter out entries with totalShares = 0 before returning
+    return defaultArray.filter((item) => item && Number(item.totalShares) > 0);
   }
 
   // If input is a single object (backward compatibility)
@@ -387,11 +389,11 @@ exports.getAllCompanies = async (req, res) => {
  */
 exports.getCompanyById = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
 
     const company = await Company.findOne({
       _id: companyId,
-      clientId,
+      organizationId: new ObjectId(req.user.organizationId),
     })
       .populate({
         path: "shareHolders.personId",
@@ -461,6 +463,7 @@ exports.createCompany = async (req, res) => {
       description,
     } = req.body;
 
+    // Required validation
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -468,42 +471,48 @@ exports.createCompany = async (req, res) => {
       });
     }
 
-    const {
-      normalizedShares: normalizedTotalShares,
-      totalIssuedShares,
-    } = normalizeCompanyTotalShares(totalShares);
+    // Optional totalShares handling
+    let normalizedTotalShares = [];
+    let totalIssuedShares = 0;
 
-    // Normalize shareHoldingCompanies to use sharesData array structure
-    // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
-    const formattedShareholdings = Array.isArray(shareHoldingCompanies)
-      ? shareHoldingCompanies.map((s) => {
-          const companyId =
-            typeof s.companyId === "object" ? s.companyId._id : s.companyId;
+    if (totalShares) {
+      const normalized = normalizeCompanyTotalShares(totalShares);
+      normalizedTotalShares = normalized.normalizedShares || [];
+      totalIssuedShares = normalized.totalIssuedShares || 0;
+    }
 
-          // Convert sharesData to array format
-          // Frontend format: {totalShares, shareClass}[] or {totalShares, shareClass, shareType}[]
-          const sharesDataArray = mergeSharesData(
-            s.sharesData || s,
-            totalIssuedShares
-          );
+    // Optional shareHoldingCompanies handling
+    const formattedShareholdings =
+      Array.isArray(shareHoldingCompanies) && totalIssuedShares > 0
+        ? shareHoldingCompanies.map((s) => {
+            const companyId =
+              typeof s.companyId === "object" ? s.companyId._id : s.companyId;
 
-          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(
-            sharesDataArray,
-            totalIssuedShares
-          );
+            const sharesDataArray = mergeSharesData(
+              s.sharesData || s,
+              totalIssuedShares
+            );
 
-          return {
-            companyId: companyId,
-            sharePercentage: sharePercentage,
-            sharesData: sharesDataArray,
-          };
-        })
-      : [];
+            const sharePercentage =
+              totalIssuedShares > 0
+                ? calculateSharePercentage(
+                    sharesDataArray,
+                    totalIssuedShares
+                  )
+                : 0;
+
+            return {
+              companyId,
+              sharePercentage,
+              sharesData: sharesDataArray,
+            };
+          })
+        : [];
 
     const normalizedIndustry = normalizeOptionalString(industry);
     const trimmedDescription = normalizeOptionalString(description);
 
+    // Create Company
     const company = new Company({
       clientId,
       name,
@@ -516,10 +525,9 @@ exports.createCompany = async (req, res) => {
       industry: normalizedIndustry,
       description: trimmedDescription,
       shareHoldingCompanies: formattedShareholdings,
-      shareHolders: [], // Will be populated separately when persons are added
-      representationalSchema: [], // Will be populated separately when persons are added
-      representationalCompany: [], // Will be populated separately when companies are added
-      // Note: status and timelineEnd are not in the model, ignoring them
+      shareHolders: [],
+      representationalSchema: [],
+      representationalCompany: [],
     });
 
     await company.save();
@@ -539,16 +547,17 @@ exports.createCompany = async (req, res) => {
   }
 };
 
+
 /**
  * Update a company
  * PUT /api/client/:clientId/company/:companyId
  */
 exports.updateCompany = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const updateData = req.body;
 
-    const existingCompany = await Company.findOne({ _id: companyId, clientId });
+    const existingCompany = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
 
     if (!existingCompany) {
       return res.status(404).json({
@@ -668,7 +677,7 @@ exports.updateCompany = async (req, res) => {
     }
 
     const company = await Company.findOneAndUpdate(
-      { _id: companyId, clientId },
+      { _id: companyId, organizationId: new ObjectId(req.user.organizationId) },
       { $set: updateData },
       { new: true, runValidators: true }
     )
@@ -852,19 +861,82 @@ exports.updateCompany = async (req, res) => {
     });
   }
 };
+/**
+ * Update a company's clientId
+ * PUT /api/client/:clientId/company/:companyId/primary
+ */
+exports.updateCompanyClientId = async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const { clientId } = req.body;
+    const organizationId = new ObjectId(req.user.organizationId);
+
+    if (!clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Client ID is required",
+      });
+    }
+
+    const company = await Company.findOne({
+      _id: companyId,
+      organizationId,
+    });
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
+      });
+    }
+
+    if (company.clientId === clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Company already has this client ID",
+      });
+    }
+
+    if (company.clientId !== "non-primary") {
+      return res.status(400).json({
+        success: false,
+        message: `Company already belongs to ${company.clientId}`,
+      });
+    }
+
+    company.clientId = clientId;
+    await company.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Company updated successfully",
+      data: company,
+    });
+
+  } catch (error) {
+    console.error("Error updating company:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update company",
+      error: error.message,
+    });
+  }
+};
+
 
 /**
  * Delete a company
  * DELETE /api/client/:clientId/company/:companyId
  */
 exports.deleteCompany = async (req, res) => {
+  const organizationId = new ObjectId(req.user.organizationId);
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
 
     // Find the company first
     const company = await Company.findOne({
       _id: companyId,
-      clientId,
+      organizationId: organizationId,
     });
 
     if (!company) {
@@ -904,7 +976,7 @@ exports.deleteCompany = async (req, res) => {
     // Remove this company from any shareholding relationships in other companies
     await Company.updateMany(
       {
-        clientId,
+        organizationId: organizationId,
         "shareHoldingCompanies.companyId": companyId,
       },
       {
@@ -917,7 +989,7 @@ exports.deleteCompany = async (req, res) => {
     // Remove this company from representationalCompany in other companies
     await Company.updateMany(
       {
-        clientId,
+        organizationId: organizationId,
         "representationalCompany.companyId": companyId,
       },
       {
@@ -931,7 +1003,7 @@ exports.deleteCompany = async (req, res) => {
       // Remove these persons from representational schemas in other companies
       await Company.updateMany(
         {
-          clientId,
+          organizationId: organizationId,
           _id: { $ne: companyId },
         },
         {
@@ -946,7 +1018,7 @@ exports.deleteCompany = async (req, res) => {
       // Remove these persons from shareHolders in other companies
       await Company.updateMany(
         {
-          clientId,
+          organizationId: organizationId,
           _id: { $ne: companyId },
         },
         {
@@ -967,7 +1039,7 @@ exports.deleteCompany = async (req, res) => {
 
       for (const personObjectId of personObjectIds) {
         const stillReferenced = await Company.exists({
-          clientId,
+          organizationId: organizationId,
           $or: [
             { "shareHolders.personId": personObjectId },
             { "representationalSchema.personId": personObjectId },
@@ -981,7 +1053,7 @@ exports.deleteCompany = async (req, res) => {
 
       if (removablePersonIds.length > 0) {
         await Person.deleteMany({
-          clientId,
+          organizationId: organizationId,
           _id: { $in: removablePersonIds },
         });
       }
@@ -1012,7 +1084,7 @@ exports.removeRepresentative = async (req, res) => {
 
     const company = await Company.findOne({
       _id: companyId,
-      clientId,
+      organizationId: new ObjectId(req.user.organizationId),
     });
 
     if (!company) {
@@ -1026,6 +1098,7 @@ exports.removeRepresentative = async (req, res) => {
     const person = await Person.findOne({
       _id: personId,
       clientId,
+      organizationId: new ObjectId(req.user.organizationId),
     });
 
     if (!person) {
@@ -1053,6 +1126,9 @@ exports.removeRepresentative = async (req, res) => {
 
     company.updatedAt = new Date();
     await company.save();
+
+    // Update Person's representingCompanies array
+    await updatePersonRepresentingCompanies(personId, companyId, "remove");
 
     res.status(200).json({
       success: true,
@@ -1120,7 +1196,7 @@ exports.getCompanyHierarchy = async (req, res) => {
 
         const personIdStr = sh.personId._id.toString();
         const sharesDataArray = Array.isArray(sh?.sharesData)
-          ? sh.sharesData
+          ? sh.sharesData.filter(item => Number(item.totalShares) > 0) // Only include shares with value > 0
           : [];
         const totalSharesValue = sharesDataArray.reduce(
           (sum, item) => sum + (Number(item.totalShares) || 0),
@@ -1175,7 +1251,7 @@ exports.getCompanyHierarchy = async (req, res) => {
 
         const companyIdStr = sh.companyId._id.toString();
         const sharesDataArray = Array.isArray(sh?.sharesData)
-          ? sh.sharesData
+          ? sh.sharesData.filter(item => Number(item.totalShares) > 0) // Only include shares with value > 0
           : [];
         const totalSharesValue = sharesDataArray.reduce(
           (sum, item) => sum + (Number(item.totalShares) || 0),
@@ -1297,10 +1373,10 @@ exports.getCompanyHierarchy = async (req, res) => {
  */
 exports.updateShareHolderPersonExisting = async (req, res) => {
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
     const { sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1419,10 +1495,10 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
  */
 exports.addShareHolderPersonNew = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { personId, sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1515,10 +1591,10 @@ exports.addShareHolderPersonNew = async (req, res) => {
  */
 exports.updateShareHolderPersonExistingBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { personIds } = req.body; // Array of person IDs
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1549,10 +1625,10 @@ exports.updateShareHolderPersonExistingBulk = async (req, res) => {
  */
 exports.addShareHolderPersonNewBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { persons } = req.body; // Array of { personId, sharesData }
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1583,10 +1659,10 @@ exports.addShareHolderPersonNewBulk = async (req, res) => {
  */
 exports.updateShareHolderCompanyExisting = async (req, res) => {
   try {
-    const { clientId, companyId, addingCompanyId } = req.params;
+    const { companyId, addingCompanyId } = req.params;
     const { sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1691,10 +1767,10 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
  */
 exports.addShareHolderCompanyNew = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companyId: addingCompanyId, sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1780,10 +1856,10 @@ exports.addShareHolderCompanyNew = async (req, res) => {
  */
 exports.updateShareHolderCompanyExistingBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companyIds } = req.body; // Array of company IDs
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1814,10 +1890,10 @@ exports.updateShareHolderCompanyExistingBulk = async (req, res) => {
  */
 exports.addShareHolderCompanyNewBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companies } = req.body; // Array of { companyId, sharesData }
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1848,10 +1924,10 @@ exports.addShareHolderCompanyNewBulk = async (req, res) => {
  */
 exports.updateRepresentationPersonExisting = async (req, res) => {
   try {
-    const { clientId, companyId, personId } = req.params;
+    const { companyId, personId } = req.params;
     const { role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1906,10 +1982,10 @@ exports.updateRepresentationPersonExisting = async (req, res) => {
  */
 exports.addRepresentationPersonNew = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { personId, role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1962,10 +2038,10 @@ exports.addRepresentationPersonNew = async (req, res) => {
  */
 exports.updateRepresentationPersonExistingBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { personIds } = req.body; // Array of person IDs
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -1996,10 +2072,10 @@ exports.updateRepresentationPersonExistingBulk = async (req, res) => {
  */
 exports.addRepresentationPersonNewBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { persons } = req.body; // Array of { personId, role }
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -2030,10 +2106,10 @@ exports.addRepresentationPersonNewBulk = async (req, res) => {
  */
 exports.updateRepresentationCompanyExisting = async (req, res) => {
   try {
-    const { clientId, companyId, addingCompanyId } = req.params;
+    const { companyId, addingCompanyId } = req.params;
     const { role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -2081,10 +2157,10 @@ exports.updateRepresentationCompanyExisting = async (req, res) => {
  */
 exports.addRepresentationCompanyNew = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companyId: addingCompanyId, role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -2132,10 +2208,10 @@ exports.addRepresentationCompanyNew = async (req, res) => {
  */
 exports.updateRepresentationCompanyExistingBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companyIds } = req.body; // Array of company IDs
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -2166,10 +2242,10 @@ exports.updateRepresentationCompanyExistingBulk = async (req, res) => {
  */
 exports.addRepresentationCompanyNewBulk = async (req, res) => {
   try {
-    const { clientId, companyId } = req.params;
+    const { companyId } = req.params;
     const { companies } = req.body; // Array of { companyId, role }
 
-    const company = await Company.findOne({ _id: companyId, clientId });
+    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
       return res
         .status(404)
@@ -2201,35 +2277,39 @@ exports.addRepresentationCompanyNewBulk = async (req, res) => {
  */
 exports.searchCompaniesGlobal = async (req, res) => {
   try {
-    const { search = "", page = 1, limit = 10 } = req.query;
+    const { search = "", page = 1, limit = 5, isNonPrimary = false } = req.query;
 
     const pageNumber = parseInt(page, 10);
-    const limitNumber = parseInt(limit, 10);
+    const limitNumber = parseInt(limit, 5);
     const skip = (pageNumber - 1) * limitNumber;
 
-    // Build search query
+    // Base filter
     let searchQuery = {
-      organizationId: req.user.organizationId,
+      organizationId: new ObjectId(req.user.organizationId),
     };
-
-    // Add text search if provided
+   if(isNonPrimary) {
+    searchQuery.clientId = {$eq: "non-primary"};
+   }
+    // Add search filter
     if (search && search.trim().length > 0) {
-      searchQuery.name = { $regex: search.trim(), $options: "i" };
-      searchQuery.registrationNumber = { $regex: search.trim(), $options: "i" };
+      const searchRegex = new RegExp(search.trim(), "i");
+
+      searchQuery.$or = [
+        { name: searchRegex },
+        { registrationNumber: searchRegex }
+      ];
     }
 
 
     const companies = await Company.find(searchQuery)
       .select("_id name registrationNumber")
-      .sort({ name: 1 }) // Alphabetical order
+      .sort({ name: 1 })
       .skip(skip)
       .limit(limitNumber)
       .lean();
 
-
-    const companyCount = await Company.countDocuments({
-      organizationId: req.user.organizationId,
-    });
+    // ✅ Use SAME filter for count
+    const companyCount = await Company.countDocuments(searchQuery);
 
     res.status(200).json({
       success: true,
@@ -2251,6 +2331,7 @@ exports.searchCompaniesGlobal = async (req, res) => {
   }
 };
 
+
 /**
  * Global search for persons within organization
  * GET /api/client/:clientId/person/search/global
@@ -2259,7 +2340,7 @@ exports.searchCompaniesGlobal = async (req, res) => {
 exports.searchPersonsGlobal = async (req, res) => {
   try {
     const { search = "", page = 1, limit = 10 } = req.query;
-    const organizationId = req.user.organizationId;
+    const organizationId = ObjectId(req.user.organizationId);
 
     if (!organizationId) {
       return res.status(400).json({

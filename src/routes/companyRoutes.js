@@ -26,6 +26,9 @@ router.post("/:clientId/company", companyController.createCompany);
 // PUT /api/client/:clientId/company/:companyId - Update a company
 router.put("/:clientId/company/:companyId", companyController.updateCompany);
 
+// PUT /api/client/:clientId/company/:companyId/primary - Update a company's clientId
+router.put("/:clientId/company/:companyId/primary", companyController.updateCompanyClientId);
+
 // DELETE /api/client/:clientId/company/:companyId - Delete a company
 router.delete("/:clientId/company/:companyId", companyController.deleteCompany);
 
