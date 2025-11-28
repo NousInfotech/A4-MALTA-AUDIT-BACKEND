@@ -667,14 +667,12 @@ exports.getEngagements = async (req, res) => {
   const skip = (page - 1) * limit;
 
   const engagements = await Engagement.find({
-    organization: req.user.organizationId,
-    clientId: clientId ? new ObjectId(clientId) : undefined,
-  })
-    .skip(skip)
+    organizationId: req.user.organizationId,
+    clientId: clientId,
+  }).skip(skip)
     .limit(limit)
     .sort("-createdAt");
-
   return res
     .status(200)
-    .json({ success: true, data: engagements, total, page, limit });
+    .json({ success: true, data: engagements, page, limit, total: engagements.length });
 };
