@@ -172,6 +172,74 @@ const updatePersonRepresentingCompanies = async (
   }
 };
 
+// Helper function to check if a company is a shareholder (has shares > 0)
+const isCompanyShareholder = (company, companyId) => {
+  if (!company.shareHoldingCompanies || !Array.isArray(company.shareHoldingCompanies)) {
+    return false;
+  }
+  const shareholder = company.shareHoldingCompanies.find(
+    (sh) => sh.companyId?.toString() === companyId.toString()
+  );
+  if (!shareholder) return false;
+  
+  return Array.isArray(shareholder.sharesData) &&
+    shareholder.sharesData.some((item) => Number(item.totalShares) > 0);
+};
+
+// Helper function to update representation roles while preserving "Shareholder" role if company is a shareholder
+const updateRepresentationRoles = (company, companyId, newRoles) => {
+  const isShareholder = isCompanyShareholder(company, companyId);
+  
+  // Filter out "Shareholder" from newRoles (we'll add it if needed)
+  const representativeRoles = Array.isArray(newRoles)
+    ? newRoles.filter((r) => r !== "Shareholder")
+    : [];
+
+  const companyIdStr = companyId.toString();
+  const existingRepIndex = company.representationalCompany?.findIndex(
+    (rc) => rc.companyId?.toString() === companyIdStr
+  ) ?? -1;
+
+  if (existingRepIndex >= 0) {
+    if (isShareholder) {
+      // Company is a shareholder - ensure "Shareholder" role is present
+      // Combine with representative roles (replace, don't merge)
+      const finalRoles = ["Shareholder", ...representativeRoles];
+      company.representationalCompany[existingRepIndex].role = finalRoles;
+    } else if (representativeRoles.length > 0) {
+      // Company is not a shareholder but has representative roles
+      company.representationalCompany[existingRepIndex].role = representativeRoles;
+    } else {
+      // No roles left - remove from representationalCompany
+      company.representationalCompany = company.representationalCompany.filter(
+        (_, idx) => idx !== existingRepIndex
+      );
+    }
+  } else {
+    // Company not in representationalCompany
+    if (isShareholder) {
+      // Add with "Shareholder" role + representative roles
+      if (!company.representationalCompany) {
+        company.representationalCompany = [];
+      }
+      const finalRoles = ["Shareholder", ...representativeRoles];
+      company.representationalCompany.push({
+        companyId: companyId,
+        role: finalRoles,
+      });
+    } else if (representativeRoles.length > 0) {
+      // Add with only representative roles
+      if (!company.representationalCompany) {
+        company.representationalCompany = [];
+      }
+      company.representationalCompany.push({
+        companyId: companyId,
+        role: representativeRoles,
+      });
+    }
+  }
+};
+
 // Helper function to convert old sharesData format to new array format
 const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
   // If already an array and has all combinations, return as is (but ensure it's valid)
@@ -676,6 +744,68 @@ exports.updateCompany = async (req, res) => {
         : [];
     }
 
+    // Clean up representationalSchema when shareholders are removed
+    // If a person is removed from shareHolders and has only "Shareholder" role in representationalSchema, remove that entry
+    if (updateData.shareHolders !== undefined) {
+      // Get previous shareholder person IDs from existingCompany (before update)
+      const previousShareholderIds = new Set();
+      if (existingCompany.shareHolders) {
+        existingCompany.shareHolders.forEach((sh) => {
+          const personId =
+            sh?.personId?._id || sh?.personId?.id || sh?.personId;
+          if (personId) {
+            previousShareholderIds.add(String(personId));
+          }
+        });
+      }
+
+      // Get current shareholder person IDs from updateData
+      const currentShareholderIds = new Set();
+      if (Array.isArray(updateData.shareHolders)) {
+        updateData.shareHolders.forEach((sh) => {
+          const personId =
+            sh?.personId?._id || sh?.personId?.id || sh?.personId;
+          if (personId) {
+            currentShareholderIds.add(String(personId));
+          }
+        });
+      }
+
+      // Find removed shareholders
+      const removedShareholderIds = Array.from(previousShareholderIds).filter(
+        (id) => !currentShareholderIds.has(id)
+      );
+
+      // For each removed shareholder, check if they have only "Shareholder" role in representationalSchema
+      if (removedShareholderIds.length > 0) {
+        // Get current representationalSchema (from existingCompany or updateData)
+        const currentRepresentationalSchema = updateData.representationalSchema !== undefined
+          ? (Array.isArray(updateData.representationalSchema) ? updateData.representationalSchema : [])
+          : (existingCompany.representationalSchema || []);
+
+        const updatedRepresentationalSchema = currentRepresentationalSchema.filter((rs) => {
+          const personId =
+            rs?.personId?._id || rs?.personId?.id || rs?.personId;
+          const personIdStr = personId ? String(personId) : null;
+
+          // If this person was removed from shareholders
+          if (personIdStr && removedShareholderIds.includes(personIdStr)) {
+            const roles = Array.isArray(rs.role) ? rs.role : (rs.role ? [rs.role] : []);
+            // If they have only "Shareholder" role, remove the entry
+            if (roles.length === 1 && roles[0] === "Shareholder") {
+              return false; // Remove this entry
+            }
+          }
+          return true; // Keep this entry
+        });
+
+        // Update representationalSchema in updateData if it changed
+        if (updatedRepresentationalSchema.length !== currentRepresentationalSchema.length) {
+          updateData.representationalSchema = updatedRepresentationalSchema;
+        }
+      }
+    }
+
     const company = await Company.findOneAndUpdate(
       { _id: companyId, organizationId: new ObjectId(req.user.organizationId) },
       { $set: updateData },
@@ -1082,10 +1212,18 @@ exports.removeRepresentative = async (req, res) => {
   try {
     const { clientId, companyId, personId } = req.params;
 
-    const company = await Company.findOne({
+    // Build query with clientId check for non-primary companies
+    const query = {
       _id: companyId,
       organizationId: new ObjectId(req.user.organizationId),
-    });
+    };
+    
+    // For non-primary companies, verify clientId matches
+    if (clientId === "non-primary") {
+      query.clientId = "non-primary";
+    }
+
+    const company = await Company.findOne(query);
 
     if (!company) {
       return res.status(404).json({
@@ -1097,7 +1235,7 @@ exports.removeRepresentative = async (req, res) => {
     // Verify person exists
     const person = await Person.findOne({
       _id: personId,
-      clientId,
+ 
       organizationId: new ObjectId(req.user.organizationId),
     });
 
@@ -1373,10 +1511,21 @@ exports.getCompanyHierarchy = async (req, res) => {
  */
 exports.updateShareHolderPersonExisting = async (req, res) => {
   try {
-    const { companyId, personId } = req.params;
+    const { clientId, companyId, personId } = req.params;
     const { sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
+    // Build query with clientId check for non-primary companies
+    const query = {
+      _id: companyId,
+      organizationId: new ObjectId(req.user.organizationId),
+    };
+    
+    // For non-primary companies, verify clientId matches
+    if (clientId === "non-primary") {
+      query.clientId = "non-primary";
+    }
+
+    const company = await Company.findOne(query);
     if (!company) {
       return res
         .status(404)
@@ -1659,10 +1808,21 @@ exports.addShareHolderPersonNewBulk = async (req, res) => {
  */
 exports.updateShareHolderCompanyExisting = async (req, res) => {
   try {
-    const { companyId, addingCompanyId } = req.params;
+    const { clientId, companyId, addingCompanyId } = req.params;
     const { sharesData } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
+    // Build query with clientId check for non-primary companies
+    const query = {
+      _id: companyId,
+      organizationId: new ObjectId(req.user.organizationId),
+    };
+    
+    // For non-primary companies, verify clientId matches
+    if (clientId === "non-primary") {
+      query.clientId = "non-primary";
+    }
+
+    const company = await Company.findOne(query);
     if (!company) {
       return res
         .status(404)
@@ -1927,54 +2087,75 @@ exports.updateRepresentationPersonExisting = async (req, res) => {
     const { companyId, personId } = req.params;
     const { role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
+    const company = await Company.findOne({
+      _id: companyId,
+      organizationId: new ObjectId(req.user.organizationId),
+    });
+
     if (!company) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Company not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
+      });
     }
 
     const personIdStr = personId.toString();
-    company.representationalSchema =
-      company.representationalSchema?.filter(
-        (rs) => rs.personId?.toString() !== personIdStr
-      ) || [];
 
-    if (Array.isArray(role) && role.length > 0) {
-      company.representationalSchema.push({
-        personId: personId,
-        role: role,
-      });
+    // Find existing representationalSchema entry
+    const existingIndex = company.representationalSchema?.findIndex(
+      (rs) => rs.personId?.toString() === personIdStr
+    );
+
+    let mergedRoles = [];
+
+    if (existingIndex !== -1) {
+      // ✅ Merge roles instead of replacing
+      const existingRoles =
+        company.representationalSchema[existingIndex].role || [];
+
+      const newRoles = Array.isArray(role) ? role : [];
+
+      mergedRoles = Array.from(
+        new Set([...existingRoles, ...newRoles])
+      );
+
+      company.representationalSchema[existingIndex].role = mergedRoles;
+    } else {
+      if (Array.isArray(role) && role.length > 0) {
+        mergedRoles = role;
+        company.representationalSchema.push({
+          personId,
+          role,
+        });
+      }
     }
 
     company.updatedAt = new Date();
     await company.save();
 
-    // Update Person's representingCompanies reference
-    if (Array.isArray(role) && role.length > 0) {
+    // ✅ Sync person's representingCompanies properly
+    if (mergedRoles.length > 0) {
       await updatePersonRepresentingCompanies(personId, companyId, "add");
     } else {
       await updatePersonRepresentingCompanies(personId, companyId, "remove");
     }
 
-    res
-      .status(200)
-      .json({
-        success: true,
-        message: "Representation updated successfully",
-        data: company,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Representation updated successfully",
+      data: company,
+    });
+
   } catch (error) {
     console.error("Error updating representation:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update representation",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update representation",
+      error: error.message,
+    });
   }
 };
+
 
 /**
  * Add new person representation (single)
@@ -2106,50 +2287,51 @@ exports.addRepresentationPersonNewBulk = async (req, res) => {
  */
 exports.updateRepresentationCompanyExisting = async (req, res) => {
   try {
-    const { companyId, addingCompanyId } = req.params;
+    const { clientId, companyId, addingCompanyId } = req.params;
     const { role } = req.body;
 
-    const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
-    if (!company) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Company not found" });
+    // Build query with clientId check for non-primary companies
+    const query = {
+      _id: companyId,
+      organizationId: new ObjectId(req.user.organizationId),
+    };
+    
+    // For non-primary companies, verify clientId matches
+    if (clientId === "non-primary") {
+      query.clientId = "non-primary";
     }
 
-    const companyIdStr = addingCompanyId.toString();
-    company.representationalCompany =
-      company.representationalCompany?.filter(
-        (rc) => rc.companyId?.toString() !== companyIdStr
-      ) || [];
+    const company = await Company.findOne(query);
 
-    if (Array.isArray(role) && role.length > 0) {
-      company.representationalCompany.push({
-        companyId: addingCompanyId,
-        role: role,
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: "Company not found",
       });
     }
+
+    // Update representation roles while preserving "Shareholder" role if company is a shareholder
+    updateRepresentationRoles(company, addingCompanyId, role);
 
     company.updatedAt = new Date();
     await company.save();
 
-    res
-      .status(200)
-      .json({
-        success: true,
-        message: "Company representation updated successfully",
-        data: company,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Company representation updated successfully",
+      data: company,
+    });
+
   } catch (error) {
     console.error("Error updating company representation:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update company representation",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update company representation",
+      error: error.message,
+    });
   }
 };
+
 
 /**
  * Add new company representation (single)
@@ -2167,18 +2349,8 @@ exports.addRepresentationCompanyNew = async (req, res) => {
         .json({ success: false, message: "Company not found" });
     }
 
-    // Remove if exists, then add
-    company.representationalCompany =
-      company.representationalCompany?.filter(
-        (rc) => rc.companyId?.toString() !== addingCompanyId?.toString()
-      ) || [];
-
-    if (Array.isArray(role) && role.length > 0) {
-      company.representationalCompany.push({
-        companyId: addingCompanyId,
-        role: role,
-      });
-    }
+    // Update representation roles while preserving "Shareholder" role if company is a shareholder
+    updateRepresentationRoles(company, addingCompanyId, role);
 
     company.updatedAt = new Date();
     await company.save();
