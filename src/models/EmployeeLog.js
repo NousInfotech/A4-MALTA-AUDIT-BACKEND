@@ -39,7 +39,7 @@ const EmployeeLogSchema = new Schema(
     employeeId: { type: String, required: true, index: true },
     employeeName: { type: String, required: true },
     employeeEmail: { type: String, required: true },
-
+    organizationId: { type: String, required: true },
     action: {
       type: String,
       enum: Object.values(Action),
