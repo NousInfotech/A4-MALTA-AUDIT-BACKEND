@@ -203,6 +203,41 @@ const getSpecificSheetData = async (req, res) => {
   }
 };
 
+// ✅ NEW: List all workbooks for an engagement (no classification filter) - similar to getAllClassificationEvidence
+const listAllWorkbooksForEngagement = async (req, res) => {
+  try {
+    const { engagementId } = req.params;
+    const { category } = req.query; // Optional category filter
+
+    if (!engagementId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "engagementId is required" });
+    }
+
+    // Query all workbooks for the engagement (no classification filter)
+    const query = { engagementId };
+    if (category) {
+      query.category = category;
+    }
+
+    console.log('Backend: listAllWorkbooksForEngagement query:', JSON.stringify(query, null, 2));
+    const workbooks = await Workbook.find(query).select(
+      "-mappings -namedRanges"
+    );
+    console.log('Backend: listAllWorkbooksForEngagement result:', {
+      count: workbooks.length,
+      engagementId,
+      category: category || 'ALL',
+      workbooks: workbooks.map(wb => ({ id: wb._id, name: wb.name, classification: wb.classification, category: wb.category || 'NONE' }))
+    });
+    res.status(200).json({ success: true, data: workbooks });
+  } catch (error) {
+    console.error('Backend: listAllWorkbooksForEngagement error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 const listWorkbooks = async (req, res) => {
   try {
     const { engagementId, classification } = req.params;
@@ -1279,6 +1314,7 @@ const updateSheetsData = async (req, res) => {
 };
 
 module.exports = {
+  listAllWorkbooksForEngagement, // ✅ NEW: Export the new function
   saveWorkbookAndSheets,
   getWorkbookWithSheets,
   getSpecificSheetData,

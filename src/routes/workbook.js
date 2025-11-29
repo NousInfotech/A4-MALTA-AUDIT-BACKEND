@@ -22,6 +22,7 @@ router.post('/save-sheet', requireAuth, workbookController.saveSheet);
 //    These are more specific than a simple /:id, so they come next.
 // ===================================================================
 
+router.get('/engagement/:engagementId/all', requireAuth, workbookController.listAllWorkbooksForEngagement); // ✅ NEW: Fetch all workbooks for engagement (no classification filter)
 router.get('/:engagementId/:classification/workbooks/list', requireAuth, workbookController.listWorkbooks);
 router.get('/engagement/:engagementId/trial-balance/list', requireAuth, workbookController.listTrialBalanceWorkbooks);
 

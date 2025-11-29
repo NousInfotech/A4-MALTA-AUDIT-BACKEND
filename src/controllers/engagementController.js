@@ -17,7 +17,8 @@ const archiver = require("archiver");
 const https = require("https");
 const http = require("http");
 const PDFDocument = require("pdfkit");
-const Workbook = require("../models/ExcelWorkbook");
+const { Workbook } = require("../models/ExcelWorkbook");
+const ClassificationEvidence = require("../models/ClassificationEvidence");
 const {
   uploadWorkbookFile,
   uploadTrialBalance,
@@ -7504,6 +7505,249 @@ exports.exportEvidenceFiles = async (req, res) => {
       return res.status(500).json({
         success: false,
         message: error.message || "Failed to export evidence files",
+      });
+    }
+  }
+};
+
+// ✅ NEW: Export ALL evidence files for an engagement (globalized, not just linked to adjustments/reclassifications)
+exports.exportAllEvidenceFiles = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    // Get engagement details
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Get ALL evidence files for the engagement (globalized, like getAllClassificationEvidence)
+    const allEvidence = await ClassificationEvidence.find({ engagementId })
+      .populate('classificationId', 'classification')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (allEvidence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No evidence files found for this engagement",
+      });
+    }
+
+    // Create ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 }, // Maximum compression
+    });
+
+    // Set response headers
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_AllEvidenceFiles.zip"`
+    );
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Helper function to download file from URL or Supabase (reuse from exportEvidenceFiles)
+    const downloadFile = async (url, fileName) => {
+      try {
+        // Check if it's a Supabase storage URL
+        if (url.includes("supabase.co") && url.includes("/storage/v1/object/public/")) {
+          // Extract bucket and path from Supabase URL
+          const urlParts = url.split("/storage/v1/object/public/");
+          if (urlParts.length === 2) {
+            const bucketAndPath = urlParts[1];
+            const [bucket, ...pathParts] = bucketAndPath.split("/");
+            const filePath = pathParts.join("/");
+
+            // Download from Supabase storage
+            const { data, error } = await supabase.storage
+              .from(bucket)
+              .download(filePath);
+
+            if (error) {
+              throw new Error(`Supabase download error: ${error.message}`);
+            }
+
+            // Convert blob to buffer
+            const arrayBuffer = await data.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+          }
+        }
+
+        // For other URLs, use HTTP/HTTPS download
+        return new Promise((resolve, reject) => {
+          const protocol = url.startsWith("https") ? https : http;
+          protocol
+            .get(url, (response) => {
+              if (response.statusCode === 301 || response.statusCode === 302) {
+                // Handle redirect
+                return downloadFile(response.headers.location, fileName)
+                  .then(resolve)
+                  .catch(reject);
+              }
+              if (response.statusCode !== 200) {
+                reject(new Error(`Failed to download file: ${response.statusCode}`));
+                return;
+              }
+              const chunks = [];
+              response.on("data", (chunk) => chunks.push(chunk));
+              response.on("end", () => resolve(Buffer.concat(chunks)));
+              response.on("error", reject);
+            })
+            .on("error", reject);
+        });
+      } catch (error) {
+        console.error(`Error downloading file ${fileName}:`, error);
+        throw error;
+      }
+    };
+
+    // Add all evidence files to archive
+    for (const evidence of allEvidence) {
+      try {
+        const classification = evidence.classificationId?.classification || "Unclassified";
+        const fileName = evidence.evidenceUrl.split("/").pop() || `evidence_${evidence._id}`;
+        const sanitizedClassification = classification.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const archiveFileName = `${sanitizedClassification}_${fileName}`;
+
+        const fileBuffer = await downloadFile(evidence.evidenceUrl, fileName);
+        archive.append(fileBuffer, { name: archiveFileName });
+      } catch (error) {
+        console.error(`Error adding evidence file to archive:`, error);
+        // Continue with other files even if one fails
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error("Error exporting all evidence files:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export all evidence files",
+      });
+    }
+  }
+};
+
+// ✅ NEW: Export ALL workbooks for an engagement (globalized)
+exports.exportAllWorkbooks = async (req, res) => {
+  try {
+    const { id: engagementId } = req.params;
+
+    if (!engagementId) {
+      return res.status(400).json({
+        success: false,
+        message: "Engagement ID is required",
+      });
+    }
+
+    // Get engagement details
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) {
+      return res.status(404).json({
+        success: false,
+        message: "Engagement not found",
+      });
+    }
+
+    const engagementName = engagement.name || `Engagement_${engagementId}`;
+    const sanitizedEngagementName = engagementName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Get ALL workbooks for the engagement (globalized, like listAllWorkbooksForEngagement)
+    const allWorkbooks = await Workbook.find({ engagementId })
+      .select("-mappings -namedRanges")
+      .sort({ uploadedDate: -1 })
+      .lean();
+
+    if (allWorkbooks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No workbooks found for this engagement",
+      });
+    }
+
+    // Create ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 }, // Maximum compression
+    });
+
+    // Set response headers
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedEngagementName}_AllWorkbooks.zip"`
+    );
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Helper function to download workbook from Microsoft Graph
+    const downloadWorkbook = async (cloudFileId, fileName) => {
+      try {
+        const token = await msExcel.getAccessToken();
+        const downloadUrl = `https://graph.microsoft.com/v1.0/drives/${process.env.MS_DRIVE_ID}/items/${cloudFileId}/content`;
+
+        const response = await fetch(downloadUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to download workbook: ${response.statusText}`);
+        }
+
+        // Convert response to buffer
+        const arrayBuffer = await response.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+      } catch (error) {
+        console.error(`Error downloading workbook ${fileName}:`, error);
+        throw error;
+      }
+    };
+
+    // Add all workbooks to archive
+    for (const workbook of allWorkbooks) {
+      try {
+        if (!workbook.cloudFileId) {
+          console.warn(`Workbook ${workbook.name} has no cloudFileId, skipping`);
+          continue;
+        }
+
+        const classification = workbook.classification || "Unclassified";
+        const sanitizedClassification = classification.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const sanitizedName = (workbook.name || `workbook_${workbook._id}`).replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const archiveFileName = `${sanitizedClassification}_${sanitizedName}.xlsx`;
+
+        const fileBuffer = await downloadWorkbook(workbook.cloudFileId, workbook.name);
+        archive.append(fileBuffer, { name: archiveFileName });
+      } catch (error) {
+        console.error(`Error adding workbook to archive:`, error);
+        // Continue with other workbooks even if one fails
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error("Error exporting all workbooks:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to export all workbooks",
       });
     }
   }

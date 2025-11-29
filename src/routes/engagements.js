@@ -91,7 +91,9 @@ router.get("/:id/export/combined", requireAuth, ec.exportCombined);
 router.get("/:id/export/etb", requireAuth, ec.exportETB);
 router.get("/:id/export/adjustments", requireAuth, ec.exportAdjustments);
 router.get("/:id/export/reclassifications", requireAuth, ec.exportReclassifications);
-router.get("/:id/export/evidence", requireAuth, ec.exportEvidenceFiles);
+router.get("/:id/export/evidence", requireAuth, ec.exportEvidenceFiles); // Linked evidence files (adjustments/reclassifications)
+router.get("/:id/export/all-evidence", requireAuth, ec.exportAllEvidenceFiles); // ✅ NEW: All evidence files (globalized)
+router.get("/:id/export/all-workbooks", requireAuth, ec.exportAllWorkbooks); // ✅ NEW: All workbooks (globalized)
 router.get(
   "/:id/etb/classification/:classification",
   requireAuth,
