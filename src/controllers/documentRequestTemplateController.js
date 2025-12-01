@@ -125,17 +125,12 @@ exports.deleteSingle = async (req, res) => {
 // GET ALL (bulk read)
 exports.getAllBulk = async (req, res) => {
   try {
-    const filters = {};
+    const filters = {
+      organizationId:req.user.organizationId
+    };
 
-    // Optional filters (if you want later)
-    // if (req.query.isActive) {
-    //   filters.isActive = req.query.isActive === "true";
-    // }
     if (req.query.category) {
       filters.category = req.query.category;
-    }
-    if (req.query.organizationId) {
-      filters.organizationId = req.query.organizationId;
     }
 
     const templates = await DocumentRequestTemplate.find(filters);
