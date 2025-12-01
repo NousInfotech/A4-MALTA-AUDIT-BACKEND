@@ -64,13 +64,23 @@ exports.updateSingle = async (req, res) => {
       });
     }
 
-    const { _id: _ignored, ...rest } = req.body;
+    const { category: categoryFromQuery } = req.query;
+    const { _id: _ignored, category: categoryFromBody, ...rest } = req.body;
+
+    // Prefer explicit category from query, then from body; otherwise keep existing value
+    const updatePayload = {
+      ...rest,
+    };
+
+    if (categoryFromQuery) {
+      updatePayload.category = categoryFromQuery;
+    } else if (categoryFromBody) {
+      updatePayload.category = categoryFromBody;
+    }
+
     const updated = await DocumentRequestTemplate.findByIdAndUpdate(
       id,
-      {
-        ...rest,
-        category: "kyc",
-      },
+      updatePayload,
       { new: true }
     );
 
@@ -174,23 +184,36 @@ exports.bulkCreate = async (req, res) => {
 exports.bulkUpdate = async (req, res) => {
   try {
     const updates = req.body;
+    const { category: categoryFromQuery } = req.query;
 
     const results = await Promise.all(
-      updates.map((item) =>
-        DocumentRequestTemplate.findByIdAndUpdate(
-          item._id,
-          {
-            ...item,
-            category: "kyc",
-          },
+      updates.map((item) => {
+        const { _id, category: categoryFromItem, ...rest } = item;
+
+        if (!_id) return null;
+
+        const updatePayload = {
+          ...rest,
+        };
+
+        // Same precedence: query > item payload > existing
+        if (categoryFromQuery) {
+          updatePayload.category = categoryFromQuery;
+        } else if (categoryFromItem) {
+          updatePayload.category = categoryFromItem;
+        }
+
+        return DocumentRequestTemplate.findByIdAndUpdate(
+          _id,
+          updatePayload,
           { new: true }
-        )
-      )
+        );
+      })
     );
 
     return res.status(200).json({
       success: true,
-      data: results,
+      data: results.filter(Boolean),
     });
   } catch (error) {
     return res.status(400).json({
