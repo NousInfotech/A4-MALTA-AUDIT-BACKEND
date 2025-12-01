@@ -9,6 +9,7 @@ const multer_upload = multer({ storage: multer.memoryStorage() })
 router.post("/", requireAuth, requireRole("employee"), ec.createEngagement);
 router.get("/", requireAuth, ec.getAllEngagements);
 router.get("/getClientEngagements", requireAuth, ec.getClientEngagements);
+router.get("/clients-with-companies", requireAuth, ec.getClientsWithCompanies);
 router.get("/:id", requireAuth, ec.getEngagementById);
 router.patch("/:id", requireAuth, requireRole("employee"), ec.updateEngagement);
 

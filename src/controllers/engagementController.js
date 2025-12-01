@@ -10,6 +10,7 @@ const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 const ClassificationSection = require("../models/ClassificationSection");
 const Adjustment = require("../models/Adjustment");
 const Reclassification = require("../models/Reclassification");
+const Company = require("../models/Company");
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
 const ExcelJS = require("exceljs");
@@ -752,6 +753,54 @@ exports.createEngagement = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getClientsWithCompanies = async (req, res) => {
+  try {
+    // 1️⃣ Fetch ONLY the fields we need from Supabase
+    const { data: clients, error: supabaseError } = await supabase
+      .from("profiles")
+      .select("user_id, name")
+      .eq("role", "client")
+      .eq("organization_id", req.user.organizationId);
+      
+    if (supabaseError) {
+      console.error("Supabase error:", supabaseError);
+      return res.status(500).json({ error: "Failed to load clients" });
+    }
+
+    // 2️⃣ Fetch ONLY required fields from MongoDB companies
+    const companies = await Company.find(
+      { organizationId: req.user.organizationId, clientId: { $in: clients.map((c) => c.user_id) } },
+      { name: 1, registrationNumber: 1, clientId: 1 } // return only these fields
+    );
+
+    // 3️⃣ Join clients + their companies
+    const result = clients
+      .map((client) => {
+        const clientCompanies = companies.filter(
+          (company) => company.clientId === client.user_id
+        );
+
+        // Skip clients with no companies
+        if (clientCompanies.length === 0) return null;
+
+        return {
+          clientId: client.user_id,   // exposed as clientId
+          clientName: client.name,    // exposed as clientName
+          companies: clientCompanies[0]
+        };
+      })
+      .filter(Boolean); // remove null entries
+
+    return res.json(result);
+
+  } catch (err) {
+    console.error("Error in /clients-with-companies:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
 
 exports.uploadToLibrary = async (req, res, next) => {
   try {
