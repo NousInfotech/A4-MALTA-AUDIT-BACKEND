@@ -24,7 +24,7 @@ const DocumentRequestSingleDocumentSchema = new Schema({
 
   status: {
     type: String,
-    enum: ["pending", "uploaded", "in-review", "approved", "rejected"],
+    enum: ["pending", "uploaded", "approved", "rejected"],
     default: "pending",
   },
 
@@ -36,6 +36,8 @@ const DocumentRequestSingleDocumentSchema = new Schema({
 // =======================
 
 const MultipleDocumentItemSchema = new Schema({
+  label: { type: String, required: true },
+
   template: {
     url: { type: String },
     instruction: { type: String },
@@ -47,7 +49,7 @@ const MultipleDocumentItemSchema = new Schema({
 
   status: {
     type: String,
-    enum: ["pending", "uploaded", "in-review", "approved", "rejected"],
+    enum: ["pending", "uploaded", "approved", "rejected"],
     default: "pending",
   },
 
@@ -66,6 +68,8 @@ const DocumentRequestMultipleDocumentSchema = new Schema({
     enum: ["direct", "template", "multiple"],
     default: "multiple",
   },
+
+  instruction: { type: String },
 
   // Each required page/file is a separate object
   multiple: [MultipleDocumentItemSchema],
