@@ -9,7 +9,7 @@ const DocumentRequestSingleDocumentSchema = new Schema({
 
   type: {
     type: String,
-    enum: ["direct", "template", "multiple"],
+    enum: ["direct", "template"],
     default: "direct",
   },
 
@@ -65,8 +65,8 @@ const DocumentRequestMultipleDocumentSchema = new Schema({
 
   type: {
     type: String,
-    enum: ["direct", "template", "multiple"],
-    default: "multiple",
+    enum: ["direct", "template"],
+    default: "direct",
   },
 
   instruction: { type: String },
@@ -102,48 +102,50 @@ const DocumentRequestSchema = new Schema({
   documents: [DocumentRequestSingleDocumentSchema],
 
   // Multiple document requests (Passport front/back, Form16 pages)
-  multipleDocuments: [DocumentRequestMultipleDocumentSchema],
+  multipleDocuments: [DocumentRequestMultipleDocumentSchema], 
+
+
 
   // ======================
   // Review & Approval Flow
   // ======================
-  reviewStatus: {
-    type: String,
-    enum: [
-      "in-progress",
-      "ready-for-review",
-      "under-review",
-      "approved",
-      "rejected",
-      "signed-off",
-      "re-opened",
-    ],
-    default: "in-progress",
-  },
+  // reviewStatus: {
+  //   type: String,
+  //   enum: [
+  //     "in-progress",
+  //     "ready-for-review",
+  //     "under-review",
+  //     "approved",
+  //     "rejected",
+  //     "signed-off",
+  //     "re-opened",
+  //   ],
+  //   default: "in-progress",
+  // },
 
-  reviewerId: { type: String },
-  reviewedAt: { type: Date },
-  reviewComments: { type: String },
+  // reviewerId: { type: String },
+  // reviewedAt: { type: Date },
+  // reviewComments: { type: String },
 
-  approvedBy: { type: String },
-  approvedAt: { type: Date },
+  // approvedBy: { type: String },
+  // approvedAt: { type: Date },
 
-  signedOffBy: { type: String },
-  signedOffAt: { type: Date },
-  signOffComments: { type: String },
+  // signedOffBy: { type: String },
+  // signedOffAt: { type: Date },
+  // signOffComments: { type: String },
 
-  isSignedOff: { type: Boolean, default: false },
+  // isSignedOff: { type: Boolean, default: false },
 
-  // Locking system
-  isLocked: { type: Boolean, default: false },
-  lockedAt: { type: Date },
-  lockedBy: { type: String },
+  // // Locking system
+  // isLocked: { type: Boolean, default: false },
+  // lockedAt: { type: Date },
+  // lockedBy: { type: String },
 
-  reopenedAt: { type: Date },
-  reopenedBy: { type: String },
-  reopenReason: { type: String },
+  // reopenedAt: { type: Date },
+  // reopenedBy: { type: String },
+  // reopenReason: { type: String },
 
-  reviewVersion: { type: Number, default: 1 },
+  // reviewVersion: { type: Number, default: 1 },
 });
 
 module.exports = mongoose.model("DocumentRequest", DocumentRequestSchema);

@@ -16,10 +16,25 @@ router.get(
   drc.getRequestsByEngagement
 );
 
+// Delete entire document request
+router.delete(
+  '/:id',
+  requireAuth,
+  drc.deleteRequest
+);
+
 router.patch(
   '/:id',
   requireAuth,
   drc.updateRequest
+);
+
+// Add documents to existing document request
+router.post(
+  '/:id/documents/add',
+  requireAuth,
+  requireRole('employee'),
+  drc.addDocumentsToRequest
 );
 
 // Bulk upload documents
@@ -37,6 +52,14 @@ router.post(
   upload.single('file'),
   drc.uploadSingleDocument
 );
+
+router.post(
+  "/clear/:requestId/:docIndex",
+  requireAuth,
+  requireRole('employee'),
+  drc.clearSingleDocument
+);
+
 
 // Update individual document status
 router.patch(
@@ -83,6 +106,46 @@ router.delete(
   requireAuth,
   requireRole('employee'),
   drc.deleteDocument
+);
+
+// Clear a multiple document item (clear file only)
+router.post(
+  '/:id/multiple/:multipleDocumentId/items/:itemIndex/clear',
+  requireAuth,
+  requireRole('employee'),
+  drc.clearMultipleDocumentItem
+);
+
+// Delete a specific item from a multiple document group
+router.delete(
+  '/:id/multiple/:multipleDocumentId/items/:itemIndex',
+  requireAuth,
+  requireRole('employee'),
+  drc.deleteMultipleDocumentItem
+);
+
+// Upload files to multiple document items
+router.post(
+  '/:id/multiple/:multipleDocumentId/upload',
+  requireAuth,
+  upload.array('files'),
+  drc.uploadMultipleDocuments
+);
+
+// Delete entire multiple document group
+router.delete(
+  '/:id/multiple/:multipleDocumentId',
+  requireAuth,
+  requireRole('employee'),
+  drc.deleteMultipleDocumentGroup
+);
+
+// Clear all files in a multiple document group
+router.post(
+  '/:id/multiple/:multipleDocumentId/clear',
+  requireAuth,
+  requireRole('employee'),
+  drc.clearMultipleDocumentGroup
 );
 
 module.exports = router;

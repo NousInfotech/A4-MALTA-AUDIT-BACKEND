@@ -360,6 +360,133 @@ exports.getRequestsByEngagement = async (req, res, next) => {
   }
 };
 
+// Delete entire document request
+exports.deleteRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    await dr.deleteOne();
+
+    return res.json({
+      success: true,
+      message: "Document request deleted successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Add documents to an existing document request
+exports.addDocumentsToRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { documents, multipleDocuments } = req.body;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    // Check permissions - only employees/admins can add documents
+    const isClient = req.user?.role === 'client';
+    if (isClient && dr.clientId !== req.user.id) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Add single documents
+    if (documents && Array.isArray(documents) && documents.length > 0) {
+      // Validate documents
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        if (!doc.name) {
+          return res.status(400).json({ 
+            message: `Document at index ${i} is missing required 'name' field` 
+          });
+        }
+      }
+
+      // Add documents to the request
+      if (!dr.documents) {
+        dr.documents = [];
+      }
+      dr.documents.push(...documents);
+    }
+
+    // Add multiple documents
+    if (multipleDocuments && Array.isArray(multipleDocuments) && multipleDocuments.length > 0) {
+      // Validate multiple documents
+      for (let i = 0; i < multipleDocuments.length; i++) {
+        const multiDoc = multipleDocuments[i];
+        if (!multiDoc.name) {
+          return res.status(400).json({ 
+            message: `Multiple document at index ${i} is missing required 'name' field` 
+          });
+        }
+        if (!multiDoc.multiple || !Array.isArray(multiDoc.multiple) || multiDoc.multiple.length === 0) {
+          return res.status(400).json({ 
+            message: `Multiple document at index ${i} must have at least one item in 'multiple' array` 
+          });
+        }
+      }
+
+      // Add multiple documents to the request
+      if (!dr.multipleDocuments) {
+        dr.multipleDocuments = [];
+      }
+      dr.multipleDocuments.push(...multipleDocuments);
+    }
+
+    // Save the updated document request
+    await dr.save();
+
+    // Send notification if documents were added by auditor/admin
+    try {
+      const isAuditorOrAdmin = req.user.role === 'employee' || req.user.role === 'admin';
+      const isDifferentUser = dr.clientId !== req.user.id;
+      
+      if (isAuditorOrAdmin && isDifferentUser) {
+        const documentNames = [];
+        if (documents && documents.length > 0) {
+          documentNames.push(...documents.map(doc => doc.name));
+        }
+        if (multipleDocuments && multipleDocuments.length > 0) {
+          documentNames.push(...multipleDocuments.map(doc => doc.name));
+        }
+        
+        if (documentNames.length > 0) {
+          const engagement = await Engagement.findById(dr.engagement);
+          const requesterProfile = await getUserProfile(req.user.id);
+          const requesterName = requesterProfile?.name || (req.user.role === 'admin' ? 'Admin' : 'Auditor');
+          
+          await notifyDocumentRequested(
+            dr._id,
+            dr.clientId,
+            documentNames.join(', '),
+            requesterName,
+            dr.category
+          );
+        }
+      }
+    } catch (notificationError) {
+      console.error('Failed to send notification:', notificationError);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Documents added to request successfully',
+      documentRequest: dr
+    });
+  } catch (err) {
+    console.error('Error adding documents to request:', err);
+    next(err);
+  }
+};
+
 exports.updateRequest = async (req, res, next) => {
   try {
     const updates = req.body;
@@ -464,6 +591,7 @@ exports.uploadSingleDocument = async (req, res, next) => {
   try {
     const dr = await DocumentRequest.findById(req.params.id);
     if (!dr) return res.status(404).json({ message: "Request not found" });
+
     const isClient = req.user?.role === 'client';
     if (isClient && dr.clientId !== req.user.id) {
       return res.status(403).json({ message: "Forbidden" });
@@ -477,80 +605,103 @@ exports.uploadSingleDocument = async (req, res, next) => {
     const categoryFolder = `${dr.category}/`;
     const file = req.file;
 
-    // Use the original filename for display, but generate a unique filename for storage
     const originalFilename = file.originalname;
     const ext = originalFilename.split(".").pop();
     const uniqueFilename = `${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 5)}.${ext}`;
+
     const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
-      .upload(path, file.buffer, { 
-        cacheControl: "3600", 
+      .upload(path, file.buffer, {
+        cacheControl: "3600",
         upsert: false,
-        contentType: file.mimetype 
+        contentType: file.mimetype
       });
+
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
       .from(bucket)
       .getPublicUrl(up.path);
 
-    // For KYC documents, try to update existing pending document instead of adding new one
-    if (dr.category === 'kyc') {
-      // Check if we have a specific document index from the frontend
-      const documentIndex = req.body.documentIndex ? parseInt(req.body.documentIndex) : null;
-      const documentName = req.body.documentName || originalFilename;
-      
-      if (documentIndex !== null && documentIndex >= 0 && documentIndex < dr.documents.length) {
-        // Update specific document by index
-        const existingDoc = dr.documents[documentIndex];
-        dr.documents[documentIndex] = {
-          ...existingDoc,
-          name: documentName, // Ensure name is always set
-          uploadedFileName: originalFilename,
-          url: urlData.publicUrl,
-          uploadedAt: new Date(),
-          status: 'uploaded'
-        };
+    const documentIndex = req.body.documentIndex
+      ? parseInt(req.body.documentIndex)
+      : null;
+
+    const documentName = req.body.documentName || originalFilename;
+
+    // Helper function that preserves template data
+    const buildUpdatedDocument = (existingDoc) => ({
+      ...existingDoc,
+      name: existingDoc?.name || documentName,
+      uploadedFileName: originalFilename,
+      url: urlData.publicUrl,
+      uploadedAt: new Date(),
+      status: "uploaded",
+      // Preserve template metadata
+      type: existingDoc?.type || "direct",
+      template: existingDoc?.template || (existingDoc?.type === "template" ? existingDoc.template : {})
+    });
+
+    // 1️⃣ If documentIndex provided → update that specific document
+    if (
+      documentIndex !== null &&
+      !Number.isNaN(documentIndex) &&
+      documentIndex >= 0 &&
+      documentIndex < dr.documents.length
+    ) {
+      const existingDoc = dr.documents[documentIndex];
+      dr.documents[documentIndex] = buildUpdatedDocument(existingDoc);
+    } else {
+      // 2️⃣ Find first pending document slot
+      const pendingDocIndex = dr.documents.findIndex(
+        (doc) => doc.status === "pending" && !doc.url
+      );
+
+      if (pendingDocIndex !== -1) {
+        const existingDoc = dr.documents[pendingDocIndex];
+        dr.documents[pendingDocIndex] = buildUpdatedDocument(existingDoc);
       } else {
-        // Find the first pending document to update
-        const pendingDocIndex = dr.documents.findIndex(doc => doc.status === 'pending' && !doc.url);
-        
-        if (pendingDocIndex !== -1) {
-          // Update existing pending document
-          const existingDoc = dr.documents[pendingDocIndex];
-          dr.documents[pendingDocIndex] = {
-            ...existingDoc,
-            name: existingDoc.name || documentName, // Ensure name is always set
-            uploadedFileName: originalFilename,
-            url: urlData.publicUrl,
-            uploadedAt: new Date(),
-            status: 'uploaded'
-          };
+        // 3️⃣ Try to find a template document with the same name
+        const templateDocIndex = dr.documents.findIndex(
+          (doc) => doc.name === documentName && doc.template && doc.template.url
+        );
+
+        if (templateDocIndex !== -1) {
+          const existingDoc = dr.documents[templateDocIndex];
+          dr.documents[templateDocIndex] = buildUpdatedDocument(existingDoc);
         } else {
-          // If no pending document found, add new one
-          const newDocument = {
-            name: documentName,
-            uploadedFileName: originalFilename,
-            url: urlData.publicUrl,
-            uploadedAt: new Date(),
-            status: 'uploaded'
-          };
+          // 4️⃣ Final fallback → append new document
+          // If a template exists with this name, reuse its metadata
+          const templateLike = dr.documents.find(
+            (doc) => doc.name === documentName && doc.template && doc.template.url
+          );
+
+          const newDocument = templateLike
+            ? {
+                ...templateLike,
+                uploadedFileName: originalFilename,
+                url: urlData.publicUrl,
+                uploadedAt: new Date(),
+                status: "uploaded",
+              }
+            : {
+                name: documentName,
+                type: "direct",
+                template: {},
+                uploadedFileName: originalFilename,
+                url: urlData.publicUrl,
+                uploadedAt: new Date(),
+                status: "uploaded",
+                comment: "",
+              };
+
           dr.documents.push(newDocument);
         }
       }
-    } else {
-      // For non-KYC documents, add new document (existing behavior)
-      const newDocument = {
-        name: originalFilename,
-        url: urlData.publicUrl,
-        uploadedAt: new Date(),
-        status: 'uploaded'
-      };
-      dr.documents.push(newDocument);
     }
 
     await EngagementLibrary.create({
@@ -561,35 +712,74 @@ exports.uploadSingleDocument = async (req, res, next) => {
 
     await dr.save();
 
-    // Update KYC status if this is a KYC document request
+    // KYC status update if needed
     if (dr.category === 'kyc') {
       try {
         const KYC = require('../models/KnowYourClient');
         const kyc = await KYC.findOne({ documentRequests: dr._id });
         if (kyc) {
-          // Update KYC status to 'submitted' when documents are uploaded
           kyc.status = 'submitted';
           await kyc.save();
         }
       } catch (kycError) {
         console.error('Error updating KYC status:', kycError);
-        // Don't fail the upload if KYC update fails
       }
     }
 
-    // Find the uploaded document to return
     const uploadedDoc = dr.documents.find(doc => doc.url === urlData.publicUrl);
-    
+
     res.json({
       success: true,
       message: 'Document uploaded successfully',
       document: uploadedDoc,
       documentRequest: dr
     });
+
   } catch (err) {
     next(err);
   }
 };
+
+ 
+// CLEAR ONLY UPLOADED DOCUMENT
+ 
+exports.clearSingleDocument = async (req, res) => {
+  try {
+    const { requestId, docIndex } = req.params;
+
+    const dr = await DocumentRequest.findById(requestId);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    const doc = dr.documents[docIndex];
+    if (!doc) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    // ⭐ IMPORTANT:
+    // Clear only the upload fields — DO NOT touch doc.template
+    doc.url = "";
+    doc.uploadedFileName = "";
+    doc.uploadedAt = null;
+    doc.status = "pending"; // reset status
+
+    await dr.save();
+
+    return res.json({
+      success: true,
+      message: "Uploaded file cleared successfully",
+      document: doc,
+    });
+  } catch (err) {
+    console.error("Clear document error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to clear uploaded document" });
+  }
+};
+
+
 
 // Get document request statistics
 exports.getDocumentRequestStats = async (req, res, next) => {
@@ -859,40 +1049,6 @@ exports.deleteDocument = async (req, res, next) => {
         // Continue with document removal
       }
     }
-
-    // If this document never had a file (pending with no URL), allow removing the slot entirely
-    if ((!documentToDelete || !documentToDelete.url) && documentToDelete?.status === 'pending') {
-      dr.documents.splice(parsedIndex, 1);
-      await dr.save();
-    } else {
-      // Otherwise, reset the entry to a pending slot so the requirement remains visible
-      const existingDoc = dr.documents[parsedIndex] || {};
-      dr.documents[parsedIndex] = {
-        ...existingDoc,
-        // Preserve name/type/template/description, but clear file-related fields
-        name: existingDoc.name || 'Document',
-        type: existingDoc.type || 'direct',
-        uploadedFileName: undefined,
-        url: undefined,
-        uploadedAt: undefined,
-        status: 'pending',
-        comment: ''
-      };
-
-      // Sanitize any invalid document statuses (legacy data may contain 'completed')
-      if (Array.isArray(dr.documents)) {
-        dr.documents = dr.documents.map(doc => ({
-          ...doc,
-          name: doc.name || 'Document',
-          type: doc.type || 'direct',
-          status: ['pending', 'uploaded', 'in-review', 'approved', 'rejected'].includes(doc.status)
-            ? doc.status
-            : 'uploaded'
-        }));
-      }
-
-      await dr.save();
-    }
     
     // Also remove from EngagementLibrary if URL exists
     if (documentToDelete && documentToDelete.url) {
@@ -904,6 +1060,10 @@ exports.deleteDocument = async (req, res, next) => {
       }
     }
 
+    // Always remove the document from the array (actual deletion)
+    dr.documents.splice(parsedIndex, 1);
+    await dr.save();
+
     // Fetch the updated document to return
     const updatedDr = await DocumentRequest.findById(id);
 
@@ -914,6 +1074,400 @@ exports.deleteDocument = async (req, res, next) => {
     });
   } catch (err) {
     console.error('Error in deleteDocument:', err);
+    next(err);
+  }
+};
+
+// Clear only the uploaded file for a multiple document item
+exports.clearMultipleDocumentItem = async (req, res, next) => {
+  try {
+    const { id, multipleDocumentId, itemIndex } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    // Find the multiple document by _id (convert to string for comparison)
+    const multipleDoc = dr.multipleDocuments.find(
+      (doc) => String(doc._id) === String(multipleDocumentId)
+    );
+    if (!multipleDoc) {
+      return res.status(404).json({ message: "Multiple document group not found" });
+    }
+
+    const parsedIndex = parseInt(itemIndex);
+    if (isNaN(parsedIndex) || parsedIndex < 0 || parsedIndex >= multipleDoc.multiple.length) {
+      return res.status(404).json({ message: "Document item not found" });
+    }
+
+    const item = multipleDoc.multiple[parsedIndex];
+    if (!item) {
+      return res.status(404).json({ message: "Document item not found" });
+    }
+
+    // Clear only the upload fields — preserve template and label
+    item.url = "";
+    item.uploadedFileName = "";
+    item.uploadedAt = null;
+    item.status = "pending"; // reset status
+
+    await dr.save();
+
+    return res.json({
+      success: true,
+      message: "Uploaded file cleared successfully",
+      item: item,
+      documentRequest: dr
+    });
+  } catch (err) {
+    console.error("Clear multiple document item error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to clear uploaded document item" });
+  }
+};
+
+// Delete entire multiple document group
+exports.deleteMultipleDocumentGroup = async (req, res, next) => {
+  try {
+    const { id, multipleDocumentId } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    // Find the multiple document group
+    const multipleDocIndex = dr.multipleDocuments.findIndex(
+      (doc) => String(doc._id) === String(multipleDocumentId)
+    );
+    if (multipleDocIndex === -1) {
+      return res.status(404).json({ message: "Multiple document group not found" });
+    }
+
+    const multipleDoc = dr.multipleDocuments[multipleDocIndex];
+    
+    // Delete all files from Supabase storage
+    if (multipleDoc.multiple && multipleDoc.multiple.length > 0) {
+      for (const item of multipleDoc.multiple) {
+        if (item.url) {
+          try {
+            const url = new URL(item.url);
+            const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+            
+            if (pathMatch) {
+              const [, bucket, filePath] = pathMatch;
+              const { error: deleteError } = await supabase.storage
+                .from(bucket)
+                .remove([filePath]);
+              
+              if (deleteError) {
+                console.error('Error deleting file from storage:', deleteError);
+              }
+
+              // Also remove from EngagementLibrary
+              try {
+                await EngagementLibrary.findOneAndDelete({ url: item.url });
+              } catch (libError) {
+                console.error('Error removing from library:', libError);
+              }
+            }
+          } catch (storageError) {
+            console.error('Error handling storage deletion:', storageError);
+          }
+        }
+      }
+    }
+
+    // Remove the entire group from the multipleDocuments array
+    dr.multipleDocuments.splice(multipleDocIndex, 1);
+    await dr.save();
+
+    const updatedDr = await DocumentRequest.findById(id);
+
+    return res.json({
+      success: true,
+      message: 'Multiple document group deleted successfully',
+      documentRequest: updatedDr
+    });
+  } catch (err) {
+    console.error('Error in deleteMultipleDocumentGroup:', err);
+    next(err);
+  }
+};
+
+// Clear all files in a multiple document group (keeps items, removes files)
+exports.clearMultipleDocumentGroup = async (req, res, next) => {
+  try {
+    const { id, multipleDocumentId } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    // Find the multiple document group
+    const multipleDoc = dr.multipleDocuments.find(
+      (doc) => String(doc._id) === String(multipleDocumentId)
+    );
+    if (!multipleDoc) {
+      return res.status(404).json({ message: "Multiple document group not found" });
+    }
+
+    // Clear all files in all items
+    if (multipleDoc.multiple && multipleDoc.multiple.length > 0) {
+      for (const item of multipleDoc.multiple) {
+        if (item.url) {
+          try {
+            const url = new URL(item.url);
+            const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+            
+            if (pathMatch) {
+              const [, bucket, filePath] = pathMatch;
+              const { error: deleteError } = await supabase.storage
+                .from(bucket)
+                .remove([filePath]);
+              
+              if (deleteError) {
+                console.error('Error deleting file from storage:', deleteError);
+              }
+
+              // Also remove from EngagementLibrary
+              try {
+                await EngagementLibrary.findOneAndDelete({ url: item.url });
+              } catch (libError) {
+                console.error('Error removing from library:', libError);
+              }
+            }
+          } catch (storageError) {
+            console.error('Error handling storage deletion:', storageError);
+          }
+        }
+
+        // Clear file-related fields but keep the item
+        item.url = undefined;
+        item.uploadedFileName = undefined;
+        item.uploadedAt = undefined;
+        item.status = 'pending';
+      }
+    }
+
+    await dr.save();
+
+    const updatedDr = await DocumentRequest.findById(id);
+
+    return res.json({
+      success: true,
+      message: 'All files in multiple document group cleared successfully',
+      documentRequest: updatedDr
+    });
+  } catch (err) {
+    console.error('Error in clearMultipleDocumentGroup:', err);
+    next(err);
+  }
+};
+
+// Delete a specific item from a multiple document group
+exports.deleteMultipleDocumentItem = async (req, res, next) => {
+  try {
+    const { id, multipleDocumentId, itemIndex } = req.params;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    // Find the multiple document by _id (convert to string for comparison)
+    const multipleDoc = dr.multipleDocuments.find(
+      (doc) => String(doc._id) === String(multipleDocumentId)
+    );
+    if (!multipleDoc) {
+      return res.status(404).json({ message: "Multiple document group not found" });
+    }
+
+    const parsedIndex = parseInt(itemIndex);
+    if (isNaN(parsedIndex) || parsedIndex < 0 || parsedIndex >= multipleDoc.multiple.length) {
+      return res.status(404).json({ message: "Document item not found" });
+    }
+
+    const itemToDelete = multipleDoc.multiple[parsedIndex];
+    
+    // Delete file from Supabase storage if URL exists
+    if (itemToDelete && itemToDelete.url) {
+      try {
+        const url = new URL(itemToDelete.url);
+        const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const [, bucket, filePath] = pathMatch;
+          console.log(`Attempting to delete file from bucket: ${bucket}, path: ${filePath}`);
+          
+          const { data, error: deleteError } = await supabase.storage
+            .from(bucket)
+            .remove([filePath]);
+          
+          if (deleteError) {
+            console.error('Error deleting file from storage:', deleteError);
+          } else {
+            console.log('File successfully deleted from storage');
+          }
+        }
+      } catch (storageError) {
+        console.error('Error handling storage deletion:', storageError);
+      }
+    }
+
+    // Remove the item from the multiple array
+    multipleDoc.multiple.splice(parsedIndex, 1);
+    await dr.save();
+
+    // Also remove from EngagementLibrary if URL exists
+    if (itemToDelete && itemToDelete.url) {
+      try {
+        await EngagementLibrary.findOneAndDelete({ url: itemToDelete.url });
+      } catch (libError) {
+        console.error('Error removing from library:', libError);
+      }
+    }
+
+    // Fetch the updated document to return
+    const updatedDr = await DocumentRequest.findById(id);
+
+    return res.json({
+      success: true,
+      message: 'Document item deleted successfully',
+      documentRequest: updatedDr
+    });
+  } catch (err) {
+    console.error('Error in deleteMultipleDocumentItem:', err);
+    next(err);
+  }
+};
+
+// Upload files to multiple document items
+exports.uploadMultipleDocuments = async (req, res, next) => {
+  try {
+    const { id, multipleDocumentId } = req.params;
+    const itemIndex = req.body.itemIndex ? parseInt(req.body.itemIndex) : null;
+
+    const dr = await DocumentRequest.findById(id);
+    if (!dr) {
+      return res.status(404).json({ message: "Document request not found" });
+    }
+
+    const isClient = req.user?.role === 'client';
+    if (isClient && dr.clientId !== req.user.id) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Find the multiple document group
+    const multipleDoc = dr.multipleDocuments.find(
+      (doc) => String(doc._id) === String(multipleDocumentId)
+    );
+    if (!multipleDoc) {
+      return res.status(404).json({ message: "Multiple document group not found" });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "No files uploaded" });
+    }
+
+    const bucket = "engagement-documents";
+    const categoryFolder = `${dr.category}/`;
+    const EngagementLibrary = require("../models/EngagementLibrary");
+
+    // Process each uploaded file
+    for (let fileIndex = 0; fileIndex < req.files.length; fileIndex++) {
+      const file = req.files[fileIndex];
+      const originalFilename = file.originalname;
+      const ext = originalFilename.split(".").pop();
+      const uniqueFilename = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}_${fileIndex}.${ext}`;
+      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+
+      const { data: up, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, file.buffer, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.mimetype
+        });
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(up.path);
+
+      // Determine which item to update
+      let targetItemIndex = null;
+
+      if (itemIndex !== null && !isNaN(itemIndex) && itemIndex >= 0 && itemIndex < multipleDoc.multiple.length) {
+        // Use provided item index
+        targetItemIndex = itemIndex;
+      } else {
+        // Find first pending item without a file
+        targetItemIndex = multipleDoc.multiple.findIndex(
+          (item) => item.status === "pending" && !item.url
+        );
+      }
+
+      if (targetItemIndex !== -1 && targetItemIndex !== null) {
+        // Update existing item
+        const existingItem = multipleDoc.multiple[targetItemIndex];
+        multipleDoc.multiple[targetItemIndex] = {
+          ...existingItem,
+          label: existingItem.label, // Preserve label
+          url: urlData.publicUrl,
+          uploadedFileName: originalFilename,
+          uploadedAt: new Date(),
+          status: "uploaded",
+          // Preserve template if it exists
+          template: existingItem.template || undefined,
+        };
+      } else {
+        // If no pending item found, create a new one
+        multipleDoc.multiple.push({
+          label: originalFilename.replace(/\.[^/.]+$/, ""), // Use filename without extension as label
+          url: urlData.publicUrl,
+          uploadedFileName: originalFilename,
+          uploadedAt: new Date(),
+          status: "uploaded",
+        });
+      }
+
+      // Add to library
+      await EngagementLibrary.create({
+        engagement: dr.engagement,
+        category: dr.category,
+        url: urlData.publicUrl,
+      });
+    }
+
+    await dr.save();
+
+    // Update KYC status if this is a KYC document request
+    if (dr.category === 'kyc') {
+      try {
+        const KYC = require('../models/KnowYourClient');
+        const kyc = await KYC.findOne({ documentRequests: dr._id });
+        if (kyc) {
+          kyc.status = 'submitted';
+          await kyc.save();
+        }
+      } catch (kycError) {
+        console.error('Error updating KYC status:', kycError);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `${req.files.length} file(s) uploaded successfully to multiple document group`,
+      documentRequest: dr
+    });
+  } catch (err) {
+    console.error('Error in uploadMultipleDocuments:', err);
     next(err);
   }
 };
