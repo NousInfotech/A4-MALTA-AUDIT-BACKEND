@@ -37,6 +37,7 @@ const organizationRoutes = require("./routes/organizations");
 const notificationRoutes = require("./routes/notifications");
 const documentRequestTemplateRoutes = require("./routes/documentRequestTemplateRoutes");
 const wordPluginRoutes = require("./routes/wordPlugin");
+const noticeBoardRoutes = require("./routes/noticeBoardRoutes");
 const app = express();
 
 app.use(
@@ -94,6 +95,7 @@ app.use("/api/organizations", organizationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/document-request-templates", documentRequestTemplateRoutes);
 app.use("/api/word-plugin", wordPluginRoutes);
+app.use("/api/notices", noticeBoardRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
