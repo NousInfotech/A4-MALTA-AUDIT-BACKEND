@@ -43,6 +43,7 @@ exports.createLog = async (req, res, next) => {
       ipAddress,
       location,
       deviceInfo,
+      organizationId:req.user.organizationId,
       status,
       timestamp: new Date()
     });
@@ -73,6 +74,7 @@ exports.getAllLogs = async (req, res, next) => {
     if (employeeId) filter.employeeId = employeeId;
     if (action) filter.action = action;
     if (status) filter.status = status;
+    filter.organizationId=req.user.organizationId;
     
     // Date range filtering
     if (startDate || endDate) {
@@ -171,6 +173,7 @@ exports.getLogStatistics = async (req, res, next) => {
     // Build filter object
     let filter = {};
     if (employeeId) filter.employeeId = employeeId;
+    filter.organizationId=req.user.organizationId;
     if (startDate || endDate) {
       filter.timestamp = {};
       if (startDate) filter.timestamp.$gte = new Date(startDate);
@@ -339,6 +342,7 @@ exports.exportLogs = async (req, res, next) => {
     if (employeeId) filter.employeeId = employeeId;
     if (action) filter.action = action;
     if (status) filter.status = status;
+    filter.organizationId=req.user.organizationId;
     if (startDate || endDate) {
       filter.timestamp = {};
       if (startDate) filter.timestamp.$gte = new Date(startDate);
@@ -400,6 +404,7 @@ exports.logEmployeeActivity = async (employeeId, action, details = '', req = nul
       ipAddress,
       location,
       deviceInfo: userAgent,
+      organizationId:req.user.organizationId,
       status: 'SUCCESS',
       timestamp: new Date()
     });
