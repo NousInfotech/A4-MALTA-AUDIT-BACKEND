@@ -14,6 +14,14 @@ router.post(
   c.uploadTemplate
 );
 
+// Upload multiple template files
+router.post(
+  '/template/upload-multiple',
+  requireRole('employee'),
+  upload.array('files'),
+  c.uploadMultipleTemplates
+);
+
 // GET, UPDATE, DELETE (with id)
 router.route("/single/:id")
   .get(requireRole('employee'), c.getSingle)

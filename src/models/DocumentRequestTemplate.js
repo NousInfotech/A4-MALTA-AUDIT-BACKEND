@@ -57,8 +57,3 @@ module.exports = mongoose.model(
   documentRequestTemplateSchema
 );
 
-
-module.exports = mongoose.model(
-  "DocumentRequestTemplate",
-  documentRequestTemplateSchema
-);
