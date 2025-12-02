@@ -39,14 +39,9 @@ router.get('/:workbookId/sheets', requireAuth, workbookController.listSheets);
 router.get('/:workbookId/logs', requireAuth, workbookController.getWorkbookLogs);
 router.post('/:workbookId/update-sheets', requireAuth, workbookController.updateSheetsData);
 
-// NOTE: The two routes below are the most generic and were causing the issue.
-// They are now placed at the very end.
-router.get('/:id', requireAuth, workbookController.getWorkbookWithSheets);
-// router.get('/:workbookId', requireAuth, workbookController.getWorkbookById);
-
-// Other generic routes for a specific workbook
-router.delete('/:workbookId', requireAuth, workbookController.deleteWorkbook);
-router.patch("/:id/custom-fields", requireAuth, workbookController.addOrUpdateCustomField);
+// ✅ NEW: User workbook preference routes (must come before generic :workbookId routes)
+router.post('/:workbookId/user-preference', requireAuth, workbookController.saveUserWorkbookPreference);
+router.get('/:workbookId/user-preference', requireAuth, workbookController.getUserWorkbookPreference);
 
 // Nested resource routes for a specific workbook
 router.post('/:workbookId/mappings', requireAuth, workbookController.createMapping);
@@ -56,6 +51,15 @@ router.delete('/:workbookId/mappings/:mappingId', requireAuth, workbookControlle
 router.post('/:workbookId/named-ranges', requireAuth, workbookController.createNamedRange);
 router.put('/:workbookId/named-ranges/:namedRangeId', requireAuth, workbookController.updateNamedRange);
 router.delete('/:workbookId/named-ranges/:namedRangeId', requireAuth, workbookController.deleteNamedRange);
+
+// NOTE: The two routes below are the most generic and were causing the issue.
+// They are now placed at the very end.
+router.get('/:id', requireAuth, workbookController.getWorkbookWithSheets);
+// router.get('/:workbookId', requireAuth, workbookController.getWorkbookById);
+
+// Other generic routes for a specific workbook
+router.delete('/:workbookId', requireAuth, workbookController.deleteWorkbook);
+router.patch("/:id/custom-fields", requireAuth, workbookController.addOrUpdateCustomField);
 
 
 module.exports = router;

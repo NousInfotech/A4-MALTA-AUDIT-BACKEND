@@ -1,6 +1,7 @@
 const { Workbook } = require("../models/ExcelWorkbook.js");
 const Sheet = require("../models/Sheet.js");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance.js");
+const { UserWorkbookPreference } = require("../models/UserWorkbookPreference.js");
 const XLSX = require("xlsx");
 const mongoose = require("mongoose");
 
@@ -1313,6 +1314,132 @@ const updateSheetsData = async (req, res) => {
   }
 };
 
+/**
+ * ✅ NEW: Save user's workbook preference (e.g., last selected sheet)
+ * POST /api/workbooks/:workbookId/user-preference
+ */
+const saveUserWorkbookPreference = async (req, res) => {
+  try {
+    const { workbookId } = req.params;
+    const { lastSelectedSheet } = req.body;
+    const userId = req.user ? req.user.id : null;
+
+    // Validate workbookId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(workbookId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid workbook ID format.",
+      });
+    }
+
+    // Validate input
+    if (!lastSelectedSheet || typeof lastSelectedSheet !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "lastSelectedSheet is required and must be a string.",
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized: missing user context.",
+      });
+    }
+
+    // Verify workbook exists
+    const workbook = await Workbook.findById(workbookId);
+    if (!workbook) {
+      return res.status(404).json({
+        success: false,
+        error: "Workbook not found.",
+      });
+    }
+
+    // Find or create user preference
+    const preference = await UserWorkbookPreference.findOneAndUpdate(
+      { userId, workbookId },
+      {
+        userId,
+        workbookId,
+        lastSelectedSheet,
+      },
+      {
+        new: true, // Return updated document
+        upsert: true, // Create if doesn't exist
+        runValidators: true,
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        lastSelectedSheet: preference.lastSelectedSheet,
+      },
+      message: "User workbook preference saved successfully.",
+    });
+  } catch (error) {
+    console.error("Error saving user workbook preference:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to save user workbook preference.",
+    });
+  }
+};
+
+/**
+ * ✅ NEW: Get user's workbook preference (e.g., last selected sheet)
+ * GET /api/workbooks/:workbookId/user-preference
+ */
+const getUserWorkbookPreference = async (req, res) => {
+  try {
+    const { workbookId } = req.params;
+    const userId = req.user ? req.user.id : null;
+
+    // Validate workbookId is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(workbookId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid workbook ID format.",
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized: missing user context.",
+      });
+    }
+
+    // Find user preference
+    const preference = await UserWorkbookPreference.findOne({
+      userId,
+      workbookId,
+    });
+
+    if (!preference) {
+      // Return 404 if no preference exists (frontend will handle gracefully)
+      return res.status(404).json({
+        success: false,
+        error: "User preference not found for this workbook.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        lastSelectedSheet: preference.lastSelectedSheet,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching user workbook preference:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch user workbook preference.",
+    });
+  }
+};
+
 module.exports = {
   listAllWorkbooksForEngagement, // ✅ NEW: Export the new function
   saveWorkbookAndSheets,
@@ -1335,4 +1462,6 @@ module.exports = {
   getWorkbookLogs,
   listTrialBalanceWorkbooks,
   updateSheetsData,
+  saveUserWorkbookPreference, // ✅ NEW: Export preference save function
+  getUserWorkbookPreference, // ✅ NEW: Export preference get function
 };
