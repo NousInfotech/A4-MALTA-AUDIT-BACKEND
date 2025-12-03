@@ -33,7 +33,7 @@ exports.createKYC = async (req, res, next) => {
 
     if (documentRequests && Array.isArray(documentRequests)) {
       for (let i = 0; i < documentRequests.length; i++) {
-        const { documentRequest, person } = documentRequests[i];
+        const { documentRequest, multipleDocuments, person } = documentRequests[i];
       
         
         // Validate person exists
@@ -50,44 +50,105 @@ exports.createKYC = async (req, res, next) => {
           });
         }
 
-        // documentRequest is an ARRAY of documents, not an object with documents property
-        // Validate documents array
-        if (!Array.isArray(documentRequest)) {
+        // documentRequest is an ARRAY of documents (single documents)
+        // Validate documents array if provided
+        let documentsWithStatus = [];
+        if (documentRequest) {
+          if (!Array.isArray(documentRequest)) {
+            return res.status(400).json({
+              message: `Document request at index ${i} must be an array of documents`,
+            });
+          }
+
+          // Validate each document in the array
+          for (let j = 0; j < documentRequest.length; j++) {
+            const doc = documentRequest[j];
+            if (!doc.name) {
+              return res.status(400).json({
+                message: `Document at index ${j} in request ${i} is missing required 'name' field`,
+              });
+            }
+          }
+
+          // Convert the documents array to the format expected by DocumentRequest model
+          documentsWithStatus = documentRequest.map(doc => ({
+            name: doc.name,
+            type: doc.templateUrl ? 'template' : 'direct',
+            description: doc.description || '',
+            template: doc.templateUrl ? {
+              url: doc.templateUrl,
+              instruction: doc.description || ''
+            } : undefined,
+            status: 'pending'
+          }));
+        }
+
+        // Validate and convert multipleDocuments if provided
+        let multipleDocumentsWithStatus = [];
+        if (multipleDocuments) {
+          if (!Array.isArray(multipleDocuments)) {
+            return res.status(400).json({
+              message: `Multiple documents at index ${i} must be an array`,
+            });
+          }
+
+          // Validate each multiple document
+          for (let j = 0; j < multipleDocuments.length; j++) {
+            const multiDoc = multipleDocuments[j];
+            if (!multiDoc.name) {
+              return res.status(400).json({
+                message: `Multiple document at index ${j} in request ${i} is missing required 'name' field`,
+              });
+            }
+            if (!multiDoc.multiple || !Array.isArray(multiDoc.multiple) || multiDoc.multiple.length === 0) {
+              return res.status(400).json({
+                message: `Multiple document at index ${j} in request ${i} must have at least one item in 'multiple' array`,
+              });
+            }
+            
+            // Validate each item in the multiple array
+            for (let k = 0; k < multiDoc.multiple.length; k++) {
+              const item = multiDoc.multiple[k];
+              if (!item.label) {
+                return res.status(400).json({
+                  message: `Multiple document at index ${j} in request ${i}, item at index ${k} is missing required 'label' field`,
+                });
+              }
+            }
+          }
+
+          // Convert multiple documents to the format expected by DocumentRequest model
+          multipleDocumentsWithStatus = multipleDocuments.map(multiDoc => ({
+            name: multiDoc.name,
+            type: multiDoc.type === 'template' ? 'template' : 'direct',
+            instruction: multiDoc.instruction || '',
+            multiple: multiDoc.multiple.map(item => ({
+              label: item.label,
+              template: item.template?.url ? {
+                url: item.template.url,
+                instruction: item.template.instruction || ''
+              } : undefined,
+              status: 'pending'
+            }))
+          }));
+        }
+
+        // Validate that at least one type of document is provided
+        if (documentsWithStatus.length === 0 && multipleDocumentsWithStatus.length === 0) {
           return res.status(400).json({
-            message: `Document request at index ${i} must be an array of documents`,
+            message: `Document request at index ${i} must have at least one document or multiple document`,
           });
         }
 
-        // Validate each document in the array
-        for (let j = 0; j < documentRequest.length; j++) {
-          const doc = documentRequest[j];
-          if (!doc.name) {
-            return res.status(400).json({
-              message: `Document at index ${j} in request ${i} is missing required 'name' field`,
-            });
-          }
-        }
-
-        // Convert the documents array to the format expected by DocumentRequest model
-        const documentsWithStatus = documentRequest.map(doc => ({
-          name: doc.name,
-          type: doc.templateUrl ? 'template' : 'direct',
-          description: doc.description || '',
-          template: doc.templateUrl ? {
-            url: doc.templateUrl,
-            instruction: doc.description || ''
-          } : undefined,
-          status: 'pending'
-        }));
-
-
         // Set category to 'kyc' and add engagement info
         const documentRequestData = {
+          name: `KYC-${personExists.name.toUpperCase()}-V1`,
           description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagement.title}`,
           engagement: engagementId,
           clientId: clientId || req.user.id,
           category: "kyc",
-          documents: documentsWithStatus, // Add the documents array here!
+          documents: documentsWithStatus, // Single documents
+          multipleDocuments: multipleDocumentsWithStatus, // Multiple documents
           status: 'pending'
         };
 
@@ -98,7 +159,7 @@ exports.createKYC = async (req, res, next) => {
           documentRequestData
         );
 
-        console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents');
+        console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents and', createdDocRequest.multipleDocuments?.length || 0, 'multiple documents');
 
         // Add to processed array
         processedDocRequests.push({
@@ -150,7 +211,7 @@ exports.getKYCByEngagement = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -178,7 +239,7 @@ exports.getKYCById = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -213,7 +274,7 @@ exports.updateKYC = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -264,7 +325,7 @@ exports.getAllKYCs = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -300,12 +361,15 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
 
     // Process each document request
     const newDocRequests = [];
+    // Track version numbers per person for this batch
+    const personVersionCounts = {};
 
     for (let i = 0; i < documentRequests.length; i++) {
-      const { documentRequest, person } = documentRequests[i];
+      const { documentRequest, multipleDocuments, person } = documentRequests[i];
 
       console.log(`\n📋 Adding Document Request ${i + 1}:`);
       console.log('Document Request: ', documentRequest);
+      console.log('Multiple Documents: ', multipleDocuments);
       console.log('Person: ', person);
 
       // Validate person exists
@@ -322,37 +386,117 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
         });
       }
 
-      // documentRequest is an ARRAY of documents, not an object with documents property
-      // Validate documents array
-      if (!Array.isArray(documentRequest)) {
-        return res.status(400).json({
-          message: `Document request at index ${i} must be an array of documents`,
-        });
+      const personIdStr = person.toString();
+      
+      // Count existing document requests for this person in the KYC
+      const existingDocRequestCount = kyc.documentRequests.filter(
+        (dr) => dr.person && dr.person.toString() === personIdStr
+      ).length;
+      
+      // Initialize or increment version count for this person in current batch
+      if (!personVersionCounts[personIdStr]) {
+        personVersionCounts[personIdStr] = 0;
       }
+      personVersionCounts[personIdStr]++;
+      
+      // Generate name: KYC-{person.name}-V{versionNumber}
+      // Version number = existing count + how many we've already added for this person in this batch
+      const versionNumber = existingDocRequestCount + personVersionCounts[personIdStr];
+      const documentRequestName = `KYC-${personExists.name}-V${versionNumber}`;
 
-      // Validate each document in the array
-      for (let j = 0; j < documentRequest.length; j++) {
-        const doc = documentRequest[j];
-        if (!doc.name) {
+      // documentRequest is an ARRAY of documents (single documents)
+      // Validate documents array if provided
+      let documentsWithStatus = [];
+      if (documentRequest) {
+        if (!Array.isArray(documentRequest)) {
           return res.status(400).json({
-            message: `Document at index ${j} in request ${i} is missing required 'name' field`,
+            message: `Document request at index ${i} must be an array of documents`,
           });
         }
+
+        // Validate each document in the array
+        for (let j = 0; j < documentRequest.length; j++) {
+          const doc = documentRequest[j];
+          if (!doc.name) {
+            return res.status(400).json({
+              message: `Document at index ${j} in request ${i} is missing required 'name' field`,
+            });
+          }
+        }
+
+        // Convert the documents array to the format expected by DocumentRequest model
+        documentsWithStatus = documentRequest.map(doc => ({
+          name: doc.name,
+          type: doc.templateUrl ? 'template' : 'direct',
+          description: doc.description || '',
+          template: doc.templateUrl ? {
+            url: doc.templateUrl,
+            instruction: doc.description || ''
+          } : undefined,
+          status: 'pending'
+        }));
       }
 
-      // Convert the documents array to the format expected by DocumentRequest model
-      const documentsWithStatus = documentRequest.map(doc => ({
-        name: doc.name,
-        type: doc.templateUrl ? 'template' : 'direct',
-        description: doc.description || '',
-        template: doc.templateUrl ? {
-          url: doc.templateUrl,
-          instruction: doc.description || ''
-        } : undefined,
-        status: 'pending'
-      }));
-
       console.log('📝 Documents with status:', documentsWithStatus);
+
+      // Validate and convert multipleDocuments if provided
+      let multipleDocumentsWithStatus = [];
+      if (multipleDocuments) {
+        if (!Array.isArray(multipleDocuments)) {
+          return res.status(400).json({
+            message: `Multiple documents at index ${i} must be an array`,
+          });
+        }
+
+        // Validate each multiple document
+        for (let j = 0; j < multipleDocuments.length; j++) {
+          const multiDoc = multipleDocuments[j];
+          if (!multiDoc.name) {
+            return res.status(400).json({
+              message: `Multiple document at index ${j} in request ${i} is missing required 'name' field`,
+            });
+          }
+          if (!multiDoc.multiple || !Array.isArray(multiDoc.multiple) || multiDoc.multiple.length === 0) {
+            return res.status(400).json({
+              message: `Multiple document at index ${j} in request ${i} must have at least one item in 'multiple' array`,
+            });
+          }
+          
+          // Validate each item in the multiple array
+          for (let k = 0; k < multiDoc.multiple.length; k++) {
+            const item = multiDoc.multiple[k];
+            if (!item.label) {
+              return res.status(400).json({
+                message: `Multiple document at index ${j} in request ${i}, item at index ${k} is missing required 'label' field`,
+              });
+            }
+          }
+        }
+
+        // Convert multiple documents to the format expected by DocumentRequest model
+        multipleDocumentsWithStatus = multipleDocuments.map(multiDoc => ({
+          name: multiDoc.name,
+          type: multiDoc.type === 'template' ? 'template' : 'direct',
+          instruction: multiDoc.instruction || '',
+          multiple: multiDoc.multiple.map(item => ({
+            label: item.label,
+            template: item.template?.url ? {
+              url: item.template.url,
+              instruction: item.template.instruction || ''
+            } : undefined,
+            status: 'pending'
+          }))
+        }));
+      }
+
+      console.log('📝 Multiple Documents with status:', multipleDocumentsWithStatus);
+
+      // Validate that at least one type of document is provided
+      if (documentsWithStatus.length === 0 && multipleDocumentsWithStatus.length === 0) {
+        return res.status(400).json({
+          message: `Document request at index ${i} must have at least one document or multiple document`,
+        });
+      }
 
       // Get engagement details for description
       const engagement = await Engagement.findById(kyc.engagement);
@@ -360,11 +504,13 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
 
       // Set category to 'kyc' and add engagement info
       const documentRequestData = {
+        name: documentRequestName,
         description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagementTitle}`,
         engagement: kyc.engagement,
         clientId: kyc.clientId,
         category: "kyc",
-        documents: documentsWithStatus, // Add the documents array here!
+        documents: documentsWithStatus, // Single documents
+        multipleDocuments: multipleDocumentsWithStatus, // Multiple documents
         status: 'pending'
       };
 
@@ -375,7 +521,7 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
         documentRequestData
       );
 
-      console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents');
+      console.log('✅ Created DocumentRequest:', createdDocRequest._id, 'with', createdDocRequest.documents?.length || 0, 'documents and', createdDocRequest.multipleDocuments?.length || 0, 'multiple documents');
 
       // Add to array
       newDocRequests.push({
@@ -394,7 +540,7 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -457,7 +603,7 @@ exports.addDiscussion = async (req, res, next) => {
       documentRef: documentRef || null,
     };
 
-    kyc.discussions.push(discussion);
+    kyc.discussions.push(discussion)
     await kyc.save();
 
     res.status(201).json(kyc);
@@ -626,7 +772,7 @@ exports.getAllDiscussions = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
@@ -668,7 +814,7 @@ exports.getMyKYCs = async (req, res, next) => {
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
-        select: "name category description status documents",
+        select: "name category description status documents multipleDocuments",
       })
       .populate({
         path: "documentRequests.person",
