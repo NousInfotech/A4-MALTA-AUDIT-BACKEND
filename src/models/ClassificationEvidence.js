@@ -25,7 +25,13 @@ const EvidenceMappingSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
-  }
+  },
+  referenceFiles: [{
+    fileName: { type: String, required: true },
+    fileUrl: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now },
+    uploadedBy: { type: String }
+  }]
 }, { _id: true });
 
 const classificationEvidenceSchema = new mongoose.Schema(

@@ -15,6 +15,12 @@ const MappingSchema = new Schema(
         col: { type: Number, required: true },
       },
     },
+    referenceFiles: [{
+      fileName: { type: String, required: true },
+      fileUrl: { type: String, required: true },
+      uploadedAt: { type: Date, default: Date.now },
+      uploadedBy: { type: String }
+    }]
   },
   { _id: true }
 );
