@@ -599,9 +599,9 @@ exports.unlinkWorkbookFromEvidence = async (req, res) => {
 exports.addMappingToEvidence = async (req, res) => {
   try {
     const { evidenceId } = req.params;
-    const { workbookId, color, details } = req.body;
+    const { workbookId, color, details, referenceFiles } = req.body;
 
-    console.log('Backend: Adding mapping to evidence:', { evidenceId, workbookId, color, details });
+    console.log('Backend: Adding mapping to evidence:', { evidenceId, workbookId, color, details, referenceFilesCount: referenceFiles?.length || 0 });
 
     if (!workbookId || !color || !details) {
       return res.status(400).json({
@@ -623,7 +623,8 @@ exports.addMappingToEvidence = async (req, res) => {
       workbookId,
       color,
       details,
-      isActive: true
+      isActive: true,
+      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : []
     };
 
     const evidence = await ClassificationEvidence.findByIdAndUpdate(
