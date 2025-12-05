@@ -2,19 +2,21 @@ const mongoose = require("mongoose");
 const { Schema, Types } = mongoose;
 
 const templateItemSchema = new Schema({
-  label: { type: String, required: true }, // e.g. "Front Page", "Page 1"
+  label: { type: String, required: true },
 
-  // optional template file
+  instruction: { type: String },
+
+  // For TEMPLATE items
   template: {
     url: { type: String },
     instructions: { type: String }
   }
 });
 
+
 const documentRequestTemplateSchema = new Schema(
   {
     name: { type: String, required: true },
-
     description: { type: String, required: true },
 
     organizationId: {
@@ -25,22 +27,21 @@ const documentRequestTemplateSchema = new Schema(
 
     type: {
       type: String,
-      enum: ["direct", "template", "multiple"],
+      enum: ["direct", "template"],
       default: "direct",
       required: true
     },
 
-    // ✔️ NEW: multiple template items for multi-page requirements
+    // Updated: multiple supports direct + template
     multiple: [templateItemSchema],
 
-    // still allow a simple single template for simple cases
+    // Still allow simple single-template
     template: {
       url: { type: String },
       instructions: { type: String }
     },
 
     uploadedBy: { type: String, required: true },
-
     isActive: { type: Boolean, default: true },
 
     category: {
@@ -51,6 +52,7 @@ const documentRequestTemplateSchema = new Schema(
   },
   { timestamps: true }
 );
+
 
 module.exports = mongoose.model(
   "DocumentRequestTemplate",
