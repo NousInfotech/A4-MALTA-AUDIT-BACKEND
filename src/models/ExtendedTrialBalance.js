@@ -26,7 +26,13 @@ const ETBMappingSchema = new Schema({
   isActive: {
     type: Boolean,
     default: true
-  }
+  },
+  referenceFiles: [{
+    fileName: { type: String, required: true },
+    fileUrl: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now },
+    uploadedBy: { type: String }
+  }]
 }, { _id: true })
 
 const ETBRowSchema = new Schema({

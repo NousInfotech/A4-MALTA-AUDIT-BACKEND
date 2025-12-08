@@ -232,7 +232,7 @@ exports.uploadDocuments = async (req, res, next) => {
 
 exports.createRequest = async (req, res, next) => {
   try {
-    const { engagementId, category, name, description, comment, documents, attachment } = req.body;
+    const { engagementId, category, name, description, comment, documents, multipleDocuments, attachment } = req.body;
     
     // Validate that all documents have required fields
     if (documents && Array.isArray(documents)) {
@@ -242,6 +242,32 @@ exports.createRequest = async (req, res, next) => {
           return res.status(400).json({ 
             message: `Document at index ${i} is missing required 'name' field` 
           });
+        }
+      }
+    }
+    
+    // Validate that all multiple documents have required fields
+    if (multipleDocuments && Array.isArray(multipleDocuments)) {
+      for (let i = 0; i < multipleDocuments.length; i++) {
+        const multiDoc = multipleDocuments[i];
+        if (!multiDoc.name) {
+          return res.status(400).json({ 
+            message: `Multiple document at index ${i} is missing required 'name' field` 
+          });
+        }
+        if (!multiDoc.multiple || !Array.isArray(multiDoc.multiple) || multiDoc.multiple.length === 0) {
+          return res.status(400).json({ 
+            message: `Multiple document at index ${i} is missing required 'multiple' array with at least one item` 
+          });
+        }
+        // Validate each item in the multiple array
+        for (let j = 0; j < multiDoc.multiple.length; j++) {
+          const item = multiDoc.multiple[j];
+          if (!item.label) {
+            return res.status(400).json({ 
+              message: `Multiple document at index ${i}, item at index ${j} is missing required 'label' field` 
+            });
+          }
         }
       }
     }
@@ -297,7 +323,8 @@ exports.createRequest = async (req, res, next) => {
       category,
       description,
       comment: comment || "",
-      documents,
+      documents: documents || [],
+      multipleDocuments: multipleDocuments || [],
       attachment: attachmentData
     });
     
@@ -319,15 +346,22 @@ exports.createRequest = async (req, res, next) => {
         const requesterName = requesterProfile?.name || (req.user.role === 'admin' ? 'Admin' : 'Auditor');
         
         // Get document names for notification message
-        const documentNames = documents && documents.length > 0 
-          ? documents.map(doc => doc.name).join(', ')
+        const documentNames = [];
+        if (documents && documents.length > 0) {
+          documentNames.push(...documents.map(doc => doc.name));
+        }
+        if (multipleDocuments && multipleDocuments.length > 0) {
+          documentNames.push(...multipleDocuments.map(doc => doc.name));
+        }
+        const documentNamesStr = documentNames.length > 0 
+          ? documentNames.join(', ')
           : name || `${category} documents`;
         
         // Send notification to client
         await notifyDocumentRequested(
           dr._id,
           clientId,  // Notify the client
-          documentNames,
+          documentNamesStr,
           requesterName,
           category
         );

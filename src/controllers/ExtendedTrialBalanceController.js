@@ -321,11 +321,11 @@ const createOrUpdateExtendedTrialBalance = async (req, res) => {
 const addMappingToRow = async (req, res) => {
   try {
     const { id: engagementId, rowId } = req.params; // Fix: get 'id' parameter and rename to 'engagementId'
-    const { workbookId, color, details } = req.body;
+    const { workbookId, color, details, referenceFiles } = req.body;
 
     // Debug: Log the received data
     console.log('Backend: Received request body:', req.body);
-    console.log('Backend: Destructured fields:', { workbookId, color, details });
+    console.log('Backend: Destructured fields:', { workbookId, color, details, referenceFilesCount: referenceFiles?.length || 0 });
 
     if (!workbookId || !color || !details) {
       console.log('Backend: Missing required fields:', {
@@ -352,7 +352,8 @@ const addMappingToRow = async (req, res) => {
       workbookId,
       color,
       details,
-      isActive: true
+      isActive: true,
+      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : []
     };
 
     console.log('Backend: Looking for ETB with engagement:', engagementId, 'and rowId:', rowId);

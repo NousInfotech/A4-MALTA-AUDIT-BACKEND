@@ -150,6 +150,9 @@ exports.createUser = async (req, res) => {
       address,
       shareHolderData,
       representationalSchema,
+      authorizedShares,
+      issuedShares,
+      perShareValue,
     } = req.body;
 
     if (!email || !password || !name) {
@@ -284,6 +287,9 @@ exports.createUser = async (req, res) => {
           industry: industry,
           description: summary,
           totalShares: companyTotalShares,
+          authorizedShares,
+          issuedShares,
+          perShareValue,
         });
 
         // Prepare shareholders array
@@ -330,6 +336,7 @@ exports.createUser = async (req, res) => {
               class: share.class || "A",
               type: share.type || "Ordinary",
             })),
+            paidUpSharesPercentage: shareHolderData.paidUpSharesPercentage,
           });
         } else {
           // Default: 100% ownership with default shares data
@@ -341,6 +348,7 @@ exports.createUser = async (req, res) => {
             personId: companyOwner._id,
             sharePercentage: 100,
             sharesData: defaultSharesData,
+            paidUpSharesPercentage: shareHolderData?.paidUpSharesPercentage ?? 100,
           });
         }
 
