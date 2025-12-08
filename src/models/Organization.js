@@ -16,8 +16,30 @@ const OrganizationSchema = new Schema({
     type: Types.ObjectId,
     ref: "BrandingSettings"
   }],
+
+  // Firm Defaults
+  firmDefaults: {
+    timeZone: { type: String, default: "Europe/Malta" },
+    currency: { type: String, default: "EUR" }
+  },
+
+  // Role & Controls
+  roleControls: {
+    enableCustomRoles: { type: Boolean, default: false },
+    restrictDeleteToAdmins: { type: Boolean, default: true },
+    allowESignature: { type: Boolean, default: false },
+    showActivityLogToManagers: { type: Boolean, default: false }
+  },
+
+  // Compliance & Legal
+  complianceSettings: {
+    faqsMarkdown: { type: String, default: "" },
+    termsUrl: { type: String, default: "" },
+    privacyUrl: { type: String, default: "" },
+    dataRetentionPolicy: { type: String, default: "" }
+  }
 }, {
-  timestamps: true // Adds createdAt and updatedAt
+  timestamps: true
 });
 
 // Indexes for better query performance

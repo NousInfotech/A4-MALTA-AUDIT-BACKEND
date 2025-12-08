@@ -38,6 +38,8 @@ const notificationRoutes = require("./routes/notifications");
 const documentRequestTemplateRoutes = require("./routes/documentRequestTemplateRoutes");
 const wordPluginRoutes = require("./routes/wordPlugin");
 const noticeBoardRoutes = require("./routes/noticeBoardRoutes");
+const settingsRoutes = require("./routes/settingsRoutes");
+const authRoutes = require("./routes/authRoutes");
 const app = express();
 
 app.use(
@@ -96,6 +98,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/document-request-templates", documentRequestTemplateRoutes);
 app.use("/api/word-plugin", wordPluginRoutes);
 app.use("/api/notices", noticeBoardRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/auth", authRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
