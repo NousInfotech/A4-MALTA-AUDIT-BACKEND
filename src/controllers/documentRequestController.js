@@ -74,7 +74,10 @@ exports.uploadDocuments = async (req, res, next) => {
       const uniqueFilename = `${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 5)}.${ext}`;
-      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+      
+      // Determine the root folder (Engagement ID or Company ID)
+      const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+      const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
@@ -146,12 +149,14 @@ exports.uploadDocuments = async (req, res, next) => {
         });
       }
 
-      // Add to library
-      await EngagementLibrary.create({
-        engagement: dr.engagement,
-        category: dr.category,
-        url: urlData.publicUrl,
-      });
+      // Add to library (only if associated with an engagement)
+      if (dr.engagement) {
+        await EngagementLibrary.create({
+          engagement: dr.engagement,
+          category: dr.category,
+          url: urlData.publicUrl,
+        });
+      }
 
       // Also add to evidence if we can find a matching classification
       try {
@@ -645,7 +650,9 @@ exports.uploadSingleDocument = async (req, res, next) => {
       .toString(36)
       .substr(2, 5)}.${ext}`;
 
-    const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+    // Determine the root folder (Engagement ID or Company ID)
+    const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+    const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
@@ -738,11 +745,13 @@ exports.uploadSingleDocument = async (req, res, next) => {
       }
     }
 
-    await EngagementLibrary.create({
-      engagement: dr.engagement,
-      category: dr.category,
-      url: urlData.publicUrl,
-    });
+    if (dr.engagement) {
+      await EngagementLibrary.create({
+        engagement: dr.engagement,
+        category: dr.category,
+        url: urlData.publicUrl,
+      });
+    }
 
     await dr.save();
 
@@ -1419,7 +1428,10 @@ exports.uploadMultipleDocuments = async (req, res, next) => {
       const uniqueFilename = `${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 5)}_${fileIndex}.${ext}`;
-      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+      // Determine the root folder (Engagement ID or Company ID)
+    const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+    
+    const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
@@ -1471,12 +1483,14 @@ exports.uploadMultipleDocuments = async (req, res, next) => {
         });
       }
 
-      // Add to library
-      await EngagementLibrary.create({
-        engagement: dr.engagement,
-        category: dr.category,
-        url: urlData.publicUrl,
-      });
+      // Add to library (only if associated with an engagement)
+      if (dr.engagement) {
+        await EngagementLibrary.create({
+          engagement: dr.engagement,
+          category: dr.category,
+          url: urlData.publicUrl,
+        });
+      }
     }
 
     await dr.save();

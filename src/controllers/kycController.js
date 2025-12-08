@@ -2,6 +2,7 @@ const KYC = require("../models/KnowYourClient");
 const DocumentRequest = require("../models/DocumentRequest");
 const Engagement = require("../models/Engagement");
 const Person = require("../models/Person");
+const Company = require("../models/Company");
 
 /**
  * KYC Controllers
@@ -10,21 +11,44 @@ const Person = require("../models/Person");
 // Create a new KYC workflow
 exports.createKYC = async (req, res, next) => {
   try {
-    const { engagementId, clientId, auditorId, documentRequests } = req.body;
+    const { engagementId, companyId, clientId, auditorId, documentRequests } = req.body;
 
+    let targetContext = {};
+    let contextName = "";
 
-    // Verify engagement exists
-    const engagement = await Engagement.findById(engagementId);
-    if (!engagement) {
-      return res.status(404).json({ message: "Engagement not found" });
-    }
+    // Verify engagement exists if provided
+    if (engagementId) {
+      const engagement = await Engagement.findById(engagementId);
+      if (!engagement) {
+        return res.status(404).json({ message: "Engagement not found" });
+      }
+      targetContext = { engagement: engagementId };
+      contextName = engagement.title;
+      
+      // Check if KYC already exists for this engagement
+      const existingKYC = await KYC.findOne({ engagement: engagementId });
+      if (existingKYC) {
+        return res
+          .status(400)
+          .json({ message: "KYC workflow already exists for this engagement" });
+      }
+    } else if (companyId) {
+      const company = await Company.findById(companyId);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      targetContext = { company: companyId };
+      contextName = company.name;
 
-    // Check if KYC already exists for this engagement
-    const existingKYC = await KYC.findOne({ engagement: engagementId });
-    if (existingKYC) {
-      return res
-        .status(400)
-        .json({ message: "KYC workflow already exists for this engagement" });
+      // Check if KYC already exists for this company
+      const existingKYC = await KYC.findOne({ company: companyId });
+      if (existingKYC) {
+        return res
+          .status(400)
+          .json({ message: "KYC workflow already exists for this company" });
+      }
+    } else {
+      return res.status(400).json({ message: "Either engagementId or companyId is required" });
     }
 
     // Process document requests array
@@ -143,8 +167,8 @@ exports.createKYC = async (req, res, next) => {
         // Set category to 'kyc' and add engagement info
         const documentRequestData = {
           name: `KYC-${personExists.name.toUpperCase()}-V1`,
-          description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagement.title}`,
-          engagement: engagementId,
+          description: `The following files to be submitted by the ${personExists.name} for ${contextName}`,
+          ...targetContext,
           clientId: clientId || req.user.id,
           category: "kyc",
           documents: documentsWithStatus, // Single documents
@@ -171,7 +195,7 @@ exports.createKYC = async (req, res, next) => {
 
     // Create KYC with all document requests
     const kyc = await KYC.create({
-      engagement: engagementId,
+      ...targetContext,
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
       documentRequests: processedDocRequests,
@@ -181,6 +205,7 @@ exports.createKYC = async (req, res, next) => {
     // Populate the document requests and persons to return
     const populatedKYC = await KYC.findById(kyc._id)
       .populate("engagement", "title status yearEndDate")
+      .populate("company", "name registrationNumber")
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
@@ -222,6 +247,30 @@ exports.getKYCByEngagement = async (req, res, next) => {
     // if (!kyc) {
     //   return res.status(404).json({ message: 'KYC workflow not found for this engagement' });
     // }
+
+    res.json(kyc);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get KYC by company ID
+exports.getKYCByCompany = async (req, res, next) => {
+  try {
+    const { companyId } = req.params;
+
+    const kyc = await KYC.findOne({ company: companyId })
+      .populate("company", "name registrationNumber clientId")
+      .populate({
+        path: "documentRequests.documentRequest",
+        model: "DocumentRequest",
+        select: "name category description status documents multipleDocuments",
+      })
+      .populate({
+        path: "documentRequests.person",
+        model: "Person",
+        select: "name email phoneNumber nationality address",
+      });
 
     res.json(kyc);
   } catch (err) {
@@ -322,6 +371,7 @@ exports.getAllKYCs = async (req, res, next) => {
 
     const kycs = await KYC.find(filter)
       .populate("engagement", "title yearEndDate clientId")
+      .populate("company", "name registrationNumber clientId")
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",
@@ -372,25 +422,29 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
       console.log('Multiple Documents: ', multipleDocuments);
       console.log('Person: ', person);
 
-      // Validate person exists
-      if (!person) {
-        return res.status(400).json({
-          message: `Document request at index ${i} is missing person ID`,
-        });
+      // Validate person exists or check if it's a company/engagement level request
+      let personExists = null;
+      let personIdStr = 'global';
+      let documentRequestName = '';
+
+      if (person) {
+        personExists = await Person.findById(person);
+        if (!personExists) {
+          return res.status(404).json({
+            message: `Person with ID ${person} not found for document request ${i}`,
+          });
+        }
+        personIdStr = person.toString();
       }
 
-      const personExists = await Person.findById(person);
-      if (!personExists) {
-        return res.status(404).json({
-          message: `Person with ID ${person} not found for document request ${i}`,
-        });
-      }
-
-      const personIdStr = person.toString();
-      
-      // Count existing document requests for this person in the KYC
+      // Count existing document requests for this person/context in the KYC
       const existingDocRequestCount = kyc.documentRequests.filter(
-        (dr) => dr.person && dr.person.toString() === personIdStr
+        (dr) => {
+          if (person) {
+            return dr.person && dr.person.toString() === personIdStr;
+          }
+          return !dr.person; // Count global requests
+        }
       ).length;
       
       // Initialize or increment version count for this person in current batch
@@ -399,10 +453,23 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
       }
       personVersionCounts[personIdStr]++;
       
-      // Generate name: KYC-{person.name}-V{versionNumber}
-      // Version number = existing count + how many we've already added for this person in this batch
+      // Generate name
       const versionNumber = existingDocRequestCount + personVersionCounts[personIdStr];
-      const documentRequestName = `KYC-${personExists.name}-V${versionNumber}`;
+      
+      if (personExists) {
+        documentRequestName = `KYC-${personExists.name}-V${versionNumber}`;
+      } else {
+         // Fallback naming for company/engagement level requests
+         let contextName = 'General';
+         if (kyc.company) {
+            const company = await Company.findById(kyc.company);
+            if (company) contextName = company.name;
+         } else if (kyc.engagement) {
+             const engagement = await Engagement.findById(kyc.engagement);
+             if (engagement) contextName = engagement.title;
+         }
+         documentRequestName = `KYC-${contextName}-V${versionNumber}`;
+      }
 
       // documentRequest is an ARRAY of documents (single documents)
       // Validate documents array if provided
@@ -498,15 +565,26 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
         });
       }
 
-      // Get engagement details for description
-      const engagement = await Engagement.findById(kyc.engagement);
-      const engagementTitle = engagement ? engagement.title : 'this engagement';
+      // Get context details for description
+      let description = '';
+      const entityName = personExists ? personExists.name : 'Client';
+      
+      if (kyc.engagement) {
+        const engagement = await Engagement.findById(kyc.engagement);
+        const engagementTitle = engagement ? engagement.title : 'this engagement';
+        description = `The following files to be submitted by the ${entityName} for the engagement ${engagementTitle}`;
+      } else if (kyc.company) {
+        const company = await Company.findById(kyc.company);
+        const companyName = company ? company.name : 'this company';
+        description = `The following files to be submitted by the ${entityName} for the company ${companyName}`;
+      }
 
       // Set category to 'kyc' and add engagement info
       const documentRequestData = {
         name: documentRequestName,
-        description: `The following files to be submitted by the ${personExists.name} for the engagement ${engagementTitle}`,
+        description: description,
         engagement: kyc.engagement,
+        company: kyc.company,
         clientId: kyc.clientId,
         category: "kyc",
         documents: documentsWithStatus, // Single documents
@@ -537,6 +615,7 @@ exports.addDocumentRequestToKYC = async (req, res, next) => {
     // Populate and return
     const updatedKYC = await KYC.findById(id)
       .populate("engagement", "title yearEndDate clientId")
+      .populate("company", "name registrationNumber clientId")
       .populate({
         path: "documentRequests.documentRequest",
         model: "DocumentRequest",

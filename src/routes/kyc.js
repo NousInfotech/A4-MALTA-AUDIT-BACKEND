@@ -21,6 +21,13 @@ router.get(
   kycController.getKYCByEngagement
 );
 
+// Get KYC by company ID
+router.get(
+  '/company/:companyId',
+  requireAuth,
+  kycController.getKYCByCompany
+);
+
 // Get KYC by ID
 router.get(
   '/:id',
