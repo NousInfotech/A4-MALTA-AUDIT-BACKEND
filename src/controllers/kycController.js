@@ -60,18 +60,15 @@ exports.createKYC = async (req, res, next) => {
         const { documentRequest, multipleDocuments, person } = documentRequests[i];
       
         
-        // Validate person exists
-        if (!person) {
-          return res.status(400).json({
-            message: `Document request at index ${i} is missing person ID`,
-          });
-        }
-
-        const personExists = await Person.findById(person);
-        if (!personExists) {
-          return res.status(404).json({
-            message: `Person with ID ${person} not found for document request ${i}`,
-          });
+        // Validate person exists if provided
+        let personExists = null;
+        if (person) {
+          personExists = await Person.findById(person);
+          if (!personExists) {
+            return res.status(404).json({
+              message: `Person with ID ${person} not found for document request ${i}`,
+            });
+          }
         }
 
         // documentRequest is an ARRAY of documents (single documents)
@@ -164,10 +161,20 @@ exports.createKYC = async (req, res, next) => {
           });
         }
 
+        // Determine name and description based on person existence
+        // If person exists, use person name. If not (Company/Engagement request), use contextName.
+        const requestName = personExists 
+          ? `KYC-${personExists.name.toUpperCase()}-V1`
+          : `KYC-${contextName.toUpperCase()}-V1`;
+          
+        const requestDescription = personExists
+          ? `The following files to be submitted by the ${personExists.name} for ${contextName}`
+          : `The following files to be submitted for ${contextName}`;
+
         // Set category to 'kyc' and add engagement info
         const documentRequestData = {
-          name: `KYC-${personExists.name.toUpperCase()}-V1`,
-          description: `The following files to be submitted by the ${personExists.name} for ${contextName}`,
+          name: requestName,
+          description: requestDescription,
           ...targetContext,
           clientId: clientId || req.user.id,
           category: "kyc",

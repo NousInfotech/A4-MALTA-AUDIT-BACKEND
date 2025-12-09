@@ -409,6 +409,24 @@ exports.deleteRequest = async (req, res, next) => {
       return res.status(404).json({ message: "Document request not found" });
     }
 
+    // Also remove reference from KYC workflow if it exists
+    try {
+      const KYC = require('../models/KnowYourClient');
+      const kyc = await KYC.findOne({ "documentRequests.documentRequest": id });
+      
+      if (kyc) {
+        // Remove the specific document request entry from the array
+        await KYC.updateOne(
+          { _id: kyc._id },
+          { $pull: { documentRequests: { documentRequest: id } } }
+        );
+        console.log(`Removed document request ${id} from KYC ${kyc._id}`);
+      }
+    } catch (kycError) {
+      console.error('Error cleaning up KYC reference:', kycError);
+      // Continue with deletion even if cleanup fails to avoid blocking
+    }
+
     await dr.deleteOne();
 
     return res.json({
