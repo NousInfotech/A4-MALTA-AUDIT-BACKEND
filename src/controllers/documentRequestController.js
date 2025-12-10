@@ -1,10 +1,13 @@
 const DocumentRequest = require("../models/DocumentRequest");
 const Engagement = require("../models/Engagement");
+const Company = require("../models/Company");
 const EngagementLibrary = require("../models/EngagementLibrary");
 const ClassificationEvidence = require("../models/ClassificationEvidence");
 const ClassificationSection = require("../models/ClassificationSection");
 const { supabase } = require("../config/supabase");
 const { notifyDocumentRequested } = require("../utils/notificationTriggers");
+const archiver = require('archiver');
+const axios = require('axios');
 
 // Get user profile from Supabase
 async function getUserProfile(userId) {
@@ -800,6 +803,116 @@ exports.uploadSingleDocument = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.downloadAllDocuments = async (req, res, next) => {
+  try {
+    const { engagementId, companyId, documentRequestId, groupId } = req.query;
+
+    let query = {};
+    if (req.query.category) {
+      query.category = req.query.category;
+    }
+    
+    if (documentRequestId) {
+        query._id = documentRequestId;
+    } else if (engagementId) {
+      query.engagement = engagementId;
+    } else if (companyId) {
+      query.company = companyId;
+    } else {
+       return res.status(400).json({ message: "Engagement ID, Company ID, or Document Request ID required" });
+    }
+
+    const docRequests = await DocumentRequest.find(query);
+
+    if (!docRequests || docRequests.length === 0) {
+      return res.status(404).json({ message: "No documents found" });
+    }
+
+    const archive = archiver('zip', {
+      zlib: { level: 9 }
+    });
+
+    let zipName = 'documents.zip';
+
+    
+    if (groupId) {
+       // If downloading a specific group, we'll try to find its name from the first docRequest that has it
+       const requestWithGroup = docRequests.find(dr => dr.multipleDocuments.some(g => g._id.toString() === groupId));
+       if (requestWithGroup) {
+         const group = requestWithGroup.multipleDocuments.find(g => g._id.toString() === groupId);
+         if (group) zipName = `${group.name || 'group'}_documents.zip`;
+       }
+    } else if (documentRequestId) {
+        const dr = await DocumentRequest.findById(documentRequestId);
+        if (dr) zipName = `${dr.name || 'request'}_documents.zip`;
+    } else if (engagementId) {
+      const engagement = await Engagement.findById(engagementId);
+      if (engagement) zipName = `${engagement.title || 'engagement'}_documents.zip`;
+    } else if (companyId) {
+       const company = await Company.findById(companyId);
+       if (company) zipName = `${company.name || 'company'}_documents.zip`;
+    }
+
+    // Sanitize filename
+    zipName = zipName.replace(/[^a-zA-Z0-9-_. ]/g, '');
+
+    res.attachment(zipName);
+    archive.pipe(res);
+
+    for (const dr of docRequests) {
+      const safeDrName = (dr.name || 'Untitled Request').replace(/[^a-zA-Z0-9-_ ]/g, '');
+
+      // Single Documents (Skip if downloading specific group)
+      if (!groupId && dr.documents && Array.isArray(dr.documents)) {
+        for (const doc of dr.documents) {
+          if (doc.url) {
+            try {
+              const response = await axios.get(doc.url, { responseType: 'stream' });
+              const ext = doc.uploadedFileName ? doc.uploadedFileName.split('.').pop() : 'pdf';
+              const safeDocName = (doc.name || 'document').replace(/[^a-zA-Z0-9-_ ]/g, '');
+              const filename = `${safeDrName}/${safeDocName}.${ext}`;
+              archive.append(response.data, { name: filename });
+            } catch (e) {
+              console.error(`Failed to download ${doc.url}`, e);
+            }
+          }
+        }
+      }
+      
+      // Multiple Documents
+      if (dr.multipleDocuments && Array.isArray(dr.multipleDocuments)) {
+          for (const mDoc of dr.multipleDocuments) {
+              // specific group check
+              if (groupId && mDoc._id.toString() !== groupId) continue;
+
+              if (mDoc.multiple && Array.isArray(mDoc.multiple)) {
+                  for (const item of mDoc.multiple) {
+                      if (item.url) {
+                          try {
+                              const response = await axios.get(item.url, { responseType: 'stream' });
+                              const ext = item.uploadedFileName ? item.uploadedFileName.split('.').pop() : 'pdf';
+                              const safeMDocName = (mDoc.name || 'group').replace(/[^a-zA-Z0-9-_ ]/g, '');
+                              const safeItemLabel = (item.label || 'item').replace(/[^a-zA-Z0-9-_ ]/g, '');
+                              const filename = groupId ? `${safeItemLabel}.${ext}` : `${safeDrName}/${safeMDocName}/${safeItemLabel}.${ext}`;
+                              archive.append(response.data, { name: filename });
+                          } catch (e) {
+                               console.error(`Failed to download ${item.url}`, e);
+                          }
+                      }
+                  }
+              }
+          }
+      }
+    }
+
+    await archive.finalize();
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 
  
 // CLEAR ONLY UPLOADED DOCUMENT

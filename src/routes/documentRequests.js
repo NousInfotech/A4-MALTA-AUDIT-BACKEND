@@ -2,6 +2,7 @@ const router = require('express').Router();
 const drc = require('../controllers/documentRequestController');
 const { requireAuth, requireRole } = require('../middlewares/auth');
 const upload  = require('../middlewares/upload');
+const { downloadLimiter } = require('../middlewares/rateLimiter');
 
 router.post(
   '/',
@@ -14,6 +15,14 @@ router.get(
   '/engagement/:engagementId',
   requireAuth,
   drc.getRequestsByEngagement
+);
+
+// Download all documents
+router.get(
+  '/download-all',
+  requireAuth,
+  downloadLimiter,
+  drc.downloadAllDocuments
 );
 
 // Delete entire document request
