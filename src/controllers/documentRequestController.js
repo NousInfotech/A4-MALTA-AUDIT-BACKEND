@@ -1,10 +1,13 @@
 const DocumentRequest = require("../models/DocumentRequest");
 const Engagement = require("../models/Engagement");
+const Company = require("../models/Company");
 const EngagementLibrary = require("../models/EngagementLibrary");
 const ClassificationEvidence = require("../models/ClassificationEvidence");
 const ClassificationSection = require("../models/ClassificationSection");
 const { supabase } = require("../config/supabase");
 const { notifyDocumentRequested } = require("../utils/notificationTriggers");
+const archiver = require('archiver');
+const axios = require('axios');
 
 // Get user profile from Supabase
 async function getUserProfile(userId) {
@@ -74,7 +77,10 @@ exports.uploadDocuments = async (req, res, next) => {
       const uniqueFilename = `${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 5)}.${ext}`;
-      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+      
+      // Determine the root folder (Engagement ID or Company ID)
+      const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+      const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
@@ -146,12 +152,14 @@ exports.uploadDocuments = async (req, res, next) => {
         });
       }
 
-      // Add to library
-      await EngagementLibrary.create({
-        engagement: dr.engagement,
-        category: dr.category,
-        url: urlData.publicUrl,
-      });
+      // Add to library (only if associated with an engagement)
+      if (dr.engagement) {
+        await EngagementLibrary.create({
+          engagement: dr.engagement,
+          category: dr.category,
+          url: urlData.publicUrl,
+        });
+      }
 
       // Also add to evidence if we can find a matching classification
       try {
@@ -404,6 +412,24 @@ exports.deleteRequest = async (req, res, next) => {
       return res.status(404).json({ message: "Document request not found" });
     }
 
+    // Also remove reference from KYC workflow if it exists
+    try {
+      const KYC = require('../models/KnowYourClient');
+      const kyc = await KYC.findOne({ "documentRequests.documentRequest": id });
+      
+      if (kyc) {
+        // Remove the specific document request entry from the array
+        await KYC.updateOne(
+          { _id: kyc._id },
+          { $pull: { documentRequests: { documentRequest: id } } }
+        );
+        console.log(`Removed document request ${id} from KYC ${kyc._id}`);
+      }
+    } catch (kycError) {
+      console.error('Error cleaning up KYC reference:', kycError);
+      // Continue with deletion even if cleanup fails to avoid blocking
+    }
+
     await dr.deleteOne();
 
     return res.json({
@@ -645,7 +671,9 @@ exports.uploadSingleDocument = async (req, res, next) => {
       .toString(36)
       .substr(2, 5)}.${ext}`;
 
-    const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+    // Determine the root folder (Engagement ID or Company ID)
+    const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+    const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
     const { data: up, error: uploadError } = await supabase.storage
       .from(bucket)
@@ -738,11 +766,13 @@ exports.uploadSingleDocument = async (req, res, next) => {
       }
     }
 
-    await EngagementLibrary.create({
-      engagement: dr.engagement,
-      category: dr.category,
-      url: urlData.publicUrl,
-    });
+    if (dr.engagement) {
+      await EngagementLibrary.create({
+        engagement: dr.engagement,
+        category: dr.category,
+        url: urlData.publicUrl,
+      });
+    }
 
     await dr.save();
 
@@ -773,6 +803,116 @@ exports.uploadSingleDocument = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.downloadAllDocuments = async (req, res, next) => {
+  try {
+    const { engagementId, companyId, documentRequestId, groupId } = req.query;
+
+    let query = {};
+    if (req.query.category) {
+      query.category = req.query.category;
+    }
+    
+    if (documentRequestId) {
+        query._id = documentRequestId;
+    } else if (engagementId) {
+      query.engagement = engagementId;
+    } else if (companyId) {
+      query.company = companyId;
+    } else {
+       return res.status(400).json({ message: "Engagement ID, Company ID, or Document Request ID required" });
+    }
+
+    const docRequests = await DocumentRequest.find(query);
+
+    if (!docRequests || docRequests.length === 0) {
+      return res.status(404).json({ message: "No documents found" });
+    }
+
+    const archive = archiver('zip', {
+      zlib: { level: 9 }
+    });
+
+    let zipName = 'documents.zip';
+
+    
+    if (groupId) {
+       // If downloading a specific group, we'll try to find its name from the first docRequest that has it
+       const requestWithGroup = docRequests.find(dr => dr.multipleDocuments.some(g => g._id.toString() === groupId));
+       if (requestWithGroup) {
+         const group = requestWithGroup.multipleDocuments.find(g => g._id.toString() === groupId);
+         if (group) zipName = `${group.name || 'group'}_documents.zip`;
+       }
+    } else if (documentRequestId) {
+        const dr = await DocumentRequest.findById(documentRequestId);
+        if (dr) zipName = `${dr.name || 'request'}_documents.zip`;
+    } else if (engagementId) {
+      const engagement = await Engagement.findById(engagementId);
+      if (engagement) zipName = `${engagement.title || 'engagement'}_documents.zip`;
+    } else if (companyId) {
+       const company = await Company.findById(companyId);
+       if (company) zipName = `${company.name || 'company'}_documents.zip`;
+    }
+
+    // Sanitize filename
+    zipName = zipName.replace(/[^a-zA-Z0-9-_. ]/g, '');
+
+    res.attachment(zipName);
+    archive.pipe(res);
+
+    for (const dr of docRequests) {
+      const safeDrName = (dr.name || 'Untitled Request').replace(/[^a-zA-Z0-9-_ ]/g, '');
+
+      // Single Documents (Skip if downloading specific group)
+      if (!groupId && dr.documents && Array.isArray(dr.documents)) {
+        for (const doc of dr.documents) {
+          if (doc.url) {
+            try {
+              const response = await axios.get(doc.url, { responseType: 'stream' });
+              const ext = doc.uploadedFileName ? doc.uploadedFileName.split('.').pop() : 'pdf';
+              const safeDocName = (doc.name || 'document').replace(/[^a-zA-Z0-9-_ ]/g, '');
+              const filename = `${safeDrName}/${safeDocName}.${ext}`;
+              archive.append(response.data, { name: filename });
+            } catch (e) {
+              console.error(`Failed to download ${doc.url}`, e);
+            }
+          }
+        }
+      }
+      
+      // Multiple Documents
+      if (dr.multipleDocuments && Array.isArray(dr.multipleDocuments)) {
+          for (const mDoc of dr.multipleDocuments) {
+              // specific group check
+              if (groupId && mDoc._id.toString() !== groupId) continue;
+
+              if (mDoc.multiple && Array.isArray(mDoc.multiple)) {
+                  for (const item of mDoc.multiple) {
+                      if (item.url) {
+                          try {
+                              const response = await axios.get(item.url, { responseType: 'stream' });
+                              const ext = item.uploadedFileName ? item.uploadedFileName.split('.').pop() : 'pdf';
+                              const safeMDocName = (mDoc.name || 'group').replace(/[^a-zA-Z0-9-_ ]/g, '');
+                              const safeItemLabel = (item.label || 'item').replace(/[^a-zA-Z0-9-_ ]/g, '');
+                              const filename = groupId ? `${safeItemLabel}.${ext}` : `${safeDrName}/${safeMDocName}/${safeItemLabel}.${ext}`;
+                              archive.append(response.data, { name: filename });
+                          } catch (e) {
+                               console.error(`Failed to download ${item.url}`, e);
+                          }
+                      }
+                  }
+              }
+          }
+      }
+    }
+
+    await archive.finalize();
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 
  
 // CLEAR ONLY UPLOADED DOCUMENT
@@ -1419,7 +1559,10 @@ exports.uploadMultipleDocuments = async (req, res, next) => {
       const uniqueFilename = `${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 5)}_${fileIndex}.${ext}`;
-      const path = `${dr.engagement.toString()}/${categoryFolder}${uniqueFilename}`;
+      // Determine the root folder (Engagement ID or Company ID)
+    const contextId = dr.engagement ? dr.engagement.toString() : (dr.company ? dr.company.toString() : 'unknown');
+    
+    const path = `${contextId}/${categoryFolder}${uniqueFilename}`;
 
       const { data: up, error: uploadError } = await supabase.storage
         .from(bucket)
@@ -1471,12 +1614,14 @@ exports.uploadMultipleDocuments = async (req, res, next) => {
         });
       }
 
-      // Add to library
-      await EngagementLibrary.create({
-        engagement: dr.engagement,
-        category: dr.category,
-        url: urlData.publicUrl,
-      });
+      // Add to library (only if associated with an engagement)
+      if (dr.engagement) {
+        await EngagementLibrary.create({
+          engagement: dr.engagement,
+          category: dr.category,
+          url: urlData.publicUrl,
+        });
+      }
     }
 
     await dr.save();

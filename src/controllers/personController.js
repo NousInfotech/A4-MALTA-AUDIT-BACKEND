@@ -371,6 +371,7 @@ exports.createPerson = async (req, res) => {
               personId: person._id,
               sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
+              paidUpSharesPercentage: req.body.paidUpSharesPercentage ?? 100,
             });
           }
 
@@ -546,6 +547,7 @@ exports.updatePerson = async (req, res) => {
               personId: person._id,
               sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
+              paidUpSharesPercentage: updateData.paidUpSharesPercentage ?? 100,
             });
           }
 

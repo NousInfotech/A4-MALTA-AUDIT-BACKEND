@@ -529,6 +529,9 @@ exports.createCompany = async (req, res) => {
       totalShares,
       industry,
       description,
+      authorizedShares,
+      issuedShares,
+      perShareValue,
     } = req.body;
 
     // Required validation
@@ -592,6 +595,9 @@ exports.createCompany = async (req, res) => {
       totalShares: normalizedTotalShares,
       industry: normalizedIndustry,
       description: trimmedDescription,
+      authorizedShares: authorizedShares ? Number(authorizedShares) : undefined,
+      issuedShares: issuedShares ? Number(issuedShares) : undefined,
+      perShareValue: perShareValue || undefined,
       shareHoldingCompanies: formattedShareholdings,
       shareHolders: [],
       representationalSchema: [],
@@ -739,6 +745,7 @@ exports.updateCompany = async (req, res) => {
               companyId: companyId,
               sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
+              paidUpSharesPercentage: s.paidUpSharesPercentage,
             };
           })
         : [];
@@ -1512,7 +1519,7 @@ exports.getCompanyHierarchy = async (req, res) => {
 exports.updateShareHolderPersonExisting = async (req, res) => {
   try {
     const { clientId, companyId, personId } = req.params;
-    const { sharesData } = req.body;
+    const { sharesData, paidUpSharesPercentage } = req.body;
 
     // Build query with clientId check for non-primary companies
     const query = {
@@ -1551,6 +1558,7 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
         personId: personId,
         sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
+        paidUpSharesPercentage: paidUpSharesPercentage ?? 100,
       });
 
       // Add "Shareholder" role to representationalSchema
@@ -1645,7 +1653,7 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
 exports.addShareHolderPersonNew = async (req, res) => {
   try {
     const { companyId } = req.params;
-    const { personId, sharesData } = req.body;
+    const { personId, sharesData, paidUpSharesPercentage } = req.body;
 
     const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
@@ -1672,6 +1680,7 @@ exports.addShareHolderPersonNew = async (req, res) => {
         personId: personId,
         sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
+        paidUpSharesPercentage: paidUpSharesPercentage ?? 100,
       });
     }
 
@@ -1809,7 +1818,7 @@ exports.addShareHolderPersonNewBulk = async (req, res) => {
 exports.updateShareHolderCompanyExisting = async (req, res) => {
   try {
     const { clientId, companyId, addingCompanyId } = req.params;
-    const { sharesData } = req.body;
+    const { sharesData, paidUpSharesPercentage } = req.body;
 
     // Build query with clientId check for non-primary companies
     const query = {
@@ -1847,6 +1856,7 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
         companyId: addingCompanyId,
         sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
+        paidUpSharesPercentage: paidUpSharesPercentage,
       });
 
       // Add "Shareholder" role to representationalCompany
@@ -1928,7 +1938,7 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
 exports.addShareHolderCompanyNew = async (req, res) => {
   try {
     const { companyId } = req.params;
-    const { companyId: addingCompanyId, sharesData } = req.body;
+    const { companyId: addingCompanyId, sharesData, paidUpSharesPercentage } = req.body;
 
     const company = await Company.findOne({ _id: companyId, organizationId: new ObjectId(req.user.organizationId) });
     if (!company) {
@@ -1955,6 +1965,7 @@ exports.addShareHolderCompanyNew = async (req, res) => {
         companyId: addingCompanyId,
         sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
+        paidUpSharesPercentage: paidUpSharesPercentage ,
       });
     }
 

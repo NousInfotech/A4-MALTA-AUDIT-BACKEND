@@ -80,7 +80,8 @@ const DocumentRequestMultipleDocumentSchema = new Schema({
 // =======================
 
 const DocumentRequestSchema = new Schema({
-  engagement: { type: Types.ObjectId, ref: "Engagement", required: true },
+  engagement: { type: Types.ObjectId, ref: "Engagement" },
+  company: { type: Types.ObjectId, ref: "Company" },
   clientId: { type: String, required: true },
 
   name: { type: String },

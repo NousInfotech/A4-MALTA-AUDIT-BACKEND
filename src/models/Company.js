@@ -39,9 +39,11 @@ const CompanySchema = new Schema(
     industry: { type: String },
     description: { type: String },
     companyStartedAt: { type: Date },
+    authorizedShares: { type: Number },
+    issuedShares: { type: Number },
+    perShareValue: { value: { type: Number }, currency: { type: String, default: "EUR" } },
     totalShares: { type: [ShareDataSchema] },
-
-    // Shareholding by other companies
+      // Shareholding by other companies
     shareHoldingCompanies: [
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
@@ -57,7 +59,9 @@ const CompanySchema = new Schema(
             message: "sharesData must be an array with at least 1 item"
           }
         },
+        paidUpSharesPercentage: { type: Number },
       },
+      
     ],
 
     // Direct shareholders (persons)
@@ -65,6 +69,7 @@ const CompanySchema = new Schema(
       {
         personId: { type: Types.ObjectId, ref: "Person", required: true },
         sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
+        paidUpSharesPercentage: { type: Number },
         sharesData: {
           type: [ShareDataSchema],
           required: true,
