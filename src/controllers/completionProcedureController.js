@@ -755,7 +755,21 @@ exports.generateSectionQuestions = async (req, res) => {
     const totalTime = Date.now() - startTime;
     console.error(`[COMPLETION TIMING] Error occurred after ${totalTime}ms`);
     console.error("Error generating section questions:", e);
-    res.status(400).json({ error: e.message });
+    
+    // Extract error message - check for quota errors and other specific errors
+    let errorMessage = e.message || "Failed to generate questions";
+    let statusCode = 400;
+    
+    // Check for quota exceeded error
+    if (e.message && (e.message.includes("429") || e.message.includes("quota") || e.message.includes("insufficient_quota"))) {
+      errorMessage = "OpenAI API quota exceeded. Please check your OpenAI account billing and quota limits.";
+      statusCode = 429;
+    } else if (e.status === 429 || (e.response && e.response.status === 429)) {
+      errorMessage = "OpenAI API quota exceeded. Please check your OpenAI account billing and quota limits.";
+      statusCode = 429;
+    }
+    
+    res.status(statusCode).json({ error: errorMessage, message: errorMessage });
   }
 };
 
