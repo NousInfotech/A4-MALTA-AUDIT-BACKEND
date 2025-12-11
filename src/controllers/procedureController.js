@@ -39,15 +39,20 @@ async function getPrompt(name) {
   }
 }
 
-async function buildContext(engagementId, classifications = []) {
+async function buildContext(engagementId, classifications = [], options = {}) {
+  const { limitRows = 30, includeWorkingPapers = false } = options;  // Drastically reduced defaults
+  const contextStartTime = Date.now();
+
   // 1) Core engagement
   console.log(engagementId," engagementId")
   const engagement = await Engagement.findById(engagementId).lean();
   if (!engagement) {
     throw new Error("Engagement not found");
   }
+  console.log(`[CONTEXT] Engagement fetch: ${Date.now() - contextStartTime}ms`);
 
   // 2) Supabase profile (server-side)
+  const supabaseStart = Date.now();
   const { data: clientProfile, error: profileErr } = await supabase
     .from("profiles")
     .select("company_summary,industry")
@@ -57,31 +62,66 @@ async function buildContext(engagementId, classifications = []) {
     // not fatal; just log
     console.warn("Supabase profiles fetch error:", profileErr.message);
   }
+  console.log(`[CONTEXT] Supabase profile fetch: ${Date.now() - supabaseStart}ms`);
 
-  // 3) ETB
+  // 3) ETB - limit rows to reduce payload size
+  const etbStart = Date.now();
   const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId }).lean();
-  const etbRows = etb?.rows || [];
+  let etbRows = etb?.rows || [];
+  console.log(`[CONTEXT] ETB fetch: ${Date.now() - etbStart}ms, Total rows: ${etbRows.length}`);
+
+  // Filter ETB rows by classification if specified
+  if (Array.isArray(classifications) && classifications.length && etbRows.length > 0) {
+    etbRows = etbRows.filter(row =>
+      classifications.some(cls => row.classification === cls || row.account?.toLowerCase().includes(cls.toLowerCase()))
+    );
+  }
+
+  // Limit rows to prevent huge payloads
+  if (etbRows.length > limitRows) {
+    console.log(`[OPTIMIZATION] Limiting ETB rows from ${etbRows.length} to ${limitRows}`);
+    etbRows = etbRows.slice(0, limitRows);
+  }
 
   // 4) Sections (for UX and context)
+  const sectionsStart = Date.now();
   const sectionFilter = { engagement: engagementId };
   if (Array.isArray(classifications) && classifications.length) {
     sectionFilter.classification = { $in: classifications };
   }
   const classificationSections = await ClassificationSection.find(sectionFilter).lean();
+  console.log(`[CONTEXT] Sections fetch: ${Date.now() - sectionsStart}ms, Count: ${classificationSections.length}`);
 
   // 5) Working papers — fetch by engagement and (optionally) classification
-  const wpFilter = { engagement: engagementId };
-  if (Array.isArray(classifications) && classifications.length) {
-    wpFilter.classification = { $in: classifications };
+  let workingpapers = [];
+  if (includeWorkingPapers) {
+    const wpStart = Date.now();
+    const wpFilter = { engagement: engagementId };
+    if (Array.isArray(classifications) && classifications.length) {
+      wpFilter.classification = { $in: classifications };
+    }
+    workingpapers = await WorkingPaper.find(wpFilter)
+      .select('-__v -createdAt -updatedAt') // Exclude unnecessary fields
+      .limit(50) // Limit working papers
+      .lean();
+    console.log(`[CONTEXT] Working papers fetch: ${Date.now() - wpStart}ms, Count: ${workingpapers.length}`);
   }
-  const workingpapers = await WorkingPaper.find(wpFilter).lean();
 
-  return {
+  const totalContextTime = Date.now() - contextStartTime;
+  console.log(`[CONTEXT] Total context build time: ${totalContextTime}ms (${(totalContextTime/1000).toFixed(2)}s)`);
+
+  const context = {
     clientProfile: clientProfile || null,
     etbRows,
     classificationSections,
-    workingpapers, // full objects, not just ids
+    workingpapers,
   };
+
+  // Log context size for debugging
+  const contextSize = JSON.stringify(context).length;
+  console.log(`[CONTEXT] Context object size: ${contextSize} chars (~${Math.ceil(contextSize/4)} tokens)`);
+
+  return context;
 }
 
 // HYBRID STEP-1 — manual + extra AI questions
@@ -92,14 +132,26 @@ async function hybridGenerateQuestions(req, res) {
     const context = await buildContext(engagementId,classifications)
     console.log("Built context:", context);
     const manualPacks = manualQuestions;
-    
+
     const promptContent = await getPrompt("fieldworkHybridQuestionsPrompt");
     const promptFunction = eval(`(${promptContent})`);
     const prompt = promptFunction({ framework, manualPacks, context });
-    
-    console.log("Hybrid ques Built prompt:", prompt);
 
-    const out = await generateJson({ prompt, model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini" });
+    console.log("Hybrid ques Built prompt (first 500 chars):", prompt.substring(0, 500));
+    console.log(`[PROMPT] Total prompt length: ${prompt.length} chars (~${Math.ceil(prompt.length/4)} tokens)`);
+
+    const startTime = Date.now();
+    console.log(`[TIMING] Starting OpenAI call for hybrid questions - ${new Date().toISOString()}`);
+    const out = await generateJson({
+      prompt,
+      model: process.env.LLM_MODEL_QUESTIONS || "gpt-4.1-nano",
+      max_tokens: 3000, // Limit output size for faster response
+      temperature: 0.3 // Slightly higher for faster generation
+    });
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`[TIMING] OpenAI call completed for hybrid questions - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+
     const aiQuestions = coerceQuestionsArray(out);
     
     // Check if a procedure already exists for this engagement
@@ -239,22 +291,28 @@ async function generateRecommendations(req, res) {
       
       const promptContent = await getPrompt("fieldworkRecommendationsPrompt");
       const promptFunction = eval(`(${promptContent})`);
-      const prompt = promptFunction({ 
-        framework, 
-        context, 
+      const prompt = promptFunction({
+        framework,
+        context,
         classifications: [classification],
         questions: questions.filter(q => q.classification === classification),
         batchIndex: i,
         totalBatches: classifications.length
       });
-      
+
       console.log("Prompt for", classification, ":", prompt.substring(0, 200) + "...");
-      
-      const out = await generateJson({ 
-        prompt, 
-        model: "gpt-4o-mini",
-        max_tokens: 2000 // Limit tokens per classification
+
+      const startTime = Date.now();
+      console.log(`[TIMING] Starting OpenAI call for recommendations - Classification: ${classification} (${i+1}/${classifications.length}) - ${new Date().toISOString()}`);
+      const out = await generateJson({
+        prompt,
+        model: "gpt-4.1-nano",
+        max_tokens: 1500, // Reduced for faster responses
+        temperature: 0.3 // Slightly higher for faster generation
       });
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      console.log(`[TIMING] OpenAI call completed for recommendations - Classification: ${classification} - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
       
       // Handle the new JSON response format with checklist items
       let recommendations = [];
@@ -351,20 +409,27 @@ async function generateAIClassificationQuestions(req, res) {
 
     const promptContent = await getPrompt("fieldworkAiQuestionsPrompt");
     const promptFunction = eval(`(${promptContent})`);
-    const prompt = promptFunction({ 
-      framework, 
-      classifications: [classification], 
-      context, 
-      oneShotExamples 
+    const prompt = promptFunction({
+      framework,
+      classifications: [classification],
+      context,
+      oneShotExamples
     });
-    
-    console.log("AI classification ques Built prompt:", prompt);
 
-    const out = await generateJson({ 
-      prompt, 
-      model: process.env.LLM_MODEL_QUESTIONS || "gpt-4o-mini",
-      max_tokens: 4000 // Increased for more detailed responses
+    console.log("AI classification ques Built prompt (first 500 chars):", prompt.substring(0, 500));
+    console.log(`[PROMPT] Total prompt length: ${prompt.length} chars (~${Math.ceil(prompt.length/4)} tokens)`);
+
+    const startTime = Date.now();
+    console.log(`[TIMING] Starting OpenAI call for AI questions - Classification: ${classification} - ${new Date().toISOString()}`);
+    const out = await generateJson({
+      prompt,
+      model: process.env.LLM_MODEL_QUESTIONS || "gpt-4.1-nano",
+      max_tokens: 2048, // Increased to prevent truncation
+      temperature: 0.3 // Slightly higher for faster generation
     });
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`[TIMING] OpenAI call completed for AI questions - Classification: ${classification} - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
     console.log("LLM output:", out);
 
     const aiQuestions = coerceQuestionsArray(out);
@@ -442,23 +507,29 @@ async function generateAIClassificationAnswers(req, res) {
 
     const context = await buildContext(engagementId, [classification]);
     console.log("Built context for classification answers:", classification);
-    
+
     const promptContent = await getPrompt("fieldworkAnswersPrompt");
     const promptFunction = eval(`(${promptContent})`);
-    const prompt = promptFunction({ 
-      framework, 
-      context, 
-      questions, 
-      classifications: [classification] 
+    const prompt = promptFunction({
+      framework,
+      context,
+      questions,
+      classifications: [classification]
     });
-    
+
     console.log("AI classification answers Built prompt:", prompt);
 
-    const out = await generateJson({ 
-      prompt, 
-      model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini",
-      max_tokens: 4000 // Increased for more detailed responses
+    const startTime = Date.now();
+    console.log(`[TIMING] Starting OpenAI call for AI answers - Classification: ${classification} - ${new Date().toISOString()}`);
+    const out = await generateJson({
+      prompt,
+      model: process.env.LLM_MODEL_ANSWERS || "gpt-4.1-nano",
+      max_tokens: 2500, // Reduced for faster responses
+      temperature: 0.3 // Slightly higher for faster generation
     });
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`[TIMING] OpenAI call completed for AI answers - Classification: ${classification} - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
     
     // Update questions with answers
     const questionsWithAnswers = questions.map((question, index) => {
@@ -515,23 +586,29 @@ async function generateAIClassificationAnswersSeparate(req, res) {
 
     const context = await buildContext(engagementId, [classification]);
     console.log("Built context for classification answers:", classification);
-    
+
     const promptContent = await getPrompt("fieldworkAnswersPrompt");
     const promptFunction = eval(`(${promptContent})`);
-    const prompt = promptFunction({ 
-      framework, 
-      context, 
-      questions, 
-      classifications: [classification] 
+    const prompt = promptFunction({
+      framework,
+      context,
+      questions,
+      classifications: [classification]
     });
-    
+
     console.log("AI classification answers Built prompt:", prompt);
 
-    const out = await generateJson({ 
-      prompt, 
-      model: process.env.LLM_MODEL_ANSWERS || "gpt-4o-mini",
-      max_tokens: 4000 // Increased for more detailed responses
+    const startTime = Date.now();
+    console.log(`[TIMING] Starting OpenAI call for AI answers (separate) - Classification: ${classification} - ${new Date().toISOString()}`);
+    const out = await generateJson({
+      prompt,
+      model: process.env.LLM_MODEL_ANSWERS || "gpt-4.1-nano",
+      max_tokens: 2500, // Reduced for faster responses
+      temperature: 0.3 // Slightly higher for faster generation
     });
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`[TIMING] OpenAI call completed for AI answers (separate) - Classification: ${classification} - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
     
     // Update questions with answers
     const questionsWithAnswers = questions.map((question, index) => {
