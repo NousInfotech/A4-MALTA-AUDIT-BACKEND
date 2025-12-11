@@ -47,7 +47,7 @@ const CompanySchema = new Schema(
     shareHoldingCompanies: [
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
-        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
+        // sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
         sharesData: {
           type: [ShareDataSchema],
           required: true,
@@ -68,7 +68,7 @@ const CompanySchema = new Schema(
     shareHolders: [
       {
         personId: { type: Types.ObjectId, ref: "Person", required: true },
-        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
+        // sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
         paidUpSharesPercentage: { type: Number },
         sharesData: {
           type: [ShareDataSchema],
