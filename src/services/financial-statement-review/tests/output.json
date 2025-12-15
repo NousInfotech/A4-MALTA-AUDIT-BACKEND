@@ -1,0 +1,319 @@
+{
+  "engagement": {
+    "title": "Audit 2023",
+    "yearEndDate": "2023-12-12T00:00:00.000Z"
+  },
+  "company": {
+    "name": "White Investments Limited",
+    "registrationNumber": "C 73546",
+    "address": "99, Dingli Street, SLIEMA, Malta"
+  },
+  "etb": [
+    {
+      "rowId": "1",
+      "code": "1",
+      "accountName": "Audit Fees",
+      "currentYear": 0,
+      "priorYear": 650,
+      "adjustments": 1250,
+      "reclassifications": 0,
+      "finalBalance": 1250,
+      "classification": "Equity > Current Year Profits & Losses > Administrative expenses"
+    },
+    {
+      "rowId": "2",
+      "code": "2",
+      "accountName": "Professional Fees",
+      "currentYear": 0,
+      "priorYear": 206,
+      "adjustments": 395,
+      "reclassifications": 0,
+      "finalBalance": 395,
+      "classification": "Equity > Current Year Profits & Losses > Administrative expenses"
+    },
+    {
+      "rowId": "3",
+      "code": "3",
+      "accountName": "Amount Due to subsidary",
+      "currentYear": -3847,
+      "priorYear": -3847,
+      "adjustments": 0,
+      "reclassifications": 0,
+      "finalBalance": -3847,
+      "classification": "Liabilities > Current > Trade and other payables"
+    },
+    {
+      "rowId": "4",
+      "code": "4",
+      "accountName": "Accruals",
+      "currentYear": -856,
+      "priorYear": -856,
+      "adjustments": -1645,
+      "reclassifications": 0,
+      "finalBalance": -2501,
+      "classification": "Liabilities > Current > Trade and other payables"
+    },
+    {
+      "rowId": "5",
+      "code": "5",
+      "accountName": "Retained Earnings",
+      "currentYear": 4703,
+      "priorYear": 4703,
+      "adjustments": 0,
+      "reclassifications": 0,
+      "finalBalance": 4703,
+      "classification": "Equity > Equity > Retained earnings"
+    },
+    {
+      "rowId": "6",
+      "code": "6",
+      "accountName": "Share Capital",
+      "currentYear": -1200,
+      "priorYear": -1200,
+      "adjustments": 0,
+      "reclassifications": 0,
+      "finalBalance": -1200,
+      "classification": "Equity > Equity > Share capital"
+    },
+    {
+      "rowId": "7",
+      "code": "7",
+      "accountName": "Investments",
+      "currentYear": 1200,
+      "priorYear": 1200,
+      "adjustments": 0,
+      "reclassifications": 0,
+      "finalBalance": 1200,
+      "classification": "Assets > Non-current > Other non-current investments"
+    }
+  ],
+  "adjustments": [
+    {
+      "rowId": "1",
+      "dr": 1250,
+      "cr": 0,
+      "value": 1250,
+      "refs": [
+        "693c0ba597e042e7f12b01d3"
+      ]
+    },
+    {
+      "rowId": "2",
+      "dr": 395,
+      "cr": 0,
+      "value": 395,
+      "refs": [
+        "693c0ba597e042e7f12b01d3"
+      ]
+    },
+    {
+      "rowId": "4",
+      "dr": 0,
+      "cr": 1645,
+      "value": -1645,
+      "refs": [
+        "693c0ba597e042e7f12b01d3"
+      ]
+    }
+  ],
+  "reclassifications": [],
+  "profit_and_loss": {
+    "prior_year": {
+      "year": 2022,
+      "net_result": -856,
+      "resultType": "net_loss",
+      "breakdowns": {
+        "Administrative expenses": {
+          "value": 856,
+          "accounts": [
+            "LS_1"
+          ]
+        }
+      }
+    },
+    "current_year": {
+      "year": 2023,
+      "net_result": -1645,
+      "resultType": "net_loss",
+      "breakdowns": {
+        "Administrative expenses": {
+          "value": 1645,
+          "accounts": [
+            "LS_1"
+          ]
+        }
+      }
+    }
+  },
+  "balance_sheet": {
+    "prior_year": {
+      "year": 2022,
+      "totals": {
+        "assets": {
+          "value": 1200,
+          "accounts": [
+            "LS_5"
+          ]
+        },
+        "liabilities": {
+          "value": 4703,
+          "accounts": [
+            "LS_2"
+          ]
+        },
+        "equity": {
+          "value": -3503,
+          "accounts": [
+            "LS_4"
+          ]
+        }
+      },
+      "balanced": true
+    },
+    "current_year": {
+      "year": 2023,
+      "totals": {
+        "assets": {
+          "value": 1200,
+          "accounts": [
+            "LS_5"
+          ]
+        },
+        "liabilities": {
+          "value": 6348,
+          "accounts": [
+            "LS_2"
+          ]
+        },
+        "equity": {
+          "value": -5148,
+          "accounts": [
+            "LS_4"
+          ]
+        }
+      },
+      "balanced": true
+    }
+  },
+  "lead_sheets": [
+    {
+      "level": "grouping1",
+      "group": "Equity",
+      "children": [
+        {
+          "level": "grouping2",
+          "group": "Current Year Profits & Losses",
+          "children": [
+            {
+              "level": "grouping3",
+              "id": "LS_1",
+              "group": "Administrative expenses",
+              "totals": {
+                "currentYear": 0,
+                "priorYear": -856,
+                "adjustments": -1645,
+                "reclassification": 0,
+                "finalBalance": -1645
+              },
+              "rows": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        },
+        {
+          "level": "grouping2",
+          "group": "Equity",
+          "children": [
+            {
+              "level": "grouping3",
+              "id": "LS_3",
+              "group": "Retained earnings",
+              "totals": {
+                "currentYear": -4703,
+                "priorYear": -4703,
+                "adjustments": 0,
+                "reclassification": 0,
+                "finalBalance": -4703
+              },
+              "rows": [
+                "5"
+              ]
+            },
+            {
+              "level": "grouping3",
+              "id": "LS_4",
+              "group": "Share capital",
+              "totals": {
+                "currentYear": 1200,
+                "priorYear": 1200,
+                "adjustments": 0,
+                "reclassification": 0,
+                "finalBalance": 1200
+              },
+              "rows": [
+                "6"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "level": "grouping1",
+      "group": "Liabilities",
+      "children": [
+        {
+          "level": "grouping2",
+          "group": "Current",
+          "children": [
+            {
+              "level": "grouping3",
+              "id": "LS_2",
+              "group": "Trade and other payables",
+              "totals": {
+                "currentYear": 4703,
+                "priorYear": 4703,
+                "adjustments": 1645,
+                "reclassification": 0,
+                "finalBalance": 6348
+              },
+              "rows": [
+                "3",
+                "4"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "level": "grouping1",
+      "group": "Assets",
+      "children": [
+        {
+          "level": "grouping2",
+          "group": "Non-current",
+          "children": [
+            {
+              "level": "grouping3",
+              "id": "LS_5",
+              "group": "Other non-current investments",
+              "totals": {
+                "currentYear": 1200,
+                "priorYear": 1200,
+                "adjustments": 0,
+                "reclassification": 0,
+                "finalBalance": 1200
+              },
+              "rows": [
+                "7"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

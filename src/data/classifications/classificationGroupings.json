@@ -1,0 +1,284 @@
+[
+  {
+    "title": "Assets",
+    "subGroups": [
+      {
+        "title": "Non-current",
+        "subGroups": [
+          "Loans",
+          {
+            "title": "Intangible assets",
+            "subGroups": [
+              "Intangible assets - Cost",
+              "Intangible assets - Accumulated Amortisation"
+            ]
+          },
+          {
+            "title": "Property, plant and equipment",
+            "subGroups": [
+              "Property, plant and equipment - Cost",
+              "Property, plant and equipment - Accumulated Depreciation"
+            ]
+          },
+          {
+            "title": "Investment property",
+            "subGroups": [
+              "Investment property - Cost",
+              "Investment property - Accumulated Depreciation"
+            ]
+          },
+          {
+            "title": "Investment in subsidiary",
+            "subGroups": [
+              "Carrying amount",
+              "Share of profit for the",
+              "Distributions received",
+              "Capital contribution paid"
+            ]
+          },
+          {
+            "title": "Other non-current investments",
+            "subGroups": [
+              "HTM-quoted debt",
+              "AFS-quoted equity"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Current",
+        "subGroups": [
+          "Held-for-trading investments",
+          {
+            "title": "Inventories",
+            "subGroups": [
+              "Raw materials and consumables",
+              "Work in progress",
+              "Finished goods"
+            ]
+          },
+          {
+            "title": "Trade and other receivables",
+            "subGroups": [
+              "Trade Receivables",
+              "Other receivables",
+              "Amount due from Shareholder",
+              "Amount due from Subsidiary Co.",
+              "Amount due from Parent Co.",
+              "Prepayments and accrued income"
+            ]
+          },
+          {
+            "title": "Loans",
+            "subGroups": [
+              "Amount advanced to subsidiary",
+              "Capital contribution"
+            ]
+          },
+          {
+            "title": "Cash and bank balances",
+            "subGroups": [
+              "Cash at bank",
+              "Cash in hand",
+              "Bank overdraft"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "title": "Equity",
+    "subGroups": [
+      {
+        "title": "Equity",
+        "subGroups": [
+          "Share capital",
+          "Revaluation reserve",
+          "Fair value reserve",
+          "Other reserves",
+          "Retained earnings"
+        ]
+      },
+      {
+        "title": "Current Year Profits & Losses",
+        "subGroups": [
+          "Share of profit of subsidiary",
+          {
+            "title": "Revenue",
+            "subGroups": [
+              "Sale of goods",
+              "Rendering of services"
+            ]
+          },
+          {
+            "title": "Cost of sales",
+            "subGroups": [
+              "Opening stock",
+              "Purchases",
+              "Carriage in",
+              "Closing stock",
+              "Other direct costs",
+              "Wages and salaries",
+              "Loose tools",
+              "Repairsand maintenance",
+              "Training and courses",
+              "Fuel and oil",
+              "Water and electricity",
+              "Professional fees",
+              "Insurances",
+              "Consumables",
+              "Depreciation",
+              "Provision for warranty costs",
+              "General expenses"
+            ]
+          },
+          {
+            "title": "Sales and marketing expenses",
+            "subGroups": [
+              "Fairs and exhibitions",
+              "Advertising",
+              "Commissions payable",
+              "Market research and surveys"
+            ]
+          },
+          {
+            "title": "Administrative expenses",
+            "subGroups": [
+              "Salaries",
+              "Directors' remuneration",
+              "Management fees",
+              "Water andelectricity",
+              "Repairs and maintenance",
+              "Computer maintenance",
+              "Office stationery and supplies",
+              "Staff development",
+              "Staff training",
+              "Staff welfare",
+              "Telecommunications",
+              "Overseas travel",
+              "Legal and professional fees",
+              "Litigation settlement",
+              "Audit fee",
+              "Bank charges",
+              "Insurance",
+              "Subscriptions",
+              "Baddebts written off",
+              "Provision for doubtful debts",
+              "Transport expenses",
+              "General expenses",
+              "Research costs",
+              "Impairment loss on property, plant and equipment",
+              "Depreciation",
+              "Amortisation of intangible assets"
+            ]
+          },
+          {
+            "title": "Other operating income",
+            "subGroups": [
+              "Rental income from operating leases",
+              "Government grant",
+              "Gain on disposal of property, plant and equipment",
+              "Exchange gains"
+            ]
+          },
+          {
+            "title": "Investment income",
+            "subGroups": [
+              "Interest income on cash and cash equivalents",
+              "Interest income from HFT investments",
+              "Interest income from HTM investments",
+              "Change in fair value of HFT investments"
+            ]
+          },
+          {
+            "title": "Investment losses",
+            "subGroups": [
+              "Change in fair value of HFT investments"
+            ]
+          },
+          {
+            "title": "Finance costs",
+            "subGroups": [
+              "Interest payable on finance lease",
+              "Bank interest",
+              "Dividends on redeemable cumulative preference shares",
+              "Unwinding of discount on site restoration provision"
+            ]
+          },
+          {
+            "title": "Income tax expense",
+            "subGroups": [
+              "Current tax expense",
+              "Deferred tax expense"
+            ]
+          },
+          {
+            "title": "PBT Expenses",
+            "subGroups": [
+              "Directors' remuneration",
+              "Depreciation and amortisation expense",
+              "Employee benefits expense",
+              "Write-downs of inventories to net realisable value",
+              "Impairment losses on property, plant and equipment",
+              "Litigation settlement",
+              "Audit fees",
+              "Other assurance services",
+              "Tax advisory services",
+              "Other non-audit services"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "title": "Liabilities",
+    "subGroups": [
+      {
+        "title": "Non-current",
+        "subGroups": [
+          "Deferred tax liability",
+          "Provisions",
+          {
+            "title": "Borrowings",
+            "subGroups": [
+              "Redeemable preference shares",
+              "Finance lease obligations",
+              "Loan from Subsidiary Co.",
+              "Loan from Parent Co.",
+              "Loan from Shareholder"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Current",
+        "subGroups": [
+          "Current tax liabilities",
+          "Provisions",
+          {
+            "title": "Borrowings",
+            "subGroups": [
+              "Bank loan",
+              "Bank overdraft",
+              "Finance lease obligation"
+            ]
+          },
+          {
+            "title": "Trade and other payables",
+            "subGroups": [
+              "Trade payables",
+              "Other payables",
+              "Accrued expenses",
+              "Deferred government grant",
+              "Amount due to Subsidiary Co.",
+              "Amount due to Parent Co.",
+              "Amount due to Shareholder"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

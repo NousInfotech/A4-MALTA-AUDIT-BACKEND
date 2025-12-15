@@ -1,0 +1,3 @@
+exports.aiPromptGenerator = async (portalData) => {
+
+};
