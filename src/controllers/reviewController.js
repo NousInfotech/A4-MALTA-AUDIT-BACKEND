@@ -2,6 +2,7 @@ const ReviewWorkflow = require('../models/ReviewWorkflow');
 const ReviewHistory = require('../models/ReviewHistory');
 const { Log, Action } = require('../models/EmployeeLog');
 const { supabase } = require('../config/supabase');
+const NotificationService = require('../services/notification.service');
 
 // Helper function to get user info from Supabase
 async function getUserInfo(userId) {
@@ -96,7 +97,7 @@ exports.submitForReview = async (req, res, next) => {
     const userId = req.user.id;
 
     // Validate item type
-    const validItemTypes = ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper', 'classification-section'];
+    const validItemTypes = ['procedure', 'planning-procedure', 'document-request', 'checklist-item', 'pbc', 'kyc', 'isqm-document', 'working-paper', 'classification-section', 'library-document'];
     if (!validItemTypes.includes(itemType)) {
       return res.status(400).json({ 
         success: false, 
@@ -147,6 +148,38 @@ exports.submitForReview = async (req, res, next) => {
 
     // Log employee activity
     await logEmployeeActivity(userId, Action.SUBMIT_FOR_REVIEW, `Submitted ${itemType} for review`, req);
+
+    // Send notification to reviewers/managers
+    try {
+      const { data: managers } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .in('role', ['manager', 'partner', 'reviewer']);
+      
+      if (managers && managers.length > 0) {
+        const managerIds = managers.map(m => m.user_id);
+        await NotificationService.send({
+          userId: managerIds,
+          title: 'New Item for Review',
+          message: `A ${itemType.replace('-', ' ')} has been submitted for review`,
+          type: 'document',
+          category: 'review-submitted',
+          module: 'document',
+          priority: 'normal',
+          data: {
+            itemType,
+            itemId,
+            engagementId,
+            workflowId: workflow._id.toString()
+          },
+          actionUrl: `/review/queue`,
+          documentId: itemType === 'library-document' ? itemId : undefined
+        });
+      }
+    } catch (notifErr) {
+      console.error('Failed to send notification:', notifErr);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,
@@ -206,6 +239,29 @@ exports.assignReviewer = async (req, res, next) => {
 
     // Log employee activity
     await logEmployeeActivity(userId, Action.ASSIGN_REVIEWER, `Assigned reviewer to ${workflow.itemType}`, req);
+
+    // Send notification to assigned reviewer
+    try {
+      await NotificationService.send({
+        userId: reviewerId,
+        title: 'Review Assignment',
+        message: `You have been assigned to review a ${workflow.itemType.replace('-', ' ')}`,
+        type: 'document',
+        category: 'review-assigned',
+        module: 'document',
+        priority: 'high',
+        data: {
+          itemType: workflow.itemType,
+          itemId: workflow.itemId.toString(),
+          engagementId: workflow.engagement.toString(),
+          workflowId: workflow._id.toString()
+        },
+        actionUrl: `/review/${workflow._id}`,
+        documentId: workflow.itemType === 'library-document' ? workflow.itemId.toString() : undefined
+      });
+    } catch (notifErr) {
+      console.error('Failed to send notification:', notifErr);
+    }
 
     res.json({
       success: true,
@@ -268,6 +324,36 @@ exports.performReview = async (req, res, next) => {
     // Log employee activity
     const action = approved ? Action.REVIEW_APPROVED : Action.REVIEW_REJECTED;
     await logEmployeeActivity(userId, action, `${approved ? 'Approved' : 'Rejected'} ${workflow.itemType}`, req);
+
+    // Send notification to submitter
+    try {
+      if (workflow.submittedBy) {
+        await NotificationService.send({
+          userId: workflow.submittedBy,
+          title: approved ? 'Review Approved' : 'Review Rejected',
+          message: approved 
+            ? `Your ${workflow.itemType.replace('-', ' ')} has been approved`
+            : `Your ${workflow.itemType.replace('-', ' ')} needs changes`,
+          type: 'document',
+          category: approved ? 'review-approved' : 'review-rejected',
+          module: 'document',
+          priority: approved ? 'normal' : 'high',
+          data: {
+            itemType: workflow.itemType,
+            itemId: workflow.itemId.toString(),
+            engagementId: workflow.engagement.toString(),
+            workflowId: workflow._id.toString(),
+            comments
+          },
+          actionUrl: workflow.itemType === 'library-document' 
+            ? `/library?reviewId=${workflow._id}`
+            : `/review/${workflow._id}`,
+          documentId: workflow.itemType === 'library-document' ? workflow.itemId.toString() : undefined
+        });
+      }
+    } catch (notifErr) {
+      console.error('Failed to send notification:', notifErr);
+    }
 
     res.json({
       success: true,
