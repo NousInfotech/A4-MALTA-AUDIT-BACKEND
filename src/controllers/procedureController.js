@@ -395,7 +395,42 @@ async function generateAIClassificationQuestions(req, res) {
     res.json({ ok: true, procedureId: procedure._id, aiQuestions });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ ok: false, error: "Server error (ai classification questions)" });
+    
+    // Extract error message - check for quota errors and other specific errors
+    let errorMessage = "Failed to generate questions";
+    let statusCode = 500;
+    
+    if (err.message) {
+      // Check for quota exceeded error
+      if (err.message.includes("429") || err.message.includes("quota") || err.message.includes("insufficient_quota")) {
+        errorMessage = "OpenAI API quota exceeded. Please check your OpenAI account billing and quota limits.";
+        statusCode = 429;
+      } else if (err.message.includes("LLM error")) {
+        // Extract the actual error from LLM service
+        const match = err.message.match(/LLM error: (\d+) (.+)/);
+        if (match) {
+          const httpStatus = parseInt(match[1]);
+          const errorText = match[2];
+          try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error?.message) {
+              errorMessage = errorJson.error.message;
+            } else {
+              errorMessage = errorText.slice(0, 200);
+            }
+          } catch {
+            errorMessage = errorText.slice(0, 200);
+          }
+          statusCode = httpStatus >= 400 && httpStatus < 600 ? httpStatus : 500;
+        } else {
+          errorMessage = err.message;
+        }
+      } else {
+        errorMessage = err.message;
+      }
+    }
+    
+    res.status(statusCode).json({ ok: false, error: errorMessage, message: errorMessage });
   }
 }
 

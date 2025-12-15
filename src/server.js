@@ -50,7 +50,8 @@ app.use(
       "http://localhost:8080",
       "https://portal.a4.com.mt",
     ],
-    credentials: true // optional: if you need to allow cookies/auth headers
+    credentials: true, // optional: if you need to allow cookies/auth headers
+    exposedHeaders: ["Content-Disposition"],
   })
 );
 
