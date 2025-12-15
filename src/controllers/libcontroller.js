@@ -5,6 +5,7 @@ const DocumentVersion = require("../models/DocumentVersion");
 const DocumentActivity = require("../models/DocumentActivity");
 const FolderPermission = require("../models/FolderPermission");
 const UserSession = require("../models/UserSession");
+const ReviewWorkflow = require("../models/ReviewWorkflow");
 const { supabase } = require("../config/supabase");
 const archiver = require("archiver");
 const { Readable } = require("stream");
@@ -484,13 +485,41 @@ exports.listFiles = async (req, res, next) => {
       .limit(1000)
       .lean();
 
-    // Get public URLs from Supabase
+    // Get review status for each document
+    const documentIds = documents.map(doc => doc._id);
+    const reviewWorkflows = await ReviewWorkflow.find({
+      itemType: 'library-document',
+      itemId: { $in: documentIds }
+    }).select('itemId status assignedReviewer submittedBy priority dueDate').lean();
+
+    // Create a map of document ID to review status
+    const reviewStatusMap = new Map();
+    reviewWorkflows.forEach(workflow => {
+      reviewStatusMap.set(workflow.itemId.toString(), {
+        status: workflow.status,
+        assignedReviewer: workflow.assignedReviewer,
+        submittedBy: workflow.submittedBy,
+        priority: workflow.priority,
+        dueDate: workflow.dueDate,
+        hasReviewPoints: true
+      });
+    });
+
+    // Get public URLs from Supabase and add review status
     const files = documents.map((doc) => {
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(doc.filePath);
+      const reviewInfo = reviewStatusMap.get(doc._id.toString());
+
       return {
         ...doc,
         publicUrl: pub.publicUrl,
         _id: doc._id.toString(),
+        reviewStatus: reviewInfo || null,
+         // Clear indicator for documents under review
+        isUnderReview: reviewInfo && ['ready-for-review', 'under-review'].includes(reviewInfo.status),
+        isApproved: reviewInfo && reviewInfo.status === 'approved',
+        isSignedOff: reviewInfo && reviewInfo.status === 'signed-off',
+        isRejected: reviewInfo && reviewInfo.status === 'rejected'
       };
     });
 
