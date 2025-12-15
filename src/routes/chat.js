@@ -17,6 +17,7 @@ router.put('/messages/:messageId', chatController.editMessage); // Using PUT for
 router.post('/messages/:messageId/delete', chatController.deleteMessage); // POST with body {mode}
 router.post('/messages/:messageId/star', chatController.toggleStarMessage);
 router.get('/search', chatController.searchMessages); // Global search or conv search
+router.get('/starred', chatController.getStarredMessages); // Get starred messages
 router.post('/conversations/:conversationId/archive', chatController.toggleArchiveConversation);
 router.post('/conversations/:conversationId/read', chatController.markMessagesRead);
 

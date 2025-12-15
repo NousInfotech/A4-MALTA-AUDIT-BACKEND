@@ -19,7 +19,9 @@ exports.startDirectChat = async (req, res) => {
             conversation = await Conversation.create({
                 type: 'direct',
                 participants: [currentUserId, otherUserId],
-                createdBy: currentUserId
+                participants: [currentUserId, otherUserId],
+                createdBy: currentUserId,
+                organizationId: req.user.organizationId
             });
         }
 
@@ -42,7 +44,9 @@ exports.createGroupChat = async (req, res) => {
             name,
             participants,
             admins: [currentUserId],
-            createdBy: currentUserId
+            admins: [currentUserId],
+            createdBy: currentUserId,
+            organizationId: req.user.organizationId
         });
 
         res.json(conversation);
@@ -309,6 +313,23 @@ exports.markMessagesRead = async (req, res) => {
         res.json({ success: true, count: result.nModified });
     } catch (err) {
         console.error('markMessagesRead error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+exports.getStarredMessages = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const messages = await Message.find({
+            starredBy: userId,
+            deletedFor: { $ne: userId }
+        })
+            .sort({ createdAt: -1 })
+            .populate('conversationId', 'name type participants'); // Optional: populate convo details
+
+        res.json(messages);
+    } catch (err) {
+        console.error('getStarredMessages error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 };

@@ -34,7 +34,11 @@ const ConversationSchema = new Schema({
     }],
     archivedBy: [{
         type: String // Supabase User ID
-    }]
+    }],
+    organizationId: {
+        type: String,
+        required: false // Optional for now to avoid breaking existing chats
+    }
 }, {
     timestamps: true
 });
