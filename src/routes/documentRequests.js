@@ -71,7 +71,6 @@ router.post(
 router.post(
   "/clear/:requestId/:docIndex",
   requireAuth,
-  requireRole('employee'),
   drc.clearSingleDocument
 );
 
@@ -119,7 +118,6 @@ router.get(
 router.delete(
   '/:id/documents/:documentIndex',
   requireAuth,
-  requireRole('employee'),
   drc.deleteDocument
 );
 
@@ -127,7 +125,6 @@ router.delete(
 router.post(
   '/:id/multiple/:multipleDocumentId/items/:itemIndex/clear',
   requireAuth,
-  requireRole('employee'),
   drc.clearMultipleDocumentItem
 );
 
@@ -135,7 +132,6 @@ router.post(
 router.delete(
   '/:id/multiple/:multipleDocumentId/items/:itemIndex',
   requireAuth,
-  requireRole('employee'),
   drc.deleteMultipleDocumentItem
 );
 
@@ -151,7 +147,6 @@ router.post(
 router.delete(
   '/:id/multiple/:multipleDocumentId',
   requireAuth,
-  requireRole('employee'),
   drc.deleteMultipleDocumentGroup
 );
 
@@ -159,7 +154,6 @@ router.delete(
 router.post(
   '/:id/multiple/:multipleDocumentId/clear',
   requireAuth,
-  requireRole('employee'),
   drc.clearMultipleDocumentGroup
 );
 
