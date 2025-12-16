@@ -57,6 +57,26 @@ function parseAccountingNumber(value) {
   return isNaN(num) ? 0 : Math.round(num);
 }
 
+// Parse accounting number WITHOUT rounding (for TrialBalance model - keep original precision)
+function parseAccountingNumberWithoutRounding(value) {
+  if (value === null || value === undefined || value === "") return 0;
+
+  // If already a number, return it as-is (no rounding)
+  if (typeof value === "number") return value;
+
+  // Convert to string and clean
+  let str = String(value).trim();
+
+  // Remove parentheses, commas, and currency symbols (preserves existing minus sign if present)
+  str = str.replace(/[(),\$€£¥]/g, "").trim();
+
+  // Parse to number (keep original precision, no rounding)
+  const num = Number(str);
+
+  // Return number without rounding (preserve decimals if present)
+  return isNaN(num) ? 0 : num;
+}
+
 // utils/referenceHelpers.js
 function parseReference(raw) {
   if (typeof raw !== "string" || !raw.trim()) return { type: "none" };
@@ -1150,29 +1170,30 @@ exports.fetchTrialBalance = async (req, res, next) => {
     const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
     const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
 
-    // Round numeric values in raw rows before saving to TrialBalance
-    const roundedRows = rows.map((row) => {
-      const roundedRow = [...row];
+    // Parse numeric values WITHOUT rounding for TrialBalance (keep original precision)
+    // Note: ExtendedTrialBalance will round values when created from TrialBalance
+    const parsedRows = rows.map((row) => {
+      const parsedRow = [...row];
       if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
-        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+        parsedRow[currentYearIndex] = parseAccountingNumberWithoutRounding(row[currentYearIndex]);
       }
       if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
-        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+        parsedRow[priorYearIndex] = parseAccountingNumberWithoutRounding(row[priorYearIndex]);
       }
-      return roundedRow;
+      return parsedRow;
     });
 
     let tb = await TrialBalance.findOne({ engagement: engagement._id });
     if (tb) {
       tb.headers = headers;
-      tb.rows = roundedRows; // Use rounded rows
+      tb.rows = parsedRows; // Use parsed rows (no rounding for TrialBalance)
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagement._id,
         headers,
-        rows: roundedRows, // Use rounded rows
+        rows: parsedRows, // Use parsed rows (no rounding for TrialBalance)
       });
     }
 
@@ -1235,29 +1256,30 @@ exports.saveTrialBalance = async (req, res, next) => {
     const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
     const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
 
-    // Round numeric values in raw rows before saving to TrialBalance
-    const roundedRows = data.slice(1).map((row) => {
-      const roundedRow = [...row];
+    // Parse numeric values WITHOUT rounding for TrialBalance (keep original precision)
+    // Note: ExtendedTrialBalance will round values when created from TrialBalance
+    const parsedRows = data.slice(1).map((row) => {
+      const parsedRow = [...row];
       if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
-        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+        parsedRow[currentYearIndex] = parseAccountingNumberWithoutRounding(row[currentYearIndex]);
       }
       if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
-        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+        parsedRow[priorYearIndex] = parseAccountingNumberWithoutRounding(row[priorYearIndex]);
       }
-      return roundedRow;
+      return parsedRow;
     });
 
     let tb = await TrialBalance.findOne({ engagement: engagementId });
     if (tb) {
       tb.headers = headers;
-      tb.rows = roundedRows; // Use rounded rows
+      tb.rows = parsedRows; // Use parsed rows (no rounding for TrialBalance)
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagementId,
         headers,
-        rows: roundedRows, // Use rounded rows
+        rows: parsedRows, // Use parsed rows (no rounding for TrialBalance)
       });
     }
 
@@ -1478,29 +1500,30 @@ exports.importTrialBalanceFromSheets = async (req, res, next) => {
     const currentYearIndex = headers.findIndex(h => h.toLowerCase().includes("current year"));
     const priorYearIndex = headers.findIndex(h => h.toLowerCase().includes("prior year"));
 
-    // Round numeric values in raw rows before saving to TrialBalance
-    const roundedRows = rows.map((row) => {
-      const roundedRow = [...row];
+    // Parse numeric values WITHOUT rounding for TrialBalance (keep original precision)
+    // Note: ExtendedTrialBalance will round values when created from TrialBalance
+    const parsedRows = rows.map((row) => {
+      const parsedRow = [...row];
       if (currentYearIndex !== -1 && row[currentYearIndex] !== undefined && row[currentYearIndex] !== null && row[currentYearIndex] !== "") {
-        roundedRow[currentYearIndex] = parseAccountingNumber(row[currentYearIndex]);
+        parsedRow[currentYearIndex] = parseAccountingNumberWithoutRounding(row[currentYearIndex]);
       }
       if (priorYearIndex !== -1 && row[priorYearIndex] !== undefined && row[priorYearIndex] !== null && row[priorYearIndex] !== "") {
-        roundedRow[priorYearIndex] = parseAccountingNumber(row[priorYearIndex]);
+        parsedRow[priorYearIndex] = parseAccountingNumberWithoutRounding(row[priorYearIndex]);
       }
-      return roundedRow;
+      return parsedRow;
     });
 
     let tb = await TrialBalance.findOne({ engagement: engagementId });
     if (tb) {
       tb.headers = headers;
-      tb.rows = roundedRows; // Use rounded rows
+      tb.rows = parsedRows; // Use parsed rows (no rounding for TrialBalance)
       tb.fetchedAt = new Date();
       await tb.save();
     } else {
       tb = await TrialBalance.create({
         engagement: engagementId,
         headers,
-        rows: roundedRows, // Use rounded rows
+        rows: parsedRows, // Use parsed rows (no rounding for TrialBalance)
       });
     }
 
