@@ -402,6 +402,18 @@ exports.getRequestsByEngagement = async (req, res, next) => {
   }
 };
 
+// Get requests by company
+exports.getRequestsByCompany = async (req, res, next) => {
+  try {
+    const reqs = await DocumentRequest.find({
+      company: req.params.companyId,
+    });
+    return res.json(reqs);
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Delete entire document request
 exports.deleteRequest = async (req, res, next) => {
   try {

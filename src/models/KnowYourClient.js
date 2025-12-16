@@ -37,6 +37,11 @@ const KYCSchema = new Schema(
     company: { type: Types.ObjectId, ref: "Company" },
     clientId: { type: String, required: true },
     auditorId: { type: String, required: true },
+    workflowType: {
+      type: String,
+      enum: ["Shareholder", "Representative"],
+      default: "Shareholder",
+    },
     documentRequests: [
       {
         documentRequest: { type: Types.ObjectId, ref: "DocumentRequest" },
