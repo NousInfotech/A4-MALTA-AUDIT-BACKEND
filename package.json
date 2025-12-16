@@ -32,7 +32,6 @@
     "openai": "^5.13.1",
     "papaparse": "^5.5.3",
     "pdf-parse": "^1.1.4",
-    "pdf-poppler": "^0.2.3",
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.4",
