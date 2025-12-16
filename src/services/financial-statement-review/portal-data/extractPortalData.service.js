@@ -17,7 +17,26 @@ exports.extractPortalData = async (engagementId) => {
   const engagement = await Engagement.findById(engagementId).lean();
   if (!engagement) throw new Error("Engagement not found");
 
-  const company = await Company.findById(engagement.companyId).lean();
+  const company = await Company.findById(engagement.companyId)
+    .populate({
+      path: "representationalSchema.personId",
+      select: "name nationality address",
+      model: "Person",
+    })
+    .lean();
+
+  if (!company) throw new Error("Company not found.");
+
+  // Directors
+  const directors = (company.representationalSchema || [])
+    .filter((r) => r.role?.includes("Director"))
+    .map((r) => ({
+      personId: r.personId?._id,
+      name: r.personId?.name || null,
+      nationality: r.personId?.nationality || null,
+      address: r.personId?.address || null,
+      role: r.role,
+    }));
 
   const etbDoc = await ETB.findOne({
     engagement: engagement._id,
@@ -40,7 +59,10 @@ exports.extractPortalData = async (engagementId) => {
     reclassifications,
   });
 
-  const fs = extractETBData(appliedETB.etb, engagement.yearEndDate.getFullYear());
+  const fs = extractETBData(
+    appliedETB.etb,
+    engagement.yearEndDate.getFullYear()
+  );
 
   return {
     engagement: {
@@ -51,6 +73,7 @@ exports.extractPortalData = async (engagementId) => {
       name: company.name,
       registrationNumber: company.registrationNumber,
       address: company.address,
+      directors: directors,
     },
     etb: appliedETB.etb,
     adjustments: appliedETB.adjustments,

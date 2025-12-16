@@ -102,7 +102,7 @@ app.use("/api/word-plugin", wordPluginRoutes);
 app.use("/api/notices", noticeBoardRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/fs-review", fsReviewRoutes);
+app.use("/api/financial-statement-reviews", fsReviewRoutes);
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/annotations", require("./routes/annotations"));
 

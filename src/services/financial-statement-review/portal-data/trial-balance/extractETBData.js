@@ -283,6 +283,13 @@ const deriveBalanceSheet = (tree, retainedEarnings, currentYear) => {
       grouping3: ["Retained earnings"],
     }) + retainedEarnings.prior_year.value;
 
+  // Calculate totals for balance sheet
+  const totalAssetsCY = assetsCY;
+  const totalEquityAndLiabilitiesCY = equityCY + liabilitiesCY;
+  
+  const totalAssetsPY = assetsPY;
+  const totalEquityAndLiabilitiesPY = equityPY + liabilitiesPY;
+
   return {
     prior_year: {
       year: priorYear,
@@ -301,6 +308,20 @@ const deriveBalanceSheet = (tree, retainedEarnings, currentYear) => {
             grouping2: ["Current Year Profits & Losses"],
             grouping3: ["Retained earnings"],
           }),
+        },
+        total_assets: {
+          value: totalAssetsPY,
+          accounts: collectGroupAccounts(tree, "Assets"),
+        },
+        total_equity_and_liabilities: {
+          value: totalEquityAndLiabilitiesPY,
+          accounts: [
+            ...collectGroupAccounts(tree, "Equity", {
+              grouping2: ["Current Year Profits & Losses"],
+              grouping3: ["Retained earnings"],
+            }),
+            ...collectGroupAccounts(tree, "Liabilities"),
+          ],
         },
       },
       balanced: Math.abs(assetsPY - (liabilitiesPY + equityPY)) < 1,
@@ -324,6 +345,20 @@ const deriveBalanceSheet = (tree, retainedEarnings, currentYear) => {
             grouping3: ["Retained earnings"],
           }),
         },
+        total_assets: {
+          value: totalAssetsCY,
+          accounts: collectGroupAccounts(tree, "Assets"),
+        },
+        total_equity_and_liabilities: {
+          value: totalEquityAndLiabilitiesCY,
+          accounts: [
+            ...collectGroupAccounts(tree, "Equity", {
+              grouping2: ["Current Year Profits & Losses"],
+              grouping3: ["Retained earnings"],
+            }),
+            ...collectGroupAccounts(tree, "Liabilities"),
+          ],
+        },
       },
       balanced: Math.abs(assetsCY - (liabilitiesCY + equityCY)) < 1,
     },
@@ -334,7 +369,6 @@ const deriveBalanceSheet = (tree, retainedEarnings, currentYear) => {
 // EXPORT
 // -------------------------
 exports.extractETBData = (etbRows, year) => {
-  console.log(etbRows);
   const normalized = normalizeETB(etbRows);
   const leadSheets = buildLeadSheetTree(normalized);
   const incomeStatement = deriveIncomeStatement(leadSheets, year);
