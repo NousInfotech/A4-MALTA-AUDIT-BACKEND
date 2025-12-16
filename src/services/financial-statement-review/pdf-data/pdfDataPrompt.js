@@ -49,10 +49,18 @@ CONFLICTS:
 
 KEY POINTS:
 - Each page has page_no, text, imageName
-- imageName is filename only, not full path
-- If imageName is null, image extraction failed (still use text)
+- imageName is filename reference (e.g., "sessionId_page_1.png") - this is the name of the image file that was created
+- Images are created by fsPdfDataExtractor and saved to disk
+- The imageName in the JSON is a REFERENCE to indicate which image file corresponds to which page
+- CURRENT IMPLEMENTATION: Only the imageName (filename string) is sent in JSON - actual image content is NOT included
+- The images exist on the server disk but are not accessible to the AI model
+- For visual checks (T1), you must rely on text content structure and page organization analysis
+- The imageName reference helps you understand the page-to-image mapping structure
+- If imageName is null, image extraction failed for that page (still use text)
 - Page numbers start at 1
 - Text extraction may not be 100% accurate, verify critical numbers
-- Images preserve exact visual appearance`;
+- IMPORTANT: Use page_no from the data structure to report accurate page references
+- Verify page numbers by analyzing text content location (e.g., "Balance Sheet" text determines actual page number)
+- NOTE: To enable actual image viewing, images would need to be converted to base64 and included in the message content`;
 
 module.exports = pdfDataPrompt;
