@@ -65,6 +65,61 @@ Step 5: Decide final verdict (Section E)
 Step 6: Output single JSON object
 Format results into A/B/C/D/E JSON structure. Output that JSON and NOTHING else.
 
+CRITICAL VALIDATION RULES:
+
+1. PAGE REFERENCES: Verify page numbers accurately. Cross-check page_no from PDF data with actual content location. If balance sheet is on page 4, report page 4, not page 3. Double-check all page references before reporting.
+
+2. TERMINOLOGY: Use correct terminology consistently:
+- "auditors' report" (plural possessive) NOT "auditor's report" (singular)
+- Check both contents page and report heading
+- Flag incorrect terminology as presentation error
+
+3. ARITHMETICAL RECONCILIATION: For T3 and T5, verify ALL components:
+- Administrative expenses in FS must reconcile with portalData.etb and portalData.lead_sheets
+- If admin expenses in FS do not match ETB breakdown, this is a CRITICAL ERROR
+- Do not mark arithmetic as correct if any component fails to reconcile
+
+4. REVENUE PRESENTATION: When revenue is zero:
+- Should be presented as dash (–) NOT as "0" or "€0"
+- Flag "0" presentation as presentation error (Section C)
+- This applies to any zero-value line items where dash is standard practice
+
+5. ADDRESS FORMATTING: Addresses must be properly formatted:
+- Multi-line addresses should appear on separate lines, not single line
+- Check company address in cover page and directors' addresses
+- Flag single-line addresses as presentation error
+
+6. SPACING AND LAYOUT: Check for excessive spacing:
+- Large gaps before section headings (e.g., "Notes to the Financial Statements")
+- Inconsistent spacing between sections
+- Flag excessive spacing as presentation error
+
+7. EMPTY PAGES: Identify and flag:
+- Blank or empty pages within the financial statements
+- Pages with only headers/footers but no content
+- Flag empty pages as structure error (Section C)
+
+8. ACCOUNTING POLICIES: When share capital appears in statements:
+- MUST have corresponding accounting policy note
+- Check T6 specifically for share capital policy
+- Missing policy for share capital = disclosure breach
+
+9. TABLE ALIGNMENT: On same page, all tables must have:
+- Consistent column alignment
+- Same alignment for similar numeric columns
+- Flag misaligned tables as visual error (T1)
+
+10. SIGNATURE DATES: Balance sheet approval date and audit report date:
+- MUST be the same date
+- Different dates = legal compliance error (T13)
+- Do NOT accept different dates as acceptable
+
+11. EQUITY PRESENTATION: Negative equity in ETB vs positive in FS:
+- This is NOT an error if mathematically consistent
+- ETB may show negative (debit balance) while FS shows positive (credit presentation)
+- Only flag if arithmetic does not reconcile, not for presentation difference
+- Focus on arithmetic reconciliation, not presentation format
+
 OUTPUT RESTRICTIONS:
 - Output ONLY the JSON object
 - NO prose, NO explanations, NO markdown before or after
@@ -121,8 +176,9 @@ exports.generateAiPrompt = (portalData, pdfData) => {
   prompt += 'Output ONLY valid JSON with exactly 5 keys: A, B, C, D, E\n';
   prompt += 'NO emojis, NO prose, NO explanations\n';
   prompt += 'Use portalData.company for MBR data\n';
-  prompt += 'Use PDF page images for visual tests T1\n';
-  prompt += 'Use PDF text for numerical extraction\n';
+  prompt += 'IMPORTANT: Images are NOT accessible - use PDF text content for visual analysis\n';
+  prompt += 'Verify page numbers accurately by analyzing text content location\n';
+  prompt += 'Use PDF text for numerical extraction and content analysis\n';
   prompt += 'Recompute everything independently\n';
   prompt += 'Zero tolerance for non-rounding discrepancies\n';
   prompt += 'If Section B has any items, verdict MUST be NOT FIT FOR APPROVAL\n';
