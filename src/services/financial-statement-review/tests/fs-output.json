@@ -1,0 +1,407 @@
+{
+  "A": {
+    "title": "CONFIRMED CORRECT ITEMS",
+    "items": [
+      {
+        "test_id": "T1",
+        "area": "Visual Layout Integrity",
+        "details": "Primary statements, notes and schedules appear consistently formatted with aligned numeric columns, headings and page headers across the available page images."
+      },
+      {
+        "test_id": "T3",
+        "area": "Arithmetical FS Internal",
+        "details": "Income statement subtotals and loss, and balance sheet subtotals for assets, equity and liabilities all recompute correctly with no non-rounding differences."
+      },
+      {
+        "test_id": "T5",
+        "area": "Notes Reconciliation",
+        "details": "Notes for investments, share capital and other payables agree exactly to the related balance sheet captions; the administrative expenses schedule agrees to the income statement."
+      },
+      {
+        "test_id": "T7",
+        "area": "Tax and Deferred Tax Logic",
+        "details": "Zero tax charge is consistent with the reported tax loss and there are no deferred tax balances; no inconsistencies identified in the tax note."
+      },
+      {
+        "test_id": "T8",
+        "area": "Loans, Borrowings and Equity Classification",
+        "details": "Share capital and accumulated losses are correctly classified within equity; other payables are correctly presented as current liabilities with no misclassification noted."
+      },
+      {
+        "test_id": "T9",
+        "area": "Comparatives Integrity",
+        "details": "Comparative figures are presented for all primary statement lines and related notes, and are internally consistent within the prior-year columns."
+      },
+      {
+        "test_id": "T10",
+        "area": "Portal vs FS Reconciliation",
+        "details": "Portal profit and loss and balance sheet totals match the financial statements exactly, and lead sheet totals for administrative expenses, equity, payables and investments reconcile to the FS captions."
+      },
+      {
+        "test_id": "T11",
+        "area": "MBR vs FS Registry Match",
+        "details": "Company name, registration number, registered office address and sole director’s name in the financial statements match the portal/MBR data exactly."
+      },
+      {
+        "test_id": "T12",
+        "area": "Going Concern Trigger",
+        "details": "Loss, negative equity and excess of liabilities over assets are clearly disclosed; Note 9 provides explicit going concern and material uncertainty wording, and the audit report includes a matching Material Uncertainty Related to Going Concern section."
+      },
+      {
+        "test_id": "T14",
+        "area": "Directors Number and Grammar",
+        "details": "With one director on record, the financial statements consistently use singular references such as “the director” and “sole director”."
+      },
+      {
+        "test_id": "T15",
+        "area": "Directors’ Remuneration Match",
+        "details": "No directors’ remuneration is presented in the financial statements and no such amount exists in the portal data, so there is no mismatch."
+      },
+      {
+        "test_id": "T17",
+        "area": "MBR Share Capital and Legal Identity",
+        "details": "Share capital note discloses 1,200 ordinary shares of €1 each, fully paid, consistent with portal equity data and the company’s limited liability status."
+      },
+      {
+        "test_id": "T18",
+        "area": "Company Status vs Wording",
+        "details": "Portal/MBR data indicates an active company and the financial statements are prepared on a going concern basis with appropriate material uncertainty disclosure; no liquidation wording is used."
+      },
+      {
+        "test_id": "T19",
+        "area": "Related Party Internal Tie",
+        "details": "Amounts due to subsidiary in the other payables note, related party note and portal lead sheet LS_2 all agree at €3,847 with no discrepancies."
+      },
+      {
+        "test_id": "T20",
+        "area": "Tax Reconciliation Detail",
+        "details": "No detailed numerical tax reconciliation is provided, which is acceptable given the simple loss position and zero tax charge; no conflicting tax information is present."
+      },
+      {
+        "test_id": "T21",
+        "area": "Equity Movements Internal",
+        "details": "Portal equity balances (share capital €1,200 and retained earnings/accumulated losses of €-6,348) reconcile to the balance sheet and reflect the current-year loss with no dividends or other movements."
+      },
+      {
+        "test_id": "T22",
+        "area": "Portal Mapping Completeness",
+        "details": "All ETB rows are mapped to appropriate FS captions or notes (administrative expenses, trade and other payables, retained earnings, share capital, investments) and mapped totals match FS values."
+      },
+      {
+        "test_id": "T23",
+        "area": "Large Related Party Exposures",
+        "details": "The related party payable to the subsidiary equals the full current liabilities and exceeds total assets; this concentration is clearly disclosed in Notes 7 and 8."
+      },
+      {
+        "test_id": "T24",
+        "area": "Currency and Rounding Statement",
+        "details": "Functional and presentation currency is explicitly stated as Euro; figures are presented to the nearest Euro with no inconsistent rounding."
+      },
+      {
+        "test_id": "T25",
+        "area": "Year End Wording Consistency",
+        "details": "The year-end date 31 December 2023 is used consistently on the cover, primary statements, notes and audit report."
+      }
+    ]
+  },
+  "B": {
+    "title": "CRITICAL ERRORS",
+    "items": [
+      {
+        "id": "B1",
+        "test_id": "T3",
+        "type": "arithmetical",
+        "severity": "critical",
+        "description": "Total equity and liabilities reported on the balance sheet does not equal total assets; equity plus liabilities sum to €1,200 but the equity section subtotal is negative and inconsistent with the portal equity structure.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet",
+          "note": null,
+          "line_hint": "TOTAL EQUITY AND LIABILITIES / Equity subtotal"
+        },
+        "reported_value": -5148,
+        "expected_value": -5148,
+        "difference": 0,
+        "reason": "While the arithmetic of assets (€1,200) and liabilities (€6,348) is internally consistent with equity of €-5,148, the equity section presentation (ordinary shares €1,200 and accumulated losses €-6,348) implies retained earnings of €-6,348, which conflicts with the portal retained earnings balance of €4,703 and indicates that the accumulated losses figure is mislabelled and miscomputed relative to the underlying records.",
+        "financial_impact": "Misstated accumulated losses and equity presentation may mislead users about the composition of equity and the extent of accumulated deficits, and indicates that the FS are not fully aligned with the underlying accounting records.",
+        "suggested_fix": "Reconcile retained earnings/accumulated losses between the accounting records and the FS; correct the accumulated losses figure and related equity presentation so that share capital and retained earnings agree to the portal TB and still reconcile to total assets and liabilities."
+      },
+      {
+        "id": "B2",
+        "test_id": "T4",
+        "type": "arithmetical",
+        "severity": "critical",
+        "description": "Retained earnings / accumulated losses movement between 2022 and 2023 does not reconcile to the reported loss for the year based on portal data.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet",
+          "note": "Note 6",
+          "line_hint": "Accumulated Losses / Retained earnings movement"
+        },
+        "reported_value": -6348,
+        "expected_value": -2501,
+        "difference": -3847,
+        "reason": "Portal retained earnings opening balance is €4,703 (credit) and the current-year loss is €1,645, implying a closing retained earnings of €3,058 (credit) or accumulated losses of €-3,058 if presented as a debit. The FS show accumulated losses of €-6,348, which cannot be derived from the opening balance and current-year loss without undisclosed adjustments.",
+        "financial_impact": "Equity is misstated by several thousand Euro, affecting solvency indicators and users’ assessment of accumulated performance.",
+        "suggested_fix": "Prepare a retained earnings reconciliation: opening balance, loss for the year, any dividends or prior year adjustments. Adjust the accumulated losses figure and any related note disclosures to match this reconciliation and the underlying TB."
+      },
+      {
+        "id": "B3",
+        "test_id": "T10",
+        "type": "portal_crosscheck",
+        "severity": "critical",
+        "description": "Portal equity totals do not align with the equity section of the financial statements, indicating a mapping or sign inconsistency.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet",
+          "note": null,
+          "line_hint": "Equity totals vs portal equity"
+        },
+        "reported_value": -5148,
+        "expected_value": -5148,
+        "difference": 0,
+        "reason": "Portal balance sheet shows equity of €-5,148, but this is composed of share capital €-1,200 and retained earnings €4,703 (credit) in the ETB, whereas the FS present share capital €1,200 and accumulated losses €-6,348. The composition of equity in the FS does not match the portal TB structure even though the net total coincidentally agrees.",
+        "financial_impact": "Users cannot reconcile equity components to the underlying records; this undermines reliability of the FS and may conceal classification or sign errors in equity accounts.",
+        "suggested_fix": "Align the FS equity section with the portal TB: ensure share capital and retained earnings balances (including signs) are presented consistently, and adjust the accumulated losses figure or its labelling so that the equity composition matches the accounting records."
+      },
+      {
+        "id": "B4",
+        "test_id": "T21",
+        "type": "arithmetical",
+        "severity": "critical",
+        "description": "No explicit statement of changes in equity or retained earnings bridge is provided, and the implied movement from portal data conflicts with the accumulated losses figure in the balance sheet.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet",
+          "note": null,
+          "line_hint": "Equity movement between years"
+        },
+        "reported_value": -6348,
+        "expected_value": -3503,
+        "difference": -2845,
+        "reason": "From the FS, accumulated losses move from €-4,703 to €-6,348, a change of €-1,645 which matches the loss for the year; however, portal retained earnings remain at €4,703 credit with no movement. This inconsistency between FS and portal indicates that the equity movement schedule implicit in the FS is not supported by the underlying records.",
+        "financial_impact": "Equity movements are not reliably supported, affecting the credibility of the reported loss allocation and opening balances.",
+        "suggested_fix": "Prepare and disclose a formal statement of changes in equity or a retained earnings note that reconciles opening to closing balances, and adjust either the FS or the portal TB so that both reflect the same equity movements."
+      }
+    ]
+  },
+  "C": {
+    "title": "DISCLOSURE & REGULATORY BREACHES",
+    "items": [
+      {
+        "id": "C1",
+        "test_id": "T2",
+        "type": "structure",
+        "severity": "regulatory",
+        "description": "The document does not include a separate statement of changes in equity, and equity movements are not clearly disclosed in the notes.",
+        "location": {
+          "page": 1,
+          "section": "Contents / Primary Statements",
+          "note": null,
+          "line_hint": "Missing Statement of Changes in Equity"
+        },
+        "impact": "Absence of a clear equity movement disclosure impairs users’ ability to understand how the loss for the year and any other movements affect equity, and may not meet GAPSME presentation expectations for equity information.",
+        "suggested_fix": "Add a statement of changes in equity or an explicit retained earnings movement note showing opening balances, profit or loss for the year, dividends and any other adjustments for each equity component."
+      },
+      {
+        "id": "C2",
+        "test_id": "T6",
+        "type": "disclosure",
+        "severity": "regulatory",
+        "description": "Accounting policies include references to property, plant and equipment, intangible assets, investments in associates and available-for-sale financial assets that are not present in the financial statements.",
+        "location": {
+          "page": 6,
+          "section": "Notes to the Financial Statements",
+          "note": "Note 2",
+          "line_hint": "Impairment and financial assets policies"
+        },
+        "impact": "Including policies for items that do not exist in the FS may confuse users and suggests that the accounting policies have not been tailored to the entity’s actual circumstances, contrary to good GAPSME practice.",
+        "suggested_fix": "Streamline the accounting policies to cover only those classes of assets, liabilities and transactions that are relevant to the company’s financial statements, or clearly indicate that certain policies are included for completeness but are not currently applicable."
+      },
+      {
+        "id": "C3",
+        "test_id": "T13",
+        "type": "legal",
+        "severity": "regulatory",
+        "description": "The approval date of the financial statements and the audit report date are significantly later than the year-end and may not align with statutory filing deadlines.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet Approval Statement",
+          "note": null,
+          "line_hint": "Approval date 26th October 2025"
+        },
+        "impact": "Late approval and signing could indicate non-compliance with Companies Act timelines for preparation and filing of annual financial statements, potentially exposing the company and director to regulatory sanctions.",
+        "suggested_fix": "Confirm compliance with statutory deadlines; if deadlines were breached, ensure appropriate remedial actions are taken and consider disclosing the reason for delay. For future periods, ensure approval and audit dates fall within the required timeframe."
+      },
+      {
+        "id": "C4",
+        "test_id": "T16",
+        "type": "grammar",
+        "severity": "presentation",
+        "description": "Minor grammatical issues are present in key notes, such as missing apostrophes in “shareholders financial commitment” and inconsistent capitalisation (e.g. “For the year Ended”).",
+        "location": {
+          "page": 10,
+          "section": "Notes 9 and 10 / Headings",
+          "note": "Note 9",
+          "line_hint": "Going concern and headings"
+        },
+        "impact": "While not affecting numerical accuracy, such errors reduce the professional presentation quality of the financial statements and audit report.",
+        "suggested_fix": "Proofread and correct grammatical issues, including adding possessive apostrophes where needed and standardising capitalisation in headings and narrative text."
+      },
+      {
+        "id": "C5",
+        "test_id": "T26",
+        "type": "structure",
+        "severity": "presentation",
+        "description": "Note references are limited to a small set of items; there is no explicit note reference for equity movements or retained earnings despite their importance.",
+        "location": {
+          "page": 5,
+          "section": "Balance Sheet",
+          "note": null,
+          "line_hint": "Equity lines without detailed note reference"
+        },
+        "impact": "Lack of detailed note references for equity reduces transparency and makes it harder for users to trace key balances to supporting disclosures.",
+        "suggested_fix": "Introduce a dedicated equity/retained earnings note with a clear note number and cross-reference it from the balance sheet equity lines."
+      }
+    ]
+  },
+  "D": {
+    "title": "RECONCILIATION TABLES",
+    "tables": {
+      "retained_earnings": {
+        "columns": [
+          "2023",
+          "2022"
+        ],
+        "rows": [
+          {
+            "description": "Opening balance per FS (Accumulated losses)",
+            "values": [
+              -4703,
+              0
+            ]
+          },
+          {
+            "description": "Loss for the year",
+            "values": [
+              -1645,
+              -856
+            ]
+          },
+          {
+            "description": "Dividends",
+            "values": [
+              0,
+              0
+            ]
+          },
+          {
+            "description": "Other adjustments (balancing to FS accumulated losses)",
+            "values": [
+              0,
+              -3847
+            ]
+          },
+          {
+            "description": "Closing balance per FS (Accumulated losses)",
+            "values": [
+              -6348,
+              -4703
+            ]
+          }
+        ]
+      },
+      "borrowings": {
+        "columns": [
+          "2023",
+          "2022"
+        ],
+        "rows": [
+          {
+            "description": "Current portion of other payables (amount due to subsidiary)",
+            "values": [
+              3847,
+              3847
+            ]
+          },
+          {
+            "description": "Current portion of other payables (accruals)",
+            "values": [
+              2501,
+              856
+            ]
+          },
+          {
+            "description": "Total current other payables",
+            "values": [
+              6348,
+              4703
+            ]
+          }
+        ]
+      },
+      "deferred_tax": {
+        "columns": [
+          "2023",
+          "2022"
+        ],
+        "rows": [
+          {
+            "description": "Opening balance",
+            "values": [
+              0,
+              0
+            ]
+          },
+          {
+            "description": "Movement for the year",
+            "values": [
+              0,
+              0
+            ]
+          },
+          {
+            "description": "Closing balance",
+            "values": [
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      "equity": {
+        "columns": [
+          "2023",
+          "2022"
+        ],
+        "rows": [
+          {
+            "description": "Share capital",
+            "values": [
+              1200,
+              1200
+            ]
+          },
+          {
+            "description": "Accumulated losses per FS",
+            "values": [
+              -6348,
+              -4703
+            ]
+          },
+          {
+            "description": "Total equity per FS",
+            "values": [
+              -5148,
+              -3503
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "E": {
+    "title": "FINAL VERDICT",
+    "verdict": "FINANCIAL STATEMENTS ARE NOT FIT FOR APPROVAL – ERRORS PRESENT"
+  }
+}

@@ -11,7 +11,7 @@ const Company = require("../models/Company");
 // Create a new KYC workflow
 exports.createKYC = async (req, res, next) => {
   try {
-    const { engagementId, companyId, clientId, auditorId, documentRequests } = req.body;
+    const { engagementId, companyId, clientId, auditorId, documentRequests, workflowType = "General" } = req.body;
 
     let targetContext = {};
     let contextName = "";
@@ -25,12 +25,15 @@ exports.createKYC = async (req, res, next) => {
       targetContext = { engagement: engagementId };
       contextName = engagement.title;
       
-      // Check if KYC already exists for this engagement
-      const existingKYC = await KYC.findOne({ engagement: engagementId });
+      // Check if KYC already exists for this engagement AND workflow type
+      const existingKYC = await KYC.findOne({ 
+        engagement: engagementId,
+        workflowType: workflowType 
+      });
       if (existingKYC) {
         return res
           .status(400)
-          .json({ message: "KYC workflow already exists for this engagement" });
+          .json({ message: `KYC workflow of type '${workflowType}' already exists for this engagement` });
       }
     } else if (companyId) {
       const company = await Company.findById(companyId);
@@ -40,12 +43,15 @@ exports.createKYC = async (req, res, next) => {
       targetContext = { company: companyId };
       contextName = company.name;
 
-      // Check if KYC already exists for this company
-      const existingKYC = await KYC.findOne({ company: companyId });
+      // Check if KYC already exists for this company AND workflow type
+      const existingKYC = await KYC.findOne({ 
+        company: companyId,
+        workflowType: workflowType
+      });
       if (existingKYC) {
         return res
           .status(400)
-          .json({ message: "KYC workflow already exists for this company" });
+          .json({ message: `KYC workflow of type '${workflowType}' already exists for this company` });
       }
     } else {
       return res.status(400).json({ message: "Either engagementId or companyId is required" });
@@ -206,6 +212,8 @@ exports.createKYC = async (req, res, next) => {
       clientId: clientId || req.user.id,
       auditorId: auditorId || req.user.id,
       documentRequests: processedDocRequests,
+      documentRequests: processedDocRequests,
+      workflowType: workflowType,
       status: "active", // Start with active state when KYC is created
     });
 
@@ -238,7 +246,7 @@ exports.getKYCByEngagement = async (req, res, next) => {
   try {
     const { engagementId } = req.params;
 
-    const kyc = await KYC.findOne({ engagement: engagementId })
+    const kyc = await KYC.find({ engagement: engagementId })
       .populate("engagement", "title yearEndDate clientId")
       .populate({
         path: "documentRequests.documentRequest",
@@ -266,7 +274,7 @@ exports.getKYCByCompany = async (req, res, next) => {
   try {
     const { companyId } = req.params;
 
-    const kyc = await KYC.findOne({ company: companyId })
+    const kyc = await KYC.find({ company: companyId })
       .populate("company", "name registrationNumber clientId")
       .populate({
         path: "documentRequests.documentRequest",

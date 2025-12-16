@@ -40,6 +40,7 @@ const wordPluginRoutes = require("./routes/wordPlugin");
 const noticeBoardRoutes = require("./routes/noticeBoardRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
 const authRoutes = require("./routes/authRoutes");
+const fsReviewRoutes = require("./routes/fsReviewRoutes");
 const app = express();
 
 app.use(
@@ -101,12 +102,23 @@ app.use("/api/word-plugin", wordPluginRoutes);
 app.use("/api/notices", noticeBoardRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/financial-statement-reviews", fsReviewRoutes);
+app.use("/api/chat", require("./routes/chat"));
+app.use("/api/annotations", require("./routes/annotations"));
 
 app.get("/", (req, res) => res.send("API is running"));
 
 io.on("connection", (socket) => {
   socket.on("joinEngagement", (id) => socket.join(`engagement_${id}`));
   socket.on("leaveEngagement", (id) => socket.leave(`engagement_${id}`));
+
+  // Chat events
+  // Chat events
+  socket.on("joinConversation", (conversationId) => socket.join(`conversation_${conversationId}`));
+  socket.on("leaveConversation", (conversationId) => socket.leave(`conversation_${conversationId}`));
+
+  // User specific events for global notifications
+  socket.on("joinUser", (userId) => socket.join(`user_${userId}`));
 });
 
 const PORT = process.env.PORT || 8000;

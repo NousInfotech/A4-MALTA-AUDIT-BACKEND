@@ -17,6 +17,12 @@ router.get(
   drc.getRequestsByEngagement
 );
 
+router.get(
+  '/company/:companyId',
+  requireAuth,
+  drc.getRequestsByCompany
+);
+
 // Download all documents
 router.get(
   '/download-all',
