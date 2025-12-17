@@ -359,7 +359,7 @@ exports.bulkDeleteGroupContents = async (req, res) => {
 /* DRAFT HANDLERS */
 exports.getDraftsByEngagement = async (req, res) => {
   try {
-    const engagementId = parseNumber(req.query.engagementId);
+    const engagementId = req.query.engagementId;
 
     if (engagementId === null) {
       return res
@@ -381,7 +381,7 @@ exports.getDraftsByEngagement = async (req, res) => {
 
 exports.getDraftByDraftId = async (req, res) => {
   try {
-    const draftId = parseNumber(req.params.draftId);
+    const draftId = req.params.draftId;
 
     if (draftId === null) {
       return res
@@ -405,7 +405,7 @@ exports.getDraftByDraftId = async (req, res) => {
 
 exports.deleteDraftByDraftId = async (req, res) => {
   try {
-    const draftId = parseNumber(req.params.draftId);
+    const draftId = req.params.draftId;
 
     if (draftId === null) {
       return res
@@ -445,7 +445,7 @@ const fetchTemplateForDraft = async (draftId) => {
 /* TEMPLATE HANDLERS */
 exports.getTemplateByDraftId = async (req, res) => {
   try {
-    const draftId = parseNumber(req.params.draftId);
+    const draftId = req.params.draftId;
 
     if (draftId === null) {
       return res
@@ -475,7 +475,7 @@ exports.getTemplateByDraftId = async (req, res) => {
 
 exports.downloadTemplateByDraftId = async (req, res) => {
   try {
-    const draftId = parseNumber(req.params.draftId);
+    const draftId = req.params.draftId;
 
     if (draftId === null) {
       return res
@@ -513,7 +513,7 @@ exports.downloadTemplateByDraftId = async (req, res) => {
 
 exports.uploadTemplateForDraft = async (req, res) => {
   try {
-    const draftId = parseNumber(req.params.draftId);
+    const draftId = req.params.draftId;
 
     if (draftId === null) {
       return res
