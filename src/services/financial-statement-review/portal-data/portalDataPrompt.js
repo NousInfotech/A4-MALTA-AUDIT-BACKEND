@@ -142,13 +142,48 @@ NUMERICAL VERIFICATION:
 - Use balance_sheet for balance sheet totals
 - Use lead_sheets for note-to-statement reconciliation
 
+LEAD SHEET REFERENCE SYSTEM:
+
+1. ETB TO LEAD SHEET MAPPING:
+- Each ETB row has a rowId (e.g., "1", "2", "3")
+- Lead sheets at grouping3 level have a "rows" array containing rowIds
+- Example: lead sheet LS_1 has rows: ["1", "2"] means it includes ETB rows with rowId "1" and "2"
+- Use this to trace from ETB rows to lead sheet groupings
+
+2. PROFIT & LOSS TO LEAD SHEET MAPPING:
+- profit_and_loss.breakdowns contain category names (e.g., "Administrative expenses")
+- Each category has an "accounts" array with lead sheet IDs (e.g., ["LS_1"])
+- These are grouping3 level IDs from lead_sheets
+- Example: "Administrative expenses" with accounts: ["LS_1"] means it maps to lead sheet LS_1
+- Use this to verify P&L line items match lead sheet totals
+
+3. BALANCE SHEET TO LEAD SHEET MAPPING:
+- balance_sheet.totals contain: assets, liabilities, equity
+- Each total has an "accounts" array with lead sheet IDs (e.g., ["LS_5"], ["LS_2"], ["LS_4"])
+- These are grouping3 level IDs from lead_sheets
+- Example: assets with accounts: ["LS_5"] means it maps to lead sheet LS_5
+- Use this to verify balance sheet totals match lead sheet totals
+
+4. TRACING WORKFLOW:
+- Start with FS caption (e.g., "Administrative expenses" in income statement)
+- Find corresponding entry in profit_and_loss.breakdowns["Administrative expenses"].accounts = ["LS_1"]
+- Find lead sheet with id "LS_1" in lead_sheets array
+- Check lead sheet totals.finalBalance matches FS caption value
+- Trace to ETB: lead sheet rows: ["1", "2"] means check ETB rows with rowId "1" and "2"
+- Verify ETB rows sum to lead sheet total, which should match FS caption
+
 KEY POINTS:
 - portalData.company contains all MBR extract information
 - Directors count: portalData.company.directors.length
 - All monetary values in EUR
 - Negative values represent credits/liabilities/expenses
 - Lead sheet structure: grouping1 → grouping2 → grouping3
+- grouping3 level has "id" field (e.g., "LS_1", "LS_2") - these are referenced in profit_and_loss and balance_sheet
+- grouping3 level has "rows" array - these are ETB rowIds that contribute to this lead sheet
 - ETB rows link to lead sheets via rows array in grouping3
-- Lead sheet totals include adjustments and reclassifications`;
+- profit_and_loss.breakdowns[category].accounts contains grouping3 IDs
+- balance_sheet.totals[type].accounts contains grouping3 IDs
+- Lead sheet totals include adjustments and reclassifications
+- Use this reference system to verify FS captions reconcile to portal data`;
 
 module.exports = portalDataPrompt;

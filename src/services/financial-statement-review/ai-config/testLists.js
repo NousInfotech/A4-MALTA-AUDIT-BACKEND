@@ -3,15 +3,21 @@ module.exports = [
     test_id: 1,
     test_name: "VISUAL_LAYOUT_INTEGRITY",
     test_instructions: [
-      "Use page images to check:",
-      "- Consistent fonts and sizes across similar elements (e.g. note headings, main captions).",
-      "- Numeric columns aligned vertically (units, tens, hundreds).",
-      "- Currency symbols lined up.",
-      "- Brackets and minus signs consistent.",
-      "- Headers and footers in same position, with correct page numbers.",
-      "- Tables aligned and not drifting across pages.",
-      "Any visual inconsistency is an issue.",
-      "Missing page or duplicated page is an issue."
+      "IMPORTANT: Images are not accessible - perform visual checks using text content analysis and structure:",
+      "- Analyze text formatting patterns (consistent capitalization, spacing in text content).",
+      "- Check numeric alignment by analyzing text structure (columns should align in text representation).",
+      "- Currency symbols and brackets consistency in text content.",
+      "- Headers and footers: verify page numbers match actual page_no from data structure.",
+      "- Table structure: verify tables are properly formatted in text (consistent spacing, alignment).",
+      "- All tables on the same page must have consistent structure in text representation.",
+      "- Excessive spacing: detect large gaps in text content (multiple blank lines, excessive whitespace).",
+      "- Address formatting: verify addresses are split across multiple lines in text, not single line.",
+      "- Empty pages: check if page text is empty or contains only whitespace/headers.",
+      "Use page_no from PDF data structure to report accurate page references.",
+      "Verify page numbers by analyzing text content location (e.g., if 'Balance Sheet' text appears, verify which page_no it corresponds to).",
+      "Any visual inconsistency detected in text structure is an issue.",
+      "Missing page or duplicated page is an issue.",
+      "Empty or blank pages within the financial statements are an issue."
     ]
   },
   {
@@ -21,8 +27,10 @@ module.exports = [
       "Check that required sections exist and appear in the specified order:",
       "- Cover, Contents, General info, Directors' responsibilities, Income statement, Balance sheet, Notes, Audit report, Schedules.",
       "Check page numbering is continuous, no gaps/duplicates.",
-      "Check that the contents page references correct page numbers.",
-      "Check cross-references (e.g. \"See Note 5\") actually point to existing notes, and note numbers match."
+      "Check that the contents page references correct page numbers. Verify page numbers accurately - if balance sheet is on page 4, contents must say page 4, not page 3.",
+      "Check cross-references (e.g. \"See Note 5\") actually point to existing notes, and note numbers match.",
+      "Identify and flag empty or blank pages within the financial statements.",
+      "Verify terminology: must use \"auditors' report\" (plural possessive) NOT \"auditor's report\" (singular) in both contents page and report heading."
     ]
   },
   {
@@ -37,6 +45,10 @@ module.exports = [
       "Recalculate balance sheet:",
       "- Total non-current + total current = total assets",
       "- Equity + liabilities = total equity and liabilities",
+      "CRITICAL: Verify ALL components reconcile, not just totals:",
+      "- Administrative expenses in FS must reconcile with portalData.etb and portalData.lead_sheets",
+      "- If admin expenses in FS do not match ETB breakdown, this is a CRITICAL ERROR",
+      "- Do not mark arithmetic as correct if any component fails to reconcile",
       "Compare your recomputed totals with reported totals (EUR 1 rounding tolerance rule).",
       "IMPORTANT: Negative equity values are valid (e.g., accumulated losses). This test ONLY checks arithmetic balance, not portal reconciliation.",
       "If Equity + Liabilities = Assets (within EUR 1), the balance sheet balances correctly.",
@@ -80,6 +92,7 @@ module.exports = [
     test_instructions: [
       "For each main caption in the statements:",
       "- Ensure there is an accounting policy note.",
+      "CRITICAL: When share capital appears in the financial statements, there MUST be a corresponding accounting policy note for share capital.",
       "Also check no \"orphan policies\":",
       "- Policies disclosed for items that don't exist in the statements.",
       "Check that measurement/recognition in the statements/notes aligns with what policies say."
@@ -127,6 +140,10 @@ module.exports = [
       "- Portal balance sheet vs FS balance sheet.",
       "- Lead schedule totals vs FS captions.",
       "- Directors' remuneration vs FS note.",
+      "IMPORTANT: Equity presentation difference is NOT an error:",
+      "- Negative equity in ETB (debit balance) vs positive in FS (credit presentation) is acceptable if mathematically consistent",
+      "- Only flag if arithmetic does not reconcile, not for presentation format difference",
+      "- Focus on arithmetic reconciliation, not presentation format",
       "Any mismatch > EUR 1 or ANY difference in directors' remuneration is a fail."
     ]
   },
@@ -165,9 +182,13 @@ module.exports = [
       "- FS approval date present.",
       "- Director signature date present.",
       "- Audit report date present.",
+      "CRITICAL: Balance sheet approval date and audit report date MUST be the same date.",
+      "Different dates between balance sheet approval and audit report = legal compliance error.",
+      "Do NOT accept different dates as acceptable - they must match exactly.",
       "All dates must:",
       "- Be after or on the balance sheet date.",
-      "- Be logically ordered (e.g. FS approval not after audit report date in a nonsensical way)."
+      "- Be logically ordered (e.g. FS approval not after audit report date in a nonsensical way).",
+      "- Match exactly between balance sheet and audit report."
     ]
   },
   {
@@ -292,7 +313,10 @@ module.exports = [
       "Check:",
       "- Currency note is present (euro).",
       "- Rounding policy note is present if applicable.",
-      "- Figures are consistent with the claimed rounding."
+      "- Figures are consistent with the claimed rounding.",
+      "CRITICAL: Revenue presentation - when revenue is zero, it should be presented as dash (–) NOT as '0' or '€0'.",
+      "Flag '0' presentation for zero revenue as presentation error (Section C).",
+      "This applies to any zero-value line items where dash is standard practice."
     ]
   },
   {
