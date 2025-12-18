@@ -50,6 +50,7 @@ const ReferenceSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "ClassificationEvidence",
     }],
+    notes: { type: String } // ✅ NEW: Notes field for reference files
   },
   { _id: true }
 );

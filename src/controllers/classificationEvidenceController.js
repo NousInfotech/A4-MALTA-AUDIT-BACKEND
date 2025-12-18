@@ -401,7 +401,7 @@ exports.linkWorkbookToEvidence = async (req, res) => {
 exports.addReferenceFileToWorkbook = async (req, res) => {
   try {
     const { workbookId, evidenceId } = req.params;
-    const { sheet, start, end } = req.body; // Cell range details
+    const { sheet, start, end, notes } = req.body; // Cell range details and notes
 
     console.log('Backend: Adding reference file to workbook:', {
       workbookId,
@@ -496,6 +496,7 @@ exports.addReferenceFileToWorkbook = async (req, res) => {
           },
         },
         evidence: [evidenceId],
+        notes: notes || undefined, // ✅ NEW: Include notes in reference file entry
       };
       workbook.referenceFiles.push(refFileEntry);
     }
@@ -599,7 +600,7 @@ exports.unlinkWorkbookFromEvidence = async (req, res) => {
 exports.addMappingToEvidence = async (req, res) => {
   try {
     const { evidenceId } = req.params;
-    const { workbookId, color, details, referenceFiles } = req.body;
+    const { workbookId, color, details, referenceFiles, notes } = req.body; // ✅ NEW: Include notes
 
     console.log('Backend: Adding mapping to evidence:', { evidenceId, workbookId, color, details, referenceFilesCount: referenceFiles?.length || 0 });
 
@@ -624,7 +625,8 @@ exports.addMappingToEvidence = async (req, res) => {
       color,
       details,
       isActive: true,
-      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : []
+      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : [],
+      notes: notes || undefined // ✅ NEW: Include notes in mapping
     };
 
     const evidence = await ClassificationEvidence.findByIdAndUpdate(
@@ -769,11 +771,18 @@ exports.updateEvidenceMapping = async (req, res) => {
     }
 
     // Update the mapping
-    evidence.mappings[mappingIndex] = {
+    const updatedMapping = {
       ...evidence.mappings[mappingIndex].toObject(),
       ...updateData,
       _id: mappingId
     };
+    
+    // ✅ NEW: If notes is undefined or empty string, remove it from the mapping
+    if (updateData.notes === undefined || updateData.notes === null || (typeof updateData.notes === 'string' && updateData.notes.trim() === '')) {
+      delete updatedMapping.notes;
+    }
+    
+    evidence.mappings[mappingIndex] = updatedMapping;
     
     evidence.updatedAt = new Date();
     await evidence.save();
