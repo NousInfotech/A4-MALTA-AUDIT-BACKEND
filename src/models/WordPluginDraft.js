@@ -9,8 +9,9 @@ const wordPluginDraftSchema = new Schema(
       unique: true,
     },
     engagementId: {
-      type: Number,
+      type: mongoose.Schema.Types.ObjectId,
       required: true,
+      ref:'Engagement',
       index: true,
     },
     draftName: {
