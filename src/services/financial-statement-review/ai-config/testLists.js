@@ -17,8 +17,8 @@ module.exports = [
       "Verify page numbers by analyzing text content location (e.g., if 'Balance Sheet' text appears, verify which page_no it corresponds to).",
       "Any visual inconsistency detected in text structure is an issue.",
       "Missing page or duplicated page is an issue.",
-      "Empty or blank pages within the financial statements are an issue."
-    ]
+      "Empty or blank pages within the financial statements are an issue.",
+    ],
   },
   {
     test_id: 2,
@@ -28,10 +28,10 @@ module.exports = [
       "- Cover, Contents, General info, Directors' responsibilities, Income statement, Balance sheet, Notes, Audit report, Schedules.",
       "Check page numbering is continuous, no gaps/duplicates.",
       "Check that the contents page references correct page numbers. Verify page numbers accurately - if balance sheet is on page 4, contents must say page 4, not page 3.",
-      "Check cross-references (e.g. \"See Note 5\") actually point to existing notes, and note numbers match.",
+      'Check cross-references (e.g. "See Note 5") actually point to existing notes, and note numbers match.',
       "Identify and flag empty or blank pages within the financial statements.",
-      "Verify terminology: must use \"auditors' report\" (plural possessive) NOT \"auditor's report\" (singular) in both contents page and report heading."
-    ]
+      'Verify terminology: must use "auditors\' report" (plural possessive) NOT "auditor\'s report" (singular) in both contents page and report heading.',
+    ],
   },
   {
     test_id: 3,
@@ -53,8 +53,8 @@ module.exports = [
       "IMPORTANT: Negative equity values are valid (e.g., accumulated losses). This test ONLY checks arithmetic balance, not portal reconciliation.",
       "If Equity + Liabilities = Assets (within EUR 1), the balance sheet balances correctly.",
       "Portal reconciliation issues should be flagged under T10, not T3.",
-      "Any non-rounding discrepancy in arithmetic = critical."
-    ]
+      "Any non-rounding discrepancy in arithmetic = critical.",
+    ],
   },
   {
     test_id: 4,
@@ -66,8 +66,8 @@ module.exports = [
       "- Prior year closing as opening",
       "- Current year profit",
       "- Any disclosed dividends / adjustments",
-      "Identify any residual difference > EUR 1 as a critical error."
-    ]
+      "Identify any residual difference > EUR 1 as a critical error.",
+    ],
   },
   {
     test_id: 5,
@@ -83,8 +83,8 @@ module.exports = [
       "- Deferred tax",
       "- Cost of sales schedule vs income statement",
       "- Admin expenses schedule vs income statement",
-      "Mismatch beyond EUR 1 (that is not rounding) = critical."
-    ]
+      "Mismatch beyond EUR 1 (that is not rounding) = critical.",
+    ],
   },
   {
     test_id: 6,
@@ -93,10 +93,10 @@ module.exports = [
       "For each main caption in the statements:",
       "- Ensure there is an accounting policy note.",
       "CRITICAL: When share capital appears in the financial statements, there MUST be a corresponding accounting policy note for share capital.",
-      "Also check no \"orphan policies\":",
+      'Also check no "orphan policies":',
       "- Policies disclosed for items that don't exist in the statements.",
-      "Check that measurement/recognition in the statements/notes aligns with what policies say."
-    ]
+      "Check that measurement/recognition in the statements/notes aligns with what policies say.",
+    ],
   },
   {
     test_id: 7,
@@ -107,8 +107,8 @@ module.exports = [
       "Check link from profit before tax to tax expense:",
       "- Tax at nominal rate ± reconciling items = recorded tax expense.",
       "Check deferred tax movements tie to temporary differences.",
-      "Any unexplained differences beyond EUR 1 = error."
-    ]
+      "Any unexplained differences beyond EUR 1 = error.",
+    ],
   },
   {
     test_id: 8,
@@ -118,8 +118,8 @@ module.exports = [
       "- Equity vs liability classification is correct.",
       "- Current vs non-current split is correct based on maturity.",
       "- Related party loans are properly measured (e.g. discounting when appropriate).",
-      "- Security/collateral disclosures are present, if applicable."
-    ]
+      "- Security/collateral disclosures are present, if applicable.",
+    ],
   },
   {
     test_id: 9,
@@ -128,8 +128,8 @@ module.exports = [
       "Ensure comparatives:",
       "- Exist for all primary lines.",
       "- Exist for all material notes.",
-      "Check prior year numbers are internally consistent in that prior-year column."
-    ]
+      "Check prior year numbers are internally consistent in that prior-year column.",
+    ],
   },
   {
     test_id: 10,
@@ -144,8 +144,8 @@ module.exports = [
       "- Negative equity in ETB (debit balance) vs positive in FS (credit presentation) is acceptable if mathematically consistent",
       "- Only flag if arithmetic does not reconcile, not for presentation format difference",
       "- Focus on arithmetic reconciliation, not presentation format",
-      "Any mismatch > EUR 1 or ANY difference in directors' remuneration is a fail."
-    ]
+      "Any mismatch > EUR 1 or ANY difference in directors' remuneration is a fail.",
+    ],
   },
   {
     test_id: 11,
@@ -155,8 +155,8 @@ module.exports = [
       "- Company name matches exactly.",
       "- Registration number matches exactly.",
       "- Address line-by-line, content and order.",
-      "- Directors list (names, count) vs FS and portal."
-    ]
+      "- Directors list (names, count) vs FS and portal.",
+    ],
   },
   {
     test_id: 12,
@@ -171,8 +171,8 @@ module.exports = [
       "- There must be explicit going concern disclosure in notes.",
       "- Wording must be consistent in directors' responsibilities.",
       "- Audit report should reflect appropriate emphasis / material uncertainty.",
-      "If trigger present but disclosure missing/inconsistent → breach."
-    ]
+      "If trigger present but disclosure missing/inconsistent → breach.",
+    ],
   },
   {
     test_id: 13,
@@ -188,18 +188,18 @@ module.exports = [
       "All dates must:",
       "- Be after or on the balance sheet date.",
       "- Be logically ordered (e.g. FS approval not after audit report date in a nonsensical way).",
-      "- Match exactly between balance sheet and audit report."
-    ]
+      "- Match exactly between balance sheet and audit report.",
+    ],
   },
   {
     test_id: 14,
     test_name: "DIRECTORS_NUMBER_AND_GRAMMAR",
     test_instructions: [
       "Based on MBR directors count:",
-      "- If 1 director → wording must be singular (\"the director\").",
-      "- If multiple → wording must be plural (\"the directors\").",
-      "Headings and narrative must align."
-    ]
+      '- If 1 director → wording must be singular ("the director").',
+      '- If multiple → wording must be plural ("the directors").',
+      "Headings and narrative must align.",
+    ],
   },
   {
     test_id: 15,
@@ -207,8 +207,8 @@ module.exports = [
     test_instructions: [
       "Directors' remuneration:",
       "- Must match exactly between portal and FS note.",
-      "- Tolerance = 0 (no difference allowed)."
-    ]
+      "- Tolerance = 0 (no difference allowed).",
+    ],
   },
   {
     test_id: 16,
@@ -223,8 +223,8 @@ module.exports = [
       "Look for:",
       "- Subject-verb agreement",
       "- Duplicate or missing words",
-      "- Clear spelling mistakes"
-    ]
+      "- Clear spelling mistakes",
+    ],
   },
   {
     test_id: 17,
@@ -234,19 +234,19 @@ module.exports = [
       "- Number of shares",
       "- Nominal value",
       "- Share class description",
-      "- Legal form and suffix (e.g. \"Limited\")",
-      "These must match across MBR, FS note, and portal."
-    ]
+      '- Legal form and suffix (e.g. "Limited")',
+      "These must match across MBR, FS note, and portal.",
+    ],
   },
   {
     test_id: 18,
     test_name: "COMPANY_STATUS_VS_WORDING",
     test_instructions: [
-      "If MBR says \"in liquidation\":",
+      'If MBR says "in liquidation":',
       "- FS and audit report must reflect liquidation basis, not going concern.",
-      "If MBR says \"active\":",
-      "- Going concern basis is acceptable unless other triggers indicate otherwise."
-    ]
+      'If MBR says "active":',
+      "- Going concern basis is acceptable unless other triggers indicate otherwise.",
+    ],
   },
   {
     test_id: 19,
@@ -259,8 +259,8 @@ module.exports = [
       "- Notes",
       "- Receivables/payables captions",
       "- Portal schedules",
-      "Within EUR 1 tolerance."
-    ]
+      "Within EUR 1 tolerance.",
+    ],
   },
   {
     test_id: 20,
@@ -270,8 +270,8 @@ module.exports = [
       "- Recompute tax at nominal rate.",
       "- Recompute each reconciling item.",
       "- Confirm sum of items equals the difference from nominal.",
-      "- Ensure effective tax rate matches and is reasonably explained."
-    ]
+      "- Ensure effective tax rate matches and is reasonably explained.",
+    ],
   },
   {
     test_id: 21,
@@ -280,8 +280,8 @@ module.exports = [
       "If there is an equity/reserve movement schedule:",
       "- Check that each component rolls forward correctly.",
       "- Dividends and transfers match portal data.",
-      "- Totals match balance sheet."
-    ]
+      "- Totals match balance sheet.",
+    ],
   },
   {
     test_id: 22,
@@ -291,8 +291,8 @@ module.exports = [
       "- Every portal TB line is mapped to an FS caption or note.",
       "- No unmapped balances.",
       "- Mapped sums match FS values.",
-      "- Rounding logic is consistent."
-    ]
+      "- Rounding logic is consistent.",
+    ],
   },
   {
     test_id: 23,
@@ -303,8 +303,8 @@ module.exports = [
       "- Total assets",
       "If above threshold (e.g. 50%):",
       "- There must be clear, strong disclosure.",
-      "Absence of such disclosure is a breach."
-    ]
+      "Absence of such disclosure is a breach.",
+    ],
   },
   {
     test_id: 24,
@@ -316,8 +316,8 @@ module.exports = [
       "- Figures are consistent with the claimed rounding.",
       "CRITICAL: Revenue presentation - when revenue is zero, it should be presented as dash (–) NOT as '0' or '€0'.",
       "Flag '0' presentation for zero revenue as presentation error (Section C).",
-      "This applies to any zero-value line items where dash is standard practice."
-    ]
+      "This applies to any zero-value line items where dash is standard practice.",
+    ],
   },
   {
     test_id: 25,
@@ -326,8 +326,8 @@ module.exports = [
       "Confirm the year-end date wording is consistent across:",
       "- Cover",
       "- Primary statement headings",
-      "- Audit report reference."
-    ]
+      "- Audit report reference.",
+    ],
   },
   {
     test_id: 26,
@@ -335,8 +335,7 @@ module.exports = [
     test_instructions: [
       "Check that:",
       "- Every note has at least one reference.",
-      "- There are no references to missing note numbers."
-    ]
-  }
+      "- There are no references to missing note numbers.",
+    ],
+  },
 ];
-
