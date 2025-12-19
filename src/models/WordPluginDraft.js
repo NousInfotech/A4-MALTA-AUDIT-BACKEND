@@ -9,9 +9,9 @@ const wordPluginDraftSchema = new Schema(
       unique: true,
     },
     engagementId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       required: true,
-      ref:'Engagement',
+      ref: "Engagement",
       index: true,
     },
     draftName: {
@@ -39,4 +39,3 @@ const wordPluginDraftSchema = new Schema(
 );
 
 module.exports = mongoose.model("WordPluginDraft", wordPluginDraftSchema);
-
