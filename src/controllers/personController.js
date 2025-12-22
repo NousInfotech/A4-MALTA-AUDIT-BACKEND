@@ -21,18 +21,6 @@ const createDefaultSharesData = () => {
   return combinations;
 };
 
-// Helper function to calculate sharePercentage from sharesData array
-// Formula: sharePercentage = (sum of all sharesData.totalShares / company.totalShares) * 100
-const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
-  if (!Array.isArray(sharesDataArray) || companyTotalShares === 0) {
-    return 0;
-  }
-  const totalShares = sharesDataArray.reduce(
-    (sum, item) => sum + (Number(item.totalShares) || 0),
-    0
-  );
-  return (totalShares / companyTotalShares) * 100;
-};
 
 // Helper function to convert sharesData from frontend format {totalShares, shareClass}[] to array format
 // Frontend sends: {totalShares, shareClass}[] - percentage is calculated from totalIssuedShares
@@ -175,7 +163,6 @@ exports.getAllPersons = async (req, res) => {
 
             return {
               ...personObj,
-              sharePercentage: shareHolder?.sharePercentage || 0,
               roles: roles,
             };
           });
@@ -252,7 +239,6 @@ exports.getPersonById = async (req, res) => {
           return [...acc, ...roleArray];
         }, []);
 
-        personObj.sharePercentage = shareHolder?.sharePercentage || 0;
         personObj.roles = roles;
       }
     }
@@ -340,7 +326,7 @@ exports.createPerson = async (req, res) => {
         }
 
         // Update shareHolders if sharesData is provided
-        // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
+        // Frontend sends sharesData as {totalShares, shareClass}[]
         if (sharesData !== undefined && sharesData !== null) {
           // Remove existing shareholding for this person
           company.shareHolders =
@@ -355,12 +341,6 @@ exports.createPerson = async (req, res) => {
             totalIssuedShares
           );
 
-          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(
-            sharesDataArray,
-            totalIssuedShares
-          );
-
           // Only add if there are actual shares (non-zero totalShares)
           // If sharesData is empty array or all zeros, person will be removed from shareHolders
           const hasShares = sharesDataArray.some(
@@ -369,7 +349,6 @@ exports.createPerson = async (req, res) => {
           if (hasShares) {
             company.shareHolders.push({
               personId: person._id,
-              sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
               paidUpSharesPercentage: req.body.paidUpSharesPercentage ?? 100,
             });
@@ -516,7 +495,7 @@ exports.updatePerson = async (req, res) => {
         }
 
         // Update shareHolders if sharesData is provided
-        // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
+        // Frontend sends sharesData as {totalShares, shareClass}[]
         if (sharesData !== undefined) {
           // Remove existing shareholding for this person
           company.shareHolders =
@@ -531,12 +510,6 @@ exports.updatePerson = async (req, res) => {
             totalIssuedShares
           );
 
-          // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-          const sharePercentage = calculateSharePercentage(
-            sharesDataArray,
-            totalIssuedShares
-          );
-
           // Only add if there are actual shares (non-zero totalShares)
           // If sharesData is empty array or all zeros, person will be removed from shareHolders
           const hasShares = sharesDataArray.some(
@@ -545,7 +518,6 @@ exports.updatePerson = async (req, res) => {
           if (hasShares) {
             company.shareHolders.push({
               personId: person._id,
-              sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
               paidUpSharesPercentage: updateData.paidUpSharesPercentage ?? 100,
             });

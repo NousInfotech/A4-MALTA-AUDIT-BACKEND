@@ -47,21 +47,6 @@ const createDefaultSharesData = () => {
   return combinations;
 };
 
-// Helper function to calculate sharePercentage from sharesData array
-// Formula: sharePercentage = (sum of all sharesData.totalShares / company.totalShares) * 100
-const calculateSharePercentage = (sharesDataArray, companyTotalShares = 0) => {
-  if (!Array.isArray(sharesDataArray)) {
-    return 0;
-  }
-
-  const denominator = getTotalIssuedSharesValue(companyTotalShares);
-  if (denominator === 0) {
-    return 0;
-  }
-
-  const totalShares = sumShareTotals(sharesDataArray);
-  return (totalShares / denominator) * 100;
-};
 
 // Helper functions to update Person's company references
 const updatePersonShareHoldingCompanies = async (
@@ -296,7 +281,7 @@ const convertToSharesDataArray = (sharesData, totalSharesValue = 0) => {
 };
 
 // Helper function to merge sharesData from input into array format
-// Frontend sends: {totalShares, shareClass}[] - sharePercentage is calculated separately
+// Frontend sends: {totalShares, shareClass}[]
 const mergeSharesData = (
   inputSharesData,
   totalIssuedShares = 0,
@@ -564,17 +549,8 @@ exports.createCompany = async (req, res) => {
               totalIssuedShares
             );
 
-            const sharePercentage =
-              totalIssuedShares > 0
-                ? calculateSharePercentage(
-                    sharesDataArray,
-                    totalIssuedShares
-                  )
-                : 0;
-
             return {
               companyId,
-              sharePercentage,
               sharesData: sharesDataArray,
             };
           })
@@ -705,7 +681,7 @@ exports.updateCompany = async (req, res) => {
     }
 
     // Handle shareHoldingCompanies update if provided
-    // Frontend sends sharesData as {totalShares, shareClass}[] - sharePercentage calculated from totalIssuedShares
+    // Frontend sends sharesData as {totalShares, shareClass}[]
     if (updateData.shareHoldingCompanies) {
       const { totalIssuedShares } = ensureTotalSharesMeta();
       const existingShareHoldings = existingCompany.shareHoldingCompanies || [];
@@ -735,15 +711,8 @@ exports.updateCompany = async (req, res) => {
               existingSharesData
             );
 
-            // Calculate sharePercentage: (sum of all sharesData.totalShares / company.totalShares) * 100
-            const sharePercentage = calculateSharePercentage(
-              sharesDataArray,
-              totalIssuedShares
-            );
-
             return {
               companyId: companyId,
-              sharePercentage: sharePercentage,
               sharesData: sharesDataArray,
               paidUpSharesPercentage: s.paidUpSharesPercentage,
             };
@@ -1463,12 +1432,6 @@ exports.getCompanyHierarchy = async (req, res) => {
           nodeData.roles.add("Shareholder");
         }
 
-        // Calculate share percentage
-        const sharePercentage =
-          parentTotalShares > 0
-            ? (nodeData.totalShares / parentTotalShares) * 100
-            : 0;
-
         // Convert Set to Array for roles
         const rolesArray = Array.from(nodeData.roles);
 
@@ -1479,7 +1442,6 @@ exports.getCompanyHierarchy = async (req, res) => {
           address: nodeData.address,
           sharesData: nodeData.sharesData,
           totalShares: nodeData.totalShares,
-          sharePercentage: sharePercentage,
           roles: rolesArray.length > 0 ? rolesArray : undefined,
         };
 
@@ -1542,10 +1504,6 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
     const personIdStr = personId.toString();
     const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(
-      sharesDataArray,
-      totalIssuedShares
-    );
 
     // Remove existing and add updated
     company.shareHolders =
@@ -1556,7 +1514,6 @@ exports.updateShareHolderPersonExisting = async (req, res) => {
     if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHolders.push({
         personId: personId,
-        sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
         paidUpSharesPercentage: paidUpSharesPercentage ?? 100,
       });
@@ -1664,10 +1621,6 @@ exports.addShareHolderPersonNew = async (req, res) => {
 
     const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(
-      sharesDataArray,
-      totalIssuedShares
-    );
 
     // Remove if exists, then add
     company.shareHolders =
@@ -1678,7 +1631,6 @@ exports.addShareHolderPersonNew = async (req, res) => {
     if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHolders.push({
         personId: personId,
-        sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
         paidUpSharesPercentage: paidUpSharesPercentage ?? 100,
       });
@@ -1840,10 +1792,6 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
 
     const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(
-      sharesDataArray,
-      totalIssuedShares
-    );
 
     // Remove existing and add updated
     company.shareHoldingCompanies =
@@ -1854,7 +1802,6 @@ exports.updateShareHolderCompanyExisting = async (req, res) => {
     if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHoldingCompanies.push({
         companyId: addingCompanyId,
-        sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
         paidUpSharesPercentage: paidUpSharesPercentage,
       });
@@ -1949,10 +1896,6 @@ exports.addShareHolderCompanyNew = async (req, res) => {
 
     const totalIssuedShares = getTotalIssuedSharesValue(company.totalShares);
     const sharesDataArray = mergeSharesData(sharesData, totalIssuedShares);
-    const sharePercentage = calculateSharePercentage(
-      sharesDataArray,
-      totalIssuedShares
-    );
 
     // Remove if exists, then add
     company.shareHoldingCompanies =
@@ -1963,7 +1906,6 @@ exports.addShareHolderCompanyNew = async (req, res) => {
     if (sharesDataArray.some((item) => item.totalShares > 0)) {
       company.shareHoldingCompanies.push({
         companyId: addingCompanyId,
-        sharePercentage: sharePercentage,
         sharesData: sharesDataArray,
         paidUpSharesPercentage: paidUpSharesPercentage ,
       });

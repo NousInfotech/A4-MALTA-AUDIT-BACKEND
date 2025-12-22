@@ -8,7 +8,7 @@ const path = require('path');
 /**
  * Generate Financial Statement Review
  * Orchestrates the complete review process:
- * 1. Extract portal data (engagement, company, ETB, P&L, BS, lead sheets)
+ * 1. Extract portal data (engagement, company, ETB, P&L, BS, lead sheets) - conditional
  * 2. Extract PDF data (text and images per page)
  * 3. Convert images to base64
  * 4. Main Flow: Analyze with GPT-5.2 using portal data + PDF text + images in unified call
@@ -16,9 +16,11 @@ const path = require('path');
  * 
  * @param {string} engagementId - Engagement ID from database
  * @param {Object} file - Multer file object from frontend (must be PDF)
+ * @param {Array<string>} includeTests - Array of test categories to include (default: ["ALL"])
+ * @param {boolean} includePortalData - Whether to include portal data (default: false)
  * @returns {Promise<Object>} Review results in A/B/C/D/E JSON structure
  */
-exports.generateFinancialStatementReview = async (engagementId, file) => {
+exports.generateFinancialStatementReview = async (engagementId, file, includeTests = ['ALL'], includePortalData = false) => {
   try {
     // Validate inputs
     if (!engagementId) {
@@ -40,17 +42,23 @@ exports.generateFinancialStatementReview = async (engagementId, file) => {
       throw new Error("File buffer is missing. Ensure file was uploaded correctly.");
     }
 
-    // Step 1: Extract portal data
-    console.log(`[FS Review] Extracting portal data for engagement: ${engagementId}`);
-    const portalData = await extractPortalData(engagementId);
-    
-    if (!portalData) {
-      throw new Error("Failed to extract portal data");
-    }
+    // Step 1: Conditionally extract portal data
+    let portalData = null;
+    if (includePortalData) {
+      console.log(`[FS Review] Extracting portal data for engagement: ${engagementId}`);
+      portalData = await extractPortalData(engagementId);
+      
+      if (!portalData) {
+        throw new Error("Failed to extract portal data");
+      }
 
-    // Validate essential portal data exists
-    if (!portalData.engagement || !portalData.company || !portalData.etb) {
-      throw new Error("Portal data is incomplete. Missing essential fields.");
+      // Validate essential portal data exists
+      if (!portalData.engagement || !portalData.company || !portalData.etb) {
+        throw new Error("Portal data is incomplete. Missing essential fields.");
+      }
+      console.log(`[FS Review] Portal data extracted successfully`);
+    } else {
+      console.log(`[FS Review] Skipping portal data extraction (includePortalData: false)`);
     }
 
     // Step 2: Extract PDF data
@@ -109,9 +117,11 @@ exports.generateFinancialStatementReview = async (engagementId, file) => {
 
     // Step 4: Main Flow - Generate AI prompt and call OpenAI for review with unified GPT-5.2 call
     console.log(`[FS Review] Starting main flow (GPT-5.2 unified financial review)...`);
+    console.log(`[FS Review] Include tests: ${includeTests.join(', ')}`);
+    console.log(`[FS Review] Include portal data: ${includePortalData}`);
     let reviewResults;
     try {
-      reviewResults = await aiFsReviewConfig(portalData, pdfData, base64Images);
+      reviewResults = await aiFsReviewConfig(portalData, pdfData, base64Images, includeTests, includePortalData);
     } catch (aiError) {
       // Cleanup images before throwing error
       cleanupImages(imageFiles);

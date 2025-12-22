@@ -80,39 +80,50 @@ function deduplicateTestIds(result) {
 
 /**
  * AI FS Review Engine Config
- * @param {Object} portalData - Portal data from extractPortalData service
+ * @param {Object|null} portalData - Portal data from extractPortalData service (null if not included)
  * @param {Array} pdfData - PDF page data array with text per page
  * @param {Array} base64Images - Array of { page_no, base64Image } objects
+ * @param {Array<string>} includeTests - Array of test categories to include (default: ["ALL"])
+ * @param {boolean} includePortalData - Whether portal data is included (default: false)
  * @returns {Promise<Object>} Review results in A/B/C/D/E JSON structure
  */
-exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = []) => {
+exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = [], includeTests = ['ALL'], includePortalData = false) => {
   try {
     // Generate the complete system prompt
-    const systemPrompt = generateAiPrompt(portalData, pdfData);
+    const systemPrompt = generateAiPrompt(portalData, pdfData, includeTests, includePortalData);
 
     // Build content array for vision API (text + images)
-    const contentArray = [];
+    const apiContentArray = [];
 
-    // Add portal data as text
-    contentArray.push({
-      type: "text",
-      text: `Portal Data:\n${JSON.stringify(portalData, null, 2)}\n\nPDF Text Data:\n${JSON.stringify(pdfData.map(page => ({ page_no: page.page_no, text: page.text })), null, 2)}\n\nAnalyze the financial statements using the portal data, PDF text content, and images provided below. Perform all tests T1-T26 and return results in the required JSON format.`
-    });
-
-    // Add images in page order
-    // Create a map of page_no to base64Image for efficient lookup
-    const imageMap = {};
+    // Create maps for efficient lookup
+    const imageMap = {}; // page_no -> base64Image
+    const imageNameMap = {}; // page_no -> imageName
+    
     if (base64Images && Array.isArray(base64Images)) {
       base64Images.forEach(img => {
         if (img.page_no !== null && img.base64Image) {
           imageMap[img.page_no] = img.base64Image;
+          imageNameMap[img.page_no] = img.imageName || null;
         }
       });
     }
 
-    // Add images in page order matching pdfData
+    // Build text content for OpenAI API (portal data + instruction)
+    let textContent = '';
+    if (includePortalData && portalData) {
+      textContent = `Portal Data:\n${JSON.stringify(portalData, null, 2)}\n\nAnalyze the financial statements using the portal data, PDF text content, and images provided below. Perform the selected tests and return results in the required JSON format.`;
+    } else {
+      textContent = `Analyze the financial statements using the PDF text content and images provided below. Perform the selected tests and return results in the required JSON format.`;
+    }
+
+    // Add portal data and instruction as first text block for API
+    apiContentArray.push({
+      type: "text",
+      text: textContent
+    });
+
+    // Add images in page order matching pdfData for API
     if (pdfData && Array.isArray(pdfData)) {
-      // Sort pdfData by page_no for consistency
       const sortedPdfData = [...pdfData].sort((a, b) => (a.page_no || 0) - (b.page_no || 0));
       
       for (const page of sortedPdfData) {
@@ -120,13 +131,34 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = []) => {
         const base64Image = imageMap[pageNo];
         
         if (base64Image) {
-          contentArray.push({
+          apiContentArray.push({
             type: "image_url",
             image_url: {
               url: base64Image
             }
           });
         }
+      }
+    }
+
+    // Build content array for file output with proper structure: { page_no, content, image_name }
+    const fileContentArray = [];
+    if (pdfData && Array.isArray(pdfData)) {
+      const sortedPdfData = [...pdfData].sort((a, b) => (a.page_no || 0) - (b.page_no || 0));
+      
+      for (const page of sortedPdfData) {
+        const pageNo = page.page_no;
+        const pageText = page.text || '';
+        const imageName = imageNameMap[pageNo] || null;
+        
+        // Create content object for this page
+        const pageContent = {
+          page_no: pageNo,
+          content: pageText,
+          image_name: imageName
+        };
+        
+        fileContentArray.push(pageContent);
       }
     }
 
@@ -140,9 +172,8 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = []) => {
       fs.writeFileSync(systemPromptPath, systemPrompt, "utf8");
       console.log(`[FS Review] systemPrompt saved to: ${systemPromptPath}`);
 
-      // Save contentArray as JSON file (with pretty formatting)
-      // Note: base64 images in contentArray will be included in the JSON
-      const contentArrayJson = JSON.stringify(contentArray, null, 2);
+      // Save fileContentArray as JSON file (with proper structure: page_no, content, image_name)
+      const contentArrayJson = JSON.stringify(fileContentArray, null, 2);
       fs.writeFileSync(contentArrayPath, contentArrayJson, "utf8");
       console.log(`[FS Review] contentArray saved to: ${contentArrayPath}`);
     } catch (fileError) {
@@ -153,11 +184,17 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = []) => {
     // Use fixed seed for determinism (42 is a common choice)
     const DETERMINISTIC_SEED = 42;
 
-    const response = await openai.chat.completions.create({
+    console.log('[FS Review] Starting AI API call...');
+    console.log(`[FS Review] Model: gpt-5.2, Max completion tokens: 16000`);
+    console.log(`[FS Review] System prompt length: ${systemPrompt.length} characters`);
+    console.log(`[FS Review] Content array items: ${apiContentArray.length} (${apiContentArray.filter(item => item.type === 'text').length} text, ${apiContentArray.filter(item => item.type === 'image_url').length} images)`);
+
+    // Create a promise with timeout wrapper
+    const apiCallPromise = openai.chat.completions.create({
       model: "gpt-5.2",
       temperature: 0,
       seed: DETERMINISTIC_SEED,
-      max_completion_tokens: 8000,
+      max_completion_tokens: 16000, // Increased from 8000 to allow for larger responses
       response_format: { type: "json_object" },
 
       messages: [
@@ -167,12 +204,24 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = []) => {
         },
         {
           role: "user",
-          content: contentArray,
+          content: apiContentArray,
         },
       ],
     });
 
+    // Add timeout wrapper (10 minutes = 600000ms)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('AI API call timed out after 10 minutes'));
+      }, 600000); // 10 minutes
+    });
+
+    const response = await Promise.race([apiCallPromise, timeoutPromise]);
+
+    console.log('[FS Review] AI API call completed successfully');
+
     const raw = response.choices?.[0]?.message?.content;
+
 
     if (!raw) throw new Error("No response from AI.");
 
