@@ -6,7 +6,6 @@ const Person = require("../models/Person");
 const SHARE_CLASSES = ["A", "B", "C", "Ordinary"];
 const SHARE_TYPES = ["Ordinary"];
 const DEFAULT_SHARE_TYPE = "Ordinary";
-const DEFAULT_TOTAL_SHARES_VALUE = 100;
 const SHARE_COMBINATIONS_COUNT = SHARE_CLASSES.length * SHARE_TYPES.length;
 
 const sumShareTotals = (sharesDataArray = []) => {
@@ -359,44 +358,12 @@ const mergeSharesData = (
 const normalizeCompanyTotalShares = (totalSharesInput) => {
   let normalizedShares = mergeSharesData(totalSharesInput);
 
-  // mergeSharesData already filters out zero values for new data
-  // But we need to ensure we have at least one entry
-  if (!Array.isArray(normalizedShares) || normalizedShares.length === 0) {
-    normalizedShares = [
-      {
-        totalShares: DEFAULT_TOTAL_SHARES_VALUE,
-        class: SHARE_CLASSES[0],
-        type: DEFAULT_SHARE_TYPE,
-      },
-    ];
-  }
-
-  // Ensure all entries have non-zero values (filter out any zeros that might have slipped through)
-  normalizedShares = normalizedShares.filter(
+  // Ensure all entries have non-zero values
+  normalizedShares = (normalizedShares || []).filter(
     (item) => item && Number(item.totalShares) > 0
   );
 
-  // If after filtering we have no shares, create a default
-  if (normalizedShares.length === 0) {
-    normalizedShares = [
-      {
-        totalShares: DEFAULT_TOTAL_SHARES_VALUE,
-        class: SHARE_CLASSES[0],
-        type: DEFAULT_SHARE_TYPE,
-      },
-    ];
-  }
-
-  let totalIssuedShares = sumShareTotals(normalizedShares);
-
-  if (totalIssuedShares === 0) {
-    normalizedShares[0] = {
-      totalShares: DEFAULT_TOTAL_SHARES_VALUE,
-      class: SHARE_CLASSES[0],
-      type: DEFAULT_SHARE_TYPE,
-    };
-    totalIssuedShares = DEFAULT_TOTAL_SHARES_VALUE;
-  }
+  const totalIssuedShares = sumShareTotals(normalizedShares);
 
   return { normalizedShares, totalIssuedShares };
 };
