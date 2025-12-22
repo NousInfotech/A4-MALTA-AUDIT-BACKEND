@@ -6,9 +6,9 @@ const ShareTypeEnum = ["Ordinary"];
 
 const ShareDataSchema = new Schema(
   {
-    totalShares: { type: Number, required: true, min: 0 },
-    class: { type: String, enum: ShareClassEnum, required: true },
-    type: { type: String, enum: ShareTypeEnum, required: true, default: "Ordinary" }
+    totalShares: { type: Number },
+    class: { type: String, enum: ShareClassEnum },
+    type: { type: String, enum: ShareTypeEnum, default: "Ordinary" }
   },
   { _id: false }
 );
