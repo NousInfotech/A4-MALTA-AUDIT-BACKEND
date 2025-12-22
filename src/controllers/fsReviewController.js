@@ -112,7 +112,7 @@ exports.generateFinancialStatementReview = async (req, res) => {
     }
     
     // Validate includeTests if provided
-    const validCategories = ['AUDIT_REPORT', 'BALANCE_SHEET', 'INCOME_STATEMENT', 'GENERAL', 'NOTES_AND_POLICY', 'CROSS_STATEMENT', 'ALL'];
+    const validCategories = ['AUDIT_REPORT', 'BALANCE_SHEET', 'INCOME_STATEMENT', 'GENERAL', 'NOTES_AND_POLICY', 'CROSS_STATEMENT', 'PRESENTATION', 'ALL'];
     const defaultIncludeTests = ['ALL'];
     
     let finalIncludeTests = defaultIncludeTests;

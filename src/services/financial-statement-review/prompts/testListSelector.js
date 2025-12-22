@@ -36,6 +36,11 @@ const {
   crossStatementPrompt,
 } = require('./categories/crossStatement.prompt.js');
 
+const {
+  presentationTests,
+  presentationPrompt,
+} = require('./categories/presentation.prompt.js');
+
 // Category mapping
 const CATEGORY_MAP = {
   AUDIT_REPORT: {
@@ -61,6 +66,10 @@ const CATEGORY_MAP = {
   CROSS_STATEMENT: {
     tests: crossStatementTests,
     prompt: crossStatementPrompt,
+  },
+  PRESENTATION: {
+    tests: presentationTests,
+    prompt: presentationPrompt,
   },
 };
 
@@ -127,9 +136,15 @@ function testListSelector(required = {}, tests_included = ['ALL']) {
   } = required;
 
   // Determine which categories to include
-  const categoriesToInclude = tests_included.includes('ALL')
+  // PRESENTATION is always included as it's mandatory
+  let categoriesToInclude = tests_included.includes('ALL')
     ? Object.keys(CATEGORY_MAP)
     : tests_included;
+  
+  // Always include PRESENTATION category (mandatory)
+  if (!categoriesToInclude.includes('PRESENTATION')) {
+    categoriesToInclude = [...categoriesToInclude, 'PRESENTATION'];
+  }
 
   // Collect all selected tests
   const selectedTests = [];
@@ -159,7 +174,7 @@ function testListSelector(required = {}, tests_included = ['ALL']) {
     // Add filtered tests to selected list
     selectedTests.push(...testsWithCategory);
 
-    // Build category-specific prompt if tests are selected
+    // Build category-specific prompt
     if (filteredTests.length > 0) {
       const categoryTestNames = filteredTests
         .map((test) => `- ${test.test_name}`)
