@@ -1,4 +1,4 @@
-const testLists = require('./testLists');
+const { testListSelector } = require('../prompts/testListSelector');
 const { outputFormatPrompt } = require('./outputFormat');
 const portalDataPrompt = require('../portal-data/portalDataPrompt');
 
@@ -40,17 +40,25 @@ WORKFLOW:
 Step 0: Read and internalise specification. Strictly obey test instructions and output format.
 
 Step 1: Ingest all data:
-- Portal data (P&L, BS, leads, MBR)
-- MBR extract (in portalData.company)
+- Portal data (P&L, BS, leads, MBR) - if provided
+- MBR extract (in portalData.company) - if portal data provided
 - PDF text content (extracted per page)
 - PDF images (provided as base64 images for visual analysis)
 
-Step 3: Run tests T1-T26
-For each test: understand category, apply rules, compare values with tolerance, decide:
-- No issues → Section A (confirmed correct)
-- Critical numerical/logical issues → Section B
-- Disclosure/presentation/regulatory issues → Section C
+Step 2: Categorize PDF pages/sections
+- Categorize each PDF page/section into: BALANCE_SHEET, INCOME_STATEMENT, GENERAL, NOTES_AND_POLICY, CROSS_STATEMENT, or AUDIT_REPORT
+- This categorization determines which tests can be run on which pages
+
+Step 3: Run selected tests against categorized data
+For each test in the selected test list:
+- Match test category to PDF data category
+- Run test ONLY against pages/sections that match the test category
+- Apply rules, compare values with tolerance, decide:
+  - No issues → Section A (confirmed correct)
+  - Critical numerical/logical issues → Section B
+  - Disclosure/presentation/regulatory issues → Section C
 CRITICAL: Each test_id can ONLY appear in ONE section. Priority order: Section B (critical errors) > Section C (regulatory breaches) > Section A (confirmed correct). If a test has ANY critical error, it MUST go to Section B and NOT appear in A or C. If a test has ONLY regulatory breaches (no critical errors), it MUST go to Section C and NOT appear in A or B. Only include in Section A if the test passed completely with zero issues found.
+CRITICAL: Return results for ALL selected tests - do not skip any tests. Every test must appear in exactly one section (A, B, or C).
 
 Step 4: Build reconciliation tables (Section D)
 Prepare detailed reconciliation tables (retained earnings, borrowings, deferred tax, equity) according to schema. Use for final consistency check and structured output.
@@ -110,42 +118,74 @@ OUTPUT RESTRICTIONS:
 - If Section B.items length > 0: MUST choose "NOT FIT FOR APPROVAL" verdict`;
 
 /**
- * Formats test lists into optimized string for the prompt
+ * Formats test lists using testListSelector
+ * @param {Array<string>} includeTests - Array of test categories to include
+ * @param {boolean} includePortalData - Whether portal data is included
+ * @returns {Object} Object with prompt string and test objects
  */
-const formatTestLists = () => {
-  let formatted = '\nTEST LISTS T1-T26\n\n';
+const formatTestLists = (includeTests, includePortalData) => {
+  const testSelectorResult = testListSelector(
+    {
+      isPdfText: true,
+      isPdfImage: true,
+      isPortalData: includePortalData
+    },
+    includeTests
+  );
   
-  testLists.forEach(test => {
-    formatted += `T${test.test_id} ${test.test_name}\n`;
-    test.test_instructions.forEach(instruction => {
-      formatted += `${instruction}\n`;
-    });
-    formatted += '\n';
-  });
-  
-  return formatted;
+  return testSelectorResult;
 };
 
 /**
  * Generates the complete AI prompt combining all components
- * @param {Object} portalData - Portal data from extractPortalData
+ * @param {Object|null} portalData - Portal data from extractPortalData (null if not included)
  * @param {Array} pdfData - PDF page data array with text per page
+ * @param {Array<string>} includeTests - Array of test categories to include (default: ["ALL"])
+ * @param {boolean} includePortalData - Whether portal data is included (default: false)
  * @returns {string} Complete system prompt
  */
-exports.generateAiPrompt = (portalData, pdfData) => {
+exports.generateAiPrompt = (portalData, pdfData, includeTests = ['ALL'], includePortalData = false) => {
   let prompt = systemInstructions;
   
-  prompt += formatTestLists();
+  // Get test lists using testListSelector
+  const testSelectorResult = formatTestLists(includeTests, includePortalData);
+  
+  // Add tests in JSON format instead of text for better AI processing
+  prompt += '\n\nSELECTED TESTS (JSON FORMAT)\n\n';
+  prompt += 'The following tests are selected for execution. Use this JSON structure to understand test requirements:\n\n';
+  prompt += JSON.stringify(testSelectorResult.tests, null, 2);
+  prompt += '\n\n';
+  prompt += `Total tests selected: ${testSelectorResult.tests.length}\n`;
+  prompt += `Categories included: ${testSelectorResult.categories.join(', ')}\n`;
   
   prompt += '\nOUTPUT FORMAT SPECIFICATION\n\n';
   prompt += outputFormatPrompt;
   
-  prompt += '\nPORTAL DATA STRUCTURE AND USAGE\n\n';
-  prompt += portalDataPrompt;
-  
-  prompt += '\nACTUAL PORTAL DATA\n\n';
-  prompt += JSON.stringify(portalData, null, 2);
-  prompt += '\n\n';
+  // Conditionally add portal data instructions
+  if (includePortalData && portalData) {
+    prompt += '\nPORTAL DATA STRUCTURE AND USAGE\n\n';
+    prompt += portalDataPrompt;
+    
+    prompt += '\nACTUAL PORTAL DATA\n\n';
+    prompt += JSON.stringify(portalData, null, 2);
+    prompt += '\n\n';
+    
+    // Add portal data usage instructions
+    prompt += '\nPORTAL DATA USAGE INSTRUCTIONS\n\n';
+    prompt += 'CRITICAL: When portal data is provided, use portal data values directly. Do not recalculate numbers from PDF.\n';
+    prompt += 'Portal data is the source of truth for all financial figures.\n';
+    prompt += 'Important notes about portal data:\n';
+    prompt += '- Lead sheets: liabilities + equity signs are correct for assets = liabilities + equity formula\n';
+    prompt += '- ETB rows: have correct signs as in the trial balance\n';
+    prompt += '- Retained earnings: calculated after sign changes, excluding dividends\n';
+    prompt += '- Use portal data values as-is for all reconciliations and comparisons\n';
+    prompt += '\n';
+  } else {
+    prompt += '\nPORTAL DATA NOT PROVIDED\n\n';
+    prompt += 'Portal data is not included in this review. Extract and calculate all values from PDF text and images.\n';
+    prompt += 'All financial figures must be extracted directly from the PDF content.\n';
+    prompt += '\n';
+  }
   
   prompt += '\nPDF TEXT DATA STRUCTURE\n\n';
   prompt += 'PDF data is provided as an array of page objects, each containing:\n';
@@ -154,6 +194,33 @@ exports.generateAiPrompt = (portalData, pdfData) => {
   prompt += 'Images are provided separately as base64-encoded PNG images, one per page.\n';
   prompt += 'Use the page numbers to match text and images.\n';
   prompt += 'Analyze both text and images to perform visual, structure, and formatting checks.\n';
+  prompt += '\n';
+  
+  // Add PDF categorization instructions
+  prompt += '\nPDF CATEGORIZATION INSTRUCTIONS\n\n';
+  prompt += 'CRITICAL: Before running any tests, you MUST first categorize all PDF pages/sections into the following categories:\n';
+  prompt += '- BALANCE_SHEET: Pages containing balance sheet or statement of financial position\n';
+  prompt += '- INCOME_STATEMENT: Pages containing income statement, profit and loss, or statement of comprehensive income\n';
+  prompt += '- GENERAL: Pages containing general information, cover page, contents, directors responsibilities\n';
+  prompt += '- NOTES_AND_POLICY: Pages containing notes to financial statements and accounting policies\n';
+  prompt += '- CROSS_STATEMENT: Information that spans multiple statements or requires cross-referencing\n';
+  prompt += '- AUDIT_REPORT: Pages containing audit report or independent auditors report\n';
+  prompt += '\n';
+  prompt += 'WORKFLOW FOR TEST EXECUTION:\n';
+  prompt += '1. First, categorize each PDF page/section into one of the categories above\n';
+  prompt += '2. Then, run ONLY the tests that match the selected categories (from includeTests parameter)\n';
+  prompt += '3. Run each test against the corresponding categorized PDF data:\n';
+  prompt += '   - BALANCE_SHEET tests only against pages categorized as balance sheet\n';
+  prompt += '   - INCOME_STATEMENT tests only against pages categorized as income statement\n';
+  prompt += '   - GENERAL tests only against pages categorized as general information\n';
+  prompt += '   - NOTES_AND_POLICY tests only against pages categorized as notes/policies\n';
+  prompt += '   - CROSS_STATEMENT tests against all relevant pages (may span multiple categories)\n';
+  prompt += '   - AUDIT_REPORT tests only against pages categorized as audit report\n';
+  prompt += '4. CRITICAL: Return results for ALL tests that were selected - do not skip any tests\n';
+  prompt += '   - If a test passes with no issues, include it in Section A (confirmed correct)\n';
+  prompt += '   - If a test finds issues, include it in Section B (critical) or Section C (regulatory breach)\n';
+  prompt += '   - Every selected test must appear in exactly one section (A, B, or C)\n';
+  prompt += '5. Match test categories to PDF data categories: only run tests on their corresponding categorized pages\n';
   prompt += '\n';
   
   prompt += '\nACTUAL PDF TEXT DATA (SUMMARY)\n\n';
@@ -191,9 +258,14 @@ exports.generateAiPrompt = (portalData, pdfData) => {
   prompt += '\nFINAL REMINDER\n';
   prompt += 'Output ONLY valid JSON with exactly 5 keys: A, B, C, D, E\n';
   prompt += 'NO emojis, NO prose, NO explanations\n';
-  prompt += 'Use portalData.company for MBR data\n';
+  if (includePortalData && portalData) {
+    prompt += 'Use portalData.company for MBR data\n';
+    prompt += 'Focus on portal data reconciliation and financial arithmetic\n';
+  } else {
+    prompt += 'Extract all values directly from PDF text and images\n';
+    prompt += 'Focus on financial arithmetic and cross-statement consistency\n';
+  }
   prompt += 'Analyze PDF text and images directly from the user message content array\n';
-  prompt += 'Focus on portal data reconciliation and financial arithmetic\n';
   prompt += 'Recompute everything independently\n';
   prompt += 'Zero tolerance for non-rounding discrepancies\n';
   prompt += 'If Section B has any items, verdict MUST be NOT FIT FOR APPROVAL\n';
