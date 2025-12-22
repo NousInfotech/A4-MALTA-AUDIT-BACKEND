@@ -110,11 +110,13 @@ INSTRUCTIONS:
 
 1. TEST ID MAPPING: Use testLists to get test_id numbers 1-26. Format as "T" + number (e.g., "T1", "T4"). Use test_name for area field.
 
-2. SECTION A: title exactly "CONFIRMED CORRECT ITEMS". Include only tests that passed completely. Fields: test_id (T format), area (human-readable name), details (brief verification text).
+2. SECTION A: title exactly "CONFIRMED CORRECT ITEMS". Include only tests that passed completely. Fields: test_id (T format), area (human-readable name), details (brief verification text). CRITICAL: A test_id that appears in Section B or C MUST NOT appear in Section A.
 
-3. SECTION B: title exactly "CRITICAL ERRORS". Fields: id (B1, B2, B3 sequential), test_id (T format), type (arithmetical/logic/portal_crosscheck/registry_crosscheck/visual/structure/disclosure/classification/legal/grammar/presentation), severity always "critical", description, location (page number or null, section string or null, note string or null, line_hint string or null), reported_value (number/string/null), expected_value (number/string/null), difference (number or null), reason, financial_impact, suggested_fix. Include all arithmetical errors, logic errors, material misstatements.
+3. SECTION B: title exactly "CRITICAL ERRORS". Fields: id (B1, B2, B3 sequential), test_id (T format), type (arithmetical/logic/portal_crosscheck/registry_crosscheck/visual/structure/disclosure/classification/legal/grammar/presentation), severity always "critical", description, location (page number or null, section string or null, note string or null, line_hint string or null), reported_value (number/string/null), expected_value (number/string/null), difference (number or null), reason, financial_impact, suggested_fix. Include all arithmetical errors, logic errors, material misstatements. CRITICAL: A test_id that appears in Section B MUST NOT appear in Section A or Section C.
 
-4. SECTION C: title exactly "DISCLOSURE & REGULATORY BREACHES". Fields: id (C1, C2, C3 sequential), test_id, type, severity (regulatory or presentation), description, location (same as B), impact (NOT financial_impact), suggested_fix. Include missing disclosures, regulatory non-compliance, presentation issues.
+4. SECTION C: title exactly "DISCLOSURE & REGULATORY BREACHES". Fields: id (C1, C2, C3 sequential), test_id, type, severity (regulatory or presentation), description, location (same as B), impact (NOT financial_impact), suggested_fix. Include missing disclosures, regulatory non-compliance, presentation issues. CRITICAL: A test_id that appears in Section C MUST NOT appear in Section A or Section B.
+
+CRITICAL RULE - TEST EXCLUSIVITY: Each test_id (T1-T26) can ONLY appear in ONE section. If a test has ANY critical error (Section B), it cannot be in Section A or C. If a test has ANY regulatory breach (Section C) but no critical errors, it cannot be in Section A or B. Only include a test in Section A if it has passed completely with no errors or breaches found.
 
 5. SECTION D: title exactly "RECONCILIATION TABLES". tables object with keys: retained_earnings, borrowings, deferred_tax, equity. Include only relevant tables. Each table: columns array, rows array with description and values array. Use actual values from FS. Ensure rows reconcile.
 

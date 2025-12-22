@@ -32,7 +32,8 @@ const ETBMappingSchema = new Schema({
     fileUrl: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now },
     uploadedBy: { type: String }
-  }]
+  }],
+  notes: { type: String } // ✅ NEW: Notes field for mapping
 }, { _id: true })
 
 const ETBRowSchema = new Schema({

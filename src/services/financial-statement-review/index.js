@@ -3,6 +3,7 @@ const generateTestOutput = require("./tests/generateTestOutput");
 const generateFSReview = require("./generateFSReview.service");
 const extractETBData = require("./portal-data/trial-balance/extractETBData");
 const aiFSReviewConfig = require("./ai-config/aiFSReviewConfig");
+const { convertImagesToBase64 } = require("./pdf-data/imageUtils");
 const extractPortalData = require("./portal-data/extractPortalData.service");
 
 // Export all services as a single object
@@ -20,7 +21,9 @@ module.exports = {
   deriveLeadSheets: extractETBData.deriveLeadSheets,
   // AI services
   aiFsReviewConfig: aiFSReviewConfig.aiFsReviewConfig,
-
+  
+  // PDF utilities
+  convertImagesToBase64: convertImagesToBase64,
 
   // test review : 
   fsTestReview: generateTestOutput.testFsReview,

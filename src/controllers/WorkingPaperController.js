@@ -221,7 +221,7 @@ const addMappingToRow = async (req, res) => {
   try {
     const { engagementId, classification, rowCode } = req.params;
     const rowId = rowCode;
-    const { workbookId, color, details, referenceFiles } = req.body;
+    const { workbookId, color, details, referenceFiles, notes } = req.body; // ✅ NEW: Include notes
 
     // Debug: Log the received data
     console.log('Backend: Received request body:', req.body);
@@ -253,7 +253,8 @@ const addMappingToRow = async (req, res) => {
       color,
       details,
       isActive: true,
-      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : []
+      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : [],
+      notes: notes || undefined // ✅ NEW: Include notes in mapping
     };
 
     console.log('Backend: Looking for WorkingPaper with engagement:', engagementId, 'classification:', classification, 'and rowId:', rowId);
@@ -374,11 +375,18 @@ const updateMapping = async (req, res) => {
     }
 
     // Update the mapping
-    row.mappings[mappingIndex] = {
+    const updatedMapping = {
       ...row.mappings[mappingIndex].toObject(),
       ...updateData,
       _id: mappingId
     };
+    
+    // ✅ NEW: If notes is undefined or empty string, remove it from the mapping
+    if (updateData.notes === undefined || updateData.notes === null || (typeof updateData.notes === 'string' && updateData.notes.trim() === '')) {
+      delete updatedMapping.notes;
+    }
+    
+    row.mappings[mappingIndex] = updatedMapping;
     
     workingPaper.updatedAt = new Date();
     await workingPaper.save();

@@ -321,7 +321,7 @@ const createOrUpdateExtendedTrialBalance = async (req, res) => {
 const addMappingToRow = async (req, res) => {
   try {
     const { id: engagementId, rowId } = req.params; // Fix: get 'id' parameter and rename to 'engagementId'
-    const { workbookId, color, details, referenceFiles } = req.body;
+    const { workbookId, color, details, referenceFiles, notes } = req.body; // ✅ NEW: Include notes
 
     // Debug: Log the received data
     console.log('Backend: Received request body:', req.body);
@@ -353,7 +353,8 @@ const addMappingToRow = async (req, res) => {
       color,
       details,
       isActive: true,
-      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : []
+      referenceFiles: referenceFiles && Array.isArray(referenceFiles) ? referenceFiles : [],
+      notes: notes || undefined // ✅ NEW: Include notes in mapping
     };
 
     console.log('Backend: Looking for ETB with engagement:', engagementId, 'and rowId:', rowId);
@@ -461,11 +462,18 @@ const updateMapping = async (req, res) => {
     }
 
     // Update the mapping
-    row.mappings[mappingIndex] = {
+    const updatedMapping = {
       ...row.mappings[mappingIndex].toObject(),
       ...updateData,
       _id: mappingId
     };
+    
+    // ✅ NEW: If notes is undefined or empty string, remove it from the mapping
+    if (updateData.notes === undefined || updateData.notes === null || (typeof updateData.notes === 'string' && updateData.notes.trim() === '')) {
+      delete updatedMapping.notes;
+    }
+    
+    row.mappings[mappingIndex] = updatedMapping;
     
     etb.updatedAt = new Date();
     await etb.save();
