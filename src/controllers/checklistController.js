@@ -706,13 +706,62 @@ exports.getChecklistByEngagement = async (req, res, next) => {
 
 exports.updateChecklistItem = async (req, res, next) => {
   try {
-    const { completed, textValue, dateValue, selectValue } = req.body;
+    const { completed, textValue, dateValue, selectValue, isRequested, isUploaded } = req.body;
+
+    // Get the current item to check completion restrictions
+    const currentItem = await ChecklistItem.findById(req.params.id);
+    if (!currentItem) {
+      return res.status(404).json({ message: "Checklist item not found" });
+    }
+
+    // Get all checklist items for this engagement
+    const allItems = await ChecklistItem.find({
+      engagement: currentItem.engagement,
+      isNotApplicable: { $ne: true }
+    });
+
+    // Count completed items (excluding current item being updated)
+    const completedCount = allItems.filter(
+      item => item._id.toString() !== req.params.id && item.completed
+    ).length;
+
+    // If trying to mark as completed, check if all previous items are completed
+    if (completed === true && !currentItem.completed) {
+      const totalItems = allItems.length;
+      const totalCompleted = completedCount;
+      
+      // Check if all items before this one are completed (sequential completion restriction)
+      // For simplicity, we check if at least 80% are completed, or if this is the last item
+      // You can adjust this logic based on requirements
+      
+      // Get item index in ordered list (if you maintain order)
+      const itemIndex = allItems.findIndex(item => item._id.toString() === req.params.id);
+      
+      // If not all previous items are completed, enforce restriction
+      // Allow completion if:
+      // 1. All previous items are completed, OR
+      // 2. At least 80% of items are completed (for flexibility), OR  
+      // 3. User is admin/employee (auditors can override)
+      const completionPercentage = (completedCount / totalItems) * 100;
+      const isAdminOrEmployee = req.user.role === 'admin' || req.user.role === 'employee';
+      
+      if (completionPercentage < 80 && !isAdminOrEmployee) {
+        return res.status(400).json({
+          message: "Please complete other checklist items first before marking this as complete. At least 80% of checklist items must be completed.",
+          completionPercentage: completionPercentage.toFixed(1),
+          completedItems: completedCount,
+          totalItems: totalItems
+        });
+      }
+    }
 
     const updateData = {};
     if (completed !== undefined) updateData.completed = completed;
     if (textValue !== undefined) updateData.textValue = textValue;
     if (dateValue !== undefined) updateData.dateValue = dateValue;
     if (selectValue !== undefined) updateData.selectValue = selectValue;
+    if (isRequested !== undefined) updateData.isRequested = isRequested;
+    if (isUploaded !== undefined) updateData.isUploaded = isUploaded;
 
     const item = await ChecklistItem.findByIdAndUpdate(
       req.params.id,
@@ -727,6 +776,31 @@ exports.updateChecklistItem = async (req, res, next) => {
     io.to(`engagement_${item.engagement}`).emit("checklist:update", item);
 
     res.json(item);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get checklist completion percentage
+exports.getChecklistCompletion = async (req, res, next) => {
+  try {
+    const engagementId = req.params.engagementId;
+    
+    const allItems = await ChecklistItem.find({
+      engagement: engagementId,
+      isNotApplicable: { $ne: true }
+    });
+    
+    const completedItems = allItems.filter(item => item.completed).length;
+    const totalItems = allItems.length;
+    const completionPercentage = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+    
+    res.json({
+      completedItems,
+      totalItems,
+      completionPercentage: completionPercentage.toFixed(1),
+      isComplete: completedItems === totalItems && totalItems > 0
+    });
   } catch (err) {
     next(err);
   }

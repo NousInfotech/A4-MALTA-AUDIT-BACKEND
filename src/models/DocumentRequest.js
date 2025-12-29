@@ -89,6 +89,10 @@ const DocumentRequestSchema = new Schema({
   description: { type: String, required: true },
 
   comment: { type: String, default: "" },
+  
+  // Email notification fields
+  notificationEmails: [{ type: String }], // Additional email addresses to notify
+  emailNotificationSent: { type: Boolean, default: false }, // Track if email was sent
 
   status: {
     type: String,

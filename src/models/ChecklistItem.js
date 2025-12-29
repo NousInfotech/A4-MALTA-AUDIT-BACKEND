@@ -111,6 +111,26 @@ const ChecklistItemSchema = new Schema({
   reviewVersion: {
     type: Number,
     default: 1
+  },
+  
+  // Document Request Integration
+  documentRequestId: {
+    type: Types.ObjectId,
+    ref: 'DocumentRequest',
+    default: null
+  },
+  isRequested: {
+    type: Boolean,
+    default: false
+  },
+  isUploaded: {
+    type: Boolean,
+    default: false
+  },
+  documentLibraryId: {
+    type: Types.ObjectId,
+    ref: 'EngagementLibrary',
+    default: null
   }
 }, {
   timestamps: true
