@@ -205,6 +205,7 @@ exports.generateAiPrompt = (portalData, pdfData, includeTests = ['ALL'], include
   prompt += '- NOTES_AND_POLICY: Pages containing notes to financial statements and accounting policies\n';
   prompt += '- CROSS_STATEMENT: Information that spans multiple statements or requires cross-referencing\n';
   prompt += '- AUDIT_REPORT: Pages containing audit report or independent auditors report\n';
+  prompt += '- PRESENTATION: This is a special category - PRESENTATION tests run on ALL pages to check visual consistency across the entire document\n';
   prompt += '\n';
   prompt += 'WORKFLOW FOR TEST EXECUTION:\n';
   prompt += '1. First, categorize each PDF page/section into one of the categories above\n';
@@ -216,11 +217,13 @@ exports.generateAiPrompt = (portalData, pdfData, includeTests = ['ALL'], include
   prompt += '   - NOTES_AND_POLICY tests only against pages categorized as notes/policies\n';
   prompt += '   - CROSS_STATEMENT tests against all relevant pages (may span multiple categories)\n';
   prompt += '   - AUDIT_REPORT tests only against pages categorized as audit report\n';
+  prompt += '   - PRESENTATION tests run on ALL pages (entire document) to check visual consistency, formatting, margins, fonts, currency formatting, etc.\n';
   prompt += '4. CRITICAL: Return results for ALL tests that were selected - do not skip any tests\n';
   prompt += '   - If a test passes with no issues, include it in Section A (confirmed correct)\n';
   prompt += '   - If a test finds issues, include it in Section B (critical) or Section C (regulatory breach)\n';
   prompt += '   - Every selected test must appear in exactly one section (A, B, or C)\n';
   prompt += '5. Match test categories to PDF data categories: only run tests on their corresponding categorized pages\n';
+  prompt += '6. CRITICAL: For tests with test_id starting with "PRES" (e.g., "PRES01"), the category field MUST be "PRESENTATION", not "GENERAL" or any other category\n';
   prompt += '\n';
   
   prompt += '\nACTUAL PDF TEXT DATA (SUMMARY)\n\n';
