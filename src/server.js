@@ -1,6 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const connectDB = require("./config/db");
+// Initialize email service on startup (will verify SMTP connection)
+require("./config/email");
 const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");

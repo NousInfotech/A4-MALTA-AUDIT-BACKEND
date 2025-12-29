@@ -11,6 +11,7 @@ const EngagementSchema = new Schema(
     companyId:{type:Types.ObjectId, ref:"Company", required:true},
     title: { type: String, required: true },
     yearEndDate: { type: Date, required: true },
+    deadline: { type: Date }, // Deadline for engagement completion
     status: {
       type: String,
       enum: ["draft", "active", "completed"],

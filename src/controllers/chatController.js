@@ -114,7 +114,51 @@ exports.getMessages = async (req, res) => {
         const messages = await Message.find({
             conversationId,
             deletedFor: { $ne: currentUserId }
-        }).sort({ createdAt: 1 });
+        }).sort({ createdAt: 1 }).lean();
+
+        // For group chats, populate sender names for ALL messages (including current user's)
+        const conversation = await Conversation.findById(conversationId);
+        if (conversation && conversation.type === 'group') {
+            // Collect unique sender IDs (including current user)
+            const senderIds = [...new Set(messages.map(m => m.senderId))];
+            
+            // Fetch sender profiles from Supabase
+            const { data: profiles, error } = await supabase
+                .from("profiles")
+                .select("user_id, name")
+                .in("user_id", senderIds);
+            
+            const profileMap = {};
+            if (profiles && !error) {
+                profiles.forEach(p => {
+                    profileMap[p.user_id] = p.name || 'Unknown User';
+                });
+            }
+            
+            // If profile fetch failed or missing names, fetch current user's profile separately
+            if (!profileMap[currentUserId]) {
+                try {
+                    const { data: currentProfile } = await supabase
+                        .from("profiles")
+                        .select("user_id, name")
+                        .eq("user_id", currentUserId)
+                        .single();
+                    if (currentProfile) {
+                        profileMap[currentUserId] = currentProfile.name || 'You';
+                    }
+                } catch (e) {
+                    console.error('Error fetching current user profile:', e);
+                }
+            }
+            
+            // Add sender names to messages (including current user's messages)
+            const enrichedMessages = messages.map(msg => ({
+                ...msg,
+                senderName: profileMap[msg.senderId] || 'Unknown User'
+            }));
+            
+            return res.json(enrichedMessages);
+        }
 
         res.json(messages);
     } catch (err) {
@@ -135,6 +179,30 @@ exports.sendMessage = async (req, res) => {
             attachments
         });
 
+        // Get conversation to check if it's a group chat
+        const conversation = await Conversation.findById(conversationId);
+        
+        // If group chat, fetch sender name for the message
+        let messageWithName = message.toObject();
+        if (conversation && conversation.type === 'group') {
+            try {
+                const { data: senderProfile } = await supabase
+                    .from("profiles")
+                    .select("user_id, name")
+                    .eq("user_id", senderId)
+                    .single();
+                
+                if (senderProfile) {
+                    messageWithName.senderName = senderProfile.name || 'Unknown User';
+                } else {
+                    messageWithName.senderName = 'Unknown User';
+                }
+            } catch (profileError) {
+                console.error('Error fetching sender profile:', profileError);
+                messageWithName.senderName = 'Unknown User';
+            }
+        }
+
         await Conversation.findByIdAndUpdate(conversationId, {
             lastMessage: message._id,
             lastMessageAt: message.createdAt
@@ -142,9 +210,9 @@ exports.sendMessage = async (req, res) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.to(`conversation_${conversationId}`).emit('newMessage', message);
+            // Send message with sender name for group chats
+            io.to(`conversation_${conversationId}`).emit('newMessage', messageWithName);
 
-            const conversation = await Conversation.findById(conversationId);
             if (conversation) {
                 conversation.participants.forEach(participantId => {
                     if (participantId !== senderId) {
@@ -159,7 +227,7 @@ exports.sendMessage = async (req, res) => {
             }
         }
 
-        res.json(message);
+        res.json(messageWithName);
     } catch (err) {
         console.error('sendMessage error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -373,6 +441,88 @@ exports.searchMessages = async (req, res) => {
         res.json(messages);
     } catch (err) {
         console.error('searchMessages error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+// Leave a group chat (remove user from participants)
+exports.leaveGroup = async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const userId = req.user.id;
+
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+        if (conversation.type !== 'group') {
+            return res.status(400).json({ error: 'This endpoint is only for group chats' });
+        }
+
+        // Remove user from participants
+        conversation.participants = conversation.participants.filter(p => p !== userId);
+        
+        // Remove from admins if they were an admin
+        conversation.admins = conversation.admins.filter(a => a !== userId);
+
+        await conversation.save();
+
+        // Notify other participants via socket
+        const io = req.app.get('io');
+        if (io) {
+            conversation.participants.forEach(p => {
+                io.to(`user_${p}`).emit('participantLeft', {
+                    conversationId,
+                    userId,
+                    participants: conversation.participants
+                });
+            });
+        }
+
+        res.json({ success: true, message: 'Left group successfully' });
+    } catch (err) {
+        console.error('leaveGroup error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+// Delete a group chat (only admins can delete)
+exports.deleteGroup = async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const userId = req.user.id;
+
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+        if (conversation.type !== 'group') {
+            return res.status(400).json({ error: 'This endpoint is only for group chats' });
+        }
+
+        // Check if user is an admin
+        if (!conversation.admins.includes(userId)) {
+            return res.status(403).json({ error: 'Only group admins can delete the group' });
+        }
+
+        // Delete all messages in the conversation
+        await Message.deleteMany({ conversationId });
+
+        // Notify participants before deletion
+        const io = req.app.get('io');
+        if (io) {
+            conversation.participants.forEach(p => {
+                io.to(`user_${p}`).emit('groupDeleted', {
+                    conversationId,
+                    deletedBy: userId
+                });
+            });
+        }
+
+        // Delete the conversation
+        await Conversation.findByIdAndDelete(conversationId);
+
+        res.json({ success: true, message: 'Group deleted successfully' });
+    } catch (err) {
+        console.error('deleteGroup error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 };
