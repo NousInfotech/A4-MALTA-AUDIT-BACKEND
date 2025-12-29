@@ -1,10 +1,9 @@
-const axios = require('axios');
-const { supabase } = require('../config/supabase');
+const { transporter, isEmailEnabled, defaultFrom } = require('../config/email');
 
 /**
  * Email Service
- * Sends emails using a simple HTTP-based email service or Supabase email functionality
- * In production, integrate with services like SendGrid, AWS SES, or Nodemailer
+ * Production-ready email service using Nodemailer
+ * Supports multiple SMTP providers (Gmail, SendGrid, AWS SES, Office 365, etc.)
  */
 
 class EmailService {
@@ -14,44 +13,136 @@ class EmailService {
    * @param {string|string[]} params.to - Email address(es) to send to
    * @param {string} params.subject - Email subject
    * @param {string} params.html - HTML email body
-   * @param {string} params.text - Plain text email body (optional)
+   * @param {string} params.text - Plain text email body (optional, will be generated from HTML if not provided)
+   * @param {string} params.from - From email address (optional, uses default if not provided)
+   * @param {string} params.replyTo - Reply-to email address (optional)
+   * @param {Array} params.cc - CC email addresses (optional)
+   * @param {Array} params.bcc - BCC email addresses (optional)
    */
-  static async sendEmail({ to, subject, html, text }) {
+  static async sendEmail({ 
+    to, 
+    subject, 
+    html, 
+    text, 
+    from = defaultFrom,
+    replyTo,
+    cc,
+    bcc 
+  }) {
     const recipients = Array.isArray(to) ? to : [to];
     
-    // For now, we'll use Supabase's built-in email functionality if available
-    // Or log the email content for manual sending in development
-    // In production, integrate with a proper email service provider
+    // Validate recipients
+    if (!recipients || recipients.length === 0) {
+      throw new Error('No recipients specified');
+    }
     
-    try {
-      // Option 1: Use Supabase Edge Functions or Resend API (if configured)
-      // Option 2: Use a third-party service like SendGrid, AWS SES, etc.
+    // Validate email addresses format (basic validation)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalidEmails = recipients.filter(email => !emailRegex.test(email));
+    if (invalidEmails.length > 0) {
+      throw new Error(`Invalid email addresses: ${invalidEmails.join(', ')}`);
+    }
+
+    // Log email details (always log for audit trail)
+    console.log('📧 Email Notification:');
+    console.log('  From:', from);
+    console.log('  To:', recipients.join(', '));
+    if (cc) console.log('  CC:', Array.isArray(cc) ? cc.join(', ') : cc);
+    if (bcc) console.log('  BCC:', Array.isArray(bcc) ? bcc.join(', ') : bcc);
+    console.log('  Subject:', subject);
+    
+    // If email is disabled or transporter is not available, just log and return
+    if (!isEmailEnabled || !transporter) {
+      console.log('⚠️ Email sending disabled - logging email content:');
+      console.log('  HTML:', html ? 'Present' : 'Not provided');
+      console.log('  Text:', text || 'Not provided (will be generated from HTML)');
       
-      // For now, we'll create a notification in the database and log the email
-      // This allows the portal to show notifications to users
-      
-      console.log('📧 Email Notification:');
-      console.log('To:', recipients.join(', '));
-      console.log('Subject:', subject);
-      console.log('Body:', text || html);
-      
-      // TODO: Integrate with actual email service provider
-      // Example with Supabase (if using Supabase Email):
-      // const { data, error } = await supabase.functions.invoke('send-email', {
-      //   body: { to: recipients, subject, html, text }
-      // });
-      
-      // For development/testing: Return success and log
       return {
         success: true,
-        message: 'Email queued for sending',
-        recipients
+        message: 'Email logged (sending disabled)',
+        recipients,
+        sent: false
+      };
+    }
+
+    try {
+      // Prepare mail options
+      const mailOptions = {
+        from: from,
+        to: recipients.join(', '),
+        subject: subject,
+        html: html,
+        text: text || this.htmlToText(html), // Generate plain text from HTML if not provided
+        replyTo: replyTo || from
+      };
+
+      if (cc) {
+        mailOptions.cc = Array.isArray(cc) ? cc.join(', ') : cc;
+      }
+
+      if (bcc) {
+        mailOptions.bcc = Array.isArray(bcc) ? bcc.join(', ') : bcc;
+      }
+
+      // Send email via Nodemailer
+      const info = await transporter.sendMail(mailOptions);
+      
+      console.log('✅ Email sent successfully');
+      console.log('  Message ID:', info.messageId);
+      console.log('  Response:', info.response);
+
+      return {
+        success: true,
+        message: 'Email sent successfully',
+        recipients,
+        messageId: info.messageId,
+        sent: true
       };
       
     } catch (error) {
       console.error('❌ Email send error:', error);
-      throw new Error(`Failed to send email: ${error.message}`);
+      console.error('  Error details:', error.message);
+      
+      // Don't throw error in non-production to prevent breaking the request
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`Failed to send email: ${error.message}`);
+      } else {
+        console.warn('⚠️ Email sending failed but continuing (non-production mode)');
+        return {
+          success: false,
+          message: `Email send failed: ${error.message}`,
+          recipients,
+          sent: false,
+          error: error.message
+        };
+      }
     }
+  }
+
+  /**
+   * Convert HTML to plain text (basic conversion)
+   * @param {string} html - HTML content
+   * @returns {string} Plain text content
+   */
+  static htmlToText(html) {
+    if (!html) return '';
+    
+    // Basic HTML to text conversion
+    // Remove HTML tags and decode HTML entities
+    let text = html
+      .replace(/<style[^>]*>.*?<\/style>/gis, '') // Remove style tags
+      .replace(/<script[^>]*>.*?<\/script>/gis, '') // Remove script tags
+      .replace(/<[^>]+>/g, ' ') // Remove HTML tags
+      .replace(/&nbsp;/g, ' ') // Replace &nbsp;
+      .replace(/&amp;/g, '&') // Replace &amp;
+      .replace(/&lt;/g, '<') // Replace &lt;
+      .replace(/&gt;/g, '>') // Replace &gt;
+      .replace(/&quot;/g, '"') // Replace &quot;
+      .replace(/&#39;/g, "'") // Replace &#39;
+      .replace(/\s+/g, ' ') // Collapse whitespace
+      .trim();
+    
+    return text;
   }
 
   /**
