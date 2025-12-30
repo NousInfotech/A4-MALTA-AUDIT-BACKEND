@@ -1,6 +1,8 @@
 const { Workbook } = require("../models/ExcelWorkbook.js");
 const Sheet = require("../models/Sheet.js");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance.js");
+const WorkingPaper = require("../models/WorkingPaper.js");
+const ClassificationEvidence = require("../models/ClassificationEvidence.js");
 const { UserWorkbookPreference } = require("../models/UserWorkbookPreference.js");
 const XLSX = require("xlsx");
 const mongoose = require("mongoose");
@@ -571,7 +573,7 @@ const deleteWorkbook = async (req, res) => {
 
     await Sheet.deleteMany({ workbookId: workbook._id }, { session });
 
-    // Delete all mappings that reference this workbook from ExtendedTrialBalance
+    // ✅ Delete all mappings that reference this workbook from ExtendedTrialBalance
     await ExtendedTrialBalance.updateMany(
       {},
       {
@@ -582,7 +584,7 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
-    // Also remove workbook from linkedExcelFiles array in ExtendedTrialBalance
+    // ✅ Also remove workbook from linkedExcelFiles array in ExtendedTrialBalance
     await ExtendedTrialBalance.updateMany(
       {},
       {
@@ -593,6 +595,54 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
+    // ✅ Delete all mappings that reference this workbook from WorkingPaper
+    await WorkingPaper.updateMany(
+      {},
+      {
+        $pull: {
+          "rows.$[].mappings": { workbookId: workbook._id }
+        }
+      },
+      { session }
+    );
+
+    // ✅ Also remove workbook from linkedExcelFiles array in WorkingPaper
+    await WorkingPaper.updateMany(
+      {},
+      {
+        $pull: {
+          "rows.$[].linkedExcelFiles": workbook._id
+        }
+      },
+      { session }
+    );
+
+    // ✅ Delete all mappings that reference this workbook from ClassificationEvidence
+    await ClassificationEvidence.updateMany(
+      {},
+      {
+        $pull: {
+          "mappings": { workbookId: workbook._id }
+        }
+      },
+      { session }
+    );
+
+    // ✅ Also remove workbook from linkedWorkbooks array in ClassificationEvidence
+    await ClassificationEvidence.updateMany(
+      {},
+      {
+        $pull: {
+          "linkedWorkbooks": workbook._id
+        }
+      },
+      { session }
+    );
+
+    // ✅ Delete user preferences for this workbook
+    await UserWorkbookPreference.deleteMany({ workbookId: workbook._id }, { session });
+
+    // ✅ Finally, delete the workbook itself (this will also delete referenceFiles and notes as they're part of the workbook schema)
     await Workbook.deleteOne({ _id: workbook._id }, { session });
 
     await session.commitTransaction();
@@ -600,7 +650,7 @@ const deleteWorkbook = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Workbook '${workbook.name}' (ID: ${workbook._id}), all associated sheets, mappings, and ETB references deleted successfully.`,
+      message: `Workbook '${workbook.name}' (ID: ${workbook._id}), all associated sheets, mappings, reference files, notes, and all references from ETB, Working Papers, and Evidence deleted successfully.`,
     });
   } catch (error) {
     await session.abortTransaction();
