@@ -6,9 +6,9 @@ const ShareTypeEnum = ["Ordinary"];
 
 const ShareDataSchema = new Schema(
   {
-    totalShares: { type: Number, required: true, min: 0 },
-    class: { type: String, enum: ShareClassEnum, required: true },
-    type: { type: String, enum: ShareTypeEnum, required: true, default: "Ordinary" }
+    totalShares: { type: Number },
+    class: { type: String, enum: ShareClassEnum },
+    type: { type: String, enum: ShareTypeEnum, default: "Ordinary" }
   },
   { _id: false }
 );
@@ -47,7 +47,6 @@ const CompanySchema = new Schema(
     shareHoldingCompanies: [
       {
         companyId: { type: Types.ObjectId, ref: "Company", required: true },
-        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
         sharesData: {
           type: [ShareDataSchema],
           required: true,
@@ -68,7 +67,6 @@ const CompanySchema = new Schema(
     shareHolders: [
       {
         personId: { type: Types.ObjectId, ref: "Person", required: true },
-        sharePercentage: { type: Number, min: 0, max: 100, default: 0 },
         paidUpSharesPercentage: { type: Number },
         sharesData: {
           type: [ShareDataSchema],

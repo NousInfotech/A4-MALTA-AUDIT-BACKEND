@@ -20,5 +20,7 @@ router.get('/search', chatController.searchMessages); // Global search or conv s
 router.get('/starred', chatController.getStarredMessages); // Get starred messages
 router.post('/conversations/:conversationId/archive', chatController.toggleArchiveConversation);
 router.post('/conversations/:conversationId/read', chatController.markMessagesRead);
+router.post('/conversations/:conversationId/leave', chatController.leaveGroup);
+router.delete('/conversations/:conversationId', chatController.deleteGroup);
 
 module.exports = router;

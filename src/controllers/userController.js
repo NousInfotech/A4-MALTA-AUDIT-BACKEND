@@ -315,22 +315,9 @@ exports.createUser = async (req, res) => {
           Array.isArray(shareHolderData.shares) &&
           shareHolderData.shares.length > 0
         ) {
-          // Calculate total shares held by the person
-          const totalSharesHeld = shareHolderData.shares.reduce(
-            (sum, share) => sum + (share.totalShares || 0),
-            0
-          );
-
-          // Calculate share percentage
-          const sharePercentage =
-            companyTotalShares > 0
-              ? (totalSharesHeld / companyTotalShares) * 100
-              : 0;
-
           // Use provided shares data
           shareholders.push({
             personId: companyOwner._id,
-            sharePercentage: sharePercentage,
             sharesData: shareHolderData.shares.map((share) => ({
               totalShares: share.totalShares || 0,
               class: share.class || "A",
@@ -346,7 +333,6 @@ exports.createUser = async (req, res) => {
           }
           shareholders.push({
             personId: companyOwner._id,
-            sharePercentage: 100,
             sharesData: defaultSharesData,
             paidUpSharesPercentage: shareHolderData?.paidUpSharesPercentage ?? 100,
           });

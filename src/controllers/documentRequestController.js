@@ -4,8 +4,10 @@ const Company = require("../models/Company");
 const EngagementLibrary = require("../models/EngagementLibrary");
 const ClassificationEvidence = require("../models/ClassificationEvidence");
 const ClassificationSection = require("../models/ClassificationSection");
+const ChecklistItem = require("../models/ChecklistItem");
 const { supabase } = require("../config/supabase");
 const { notifyDocumentRequested } = require("../utils/notificationTriggers");
+const EmailService = require("../services/email.service");
 const archiver = require('archiver');
 const axios = require('axios');
 
@@ -212,6 +214,63 @@ exports.uploadDocuments = async (req, res, next) => {
 
     await dr.save();
 
+    // Update checklist items linked to this document request
+    try {
+      // Find checklist items linked to this document request
+      const checklistItems = await ChecklistItem.find({
+        engagement: dr.engagement,
+        documentRequestId: dr._id
+      });
+      
+      // Update checklist items: mark as requested and uploaded
+      for (const item of checklistItems) {
+        item.isRequested = true;
+        item.isUploaded = true;
+        // If all documents are uploaded, mark checklist item as completed
+        const allDocsUploaded = dr.documents.every(doc => doc.status === 'uploaded' || doc.status === 'approved');
+        if (allDocsUploaded && dr.documents.length > 0) {
+          item.completed = true;
+        }
+        await item.save();
+      }
+      
+      // Also try to find checklist items by document name/category mapping
+      if (checklistItems.length === 0 && dr.engagement) {
+        // Map document names to checklist keys
+        const documentToChecklistMap = {
+          'Professional Clearance Letter': 'prof-clearance-letter',
+          'Removal of Auditor': 'removal-auditor',
+          'professional clearance': 'prof-clearance-letter',
+          'removal of auditor': 'removal-auditor'
+        };
+        
+        // Check if any document name matches a checklist item
+        for (const doc of dr.documents) {
+          const docName = doc.name?.toLowerCase() || '';
+          for (const [key, checklistKey] of Object.entries(documentToChecklistMap)) {
+            if (docName.includes(key.toLowerCase()) || dr.category.toLowerCase().includes('kyc')) {
+              const checklistItem = await ChecklistItem.findOne({
+                engagement: dr.engagement,
+                key: checklistKey
+              });
+              
+              if (checklistItem) {
+                checklistItem.documentRequestId = dr._id;
+                checklistItem.isRequested = true;
+                checklistItem.isUploaded = true;
+                checklistItem.completed = true;
+                await checklistItem.save();
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (checklistError) {
+      console.error('Error updating checklist items:', checklistError);
+      // Don't fail the upload if checklist update fails
+    }
+
     // Update KYC status if this is a KYC document request
     if (dr.category === 'kyc') {
       try {
@@ -240,7 +299,7 @@ exports.uploadDocuments = async (req, res, next) => {
 
 exports.createRequest = async (req, res, next) => {
   try {
-    const { engagementId, category, name, description, comment, documents, multipleDocuments, attachment } = req.body;
+    const { engagementId, category, name, description, comment, documents, multipleDocuments, attachment, notificationEmails } = req.body;
     
     // Validate that all documents have required fields
     if (documents && Array.isArray(documents)) {
@@ -333,8 +392,47 @@ exports.createRequest = async (req, res, next) => {
       comment: comment || "",
       documents: documents || [],
       multipleDocuments: multipleDocuments || [],
-      attachment: attachmentData
+      attachment: attachmentData,
+      notificationEmails: notificationEmails || []
     });
+
+    // Link checklist items with document request for KYC documents
+    try {
+      if (category === 'kyc' && engagementId) {
+        const documentToChecklistMap = {
+          'Professional Clearance Letter': 'prof-clearance-letter',
+          'Removal of Auditor': 'removal-auditor',
+          'professional clearance': 'prof-clearance-letter',
+          'removal of auditor': 'removal-auditor'
+        };
+        
+        // Check if any document name matches a checklist item
+        const allDocNames = [
+          ...(documents || []).map(d => d.name?.toLowerCase() || ''),
+          ...(multipleDocuments || []).map(d => d.name?.toLowerCase() || ''),
+          name?.toLowerCase() || '',
+          description?.toLowerCase() || ''
+        ];
+        
+        for (const [key, checklistKey] of Object.entries(documentToChecklistMap)) {
+          if (allDocNames.some(docName => docName.includes(key.toLowerCase()))) {
+            const checklistItem = await ChecklistItem.findOne({
+              engagement: engagementId,
+              key: checklistKey
+            });
+            
+            if (checklistItem) {
+              checklistItem.documentRequestId = dr._id;
+              checklistItem.isRequested = true;
+              await checklistItem.save();
+            }
+          }
+        }
+      }
+    } catch (checklistError) {
+      console.error('Error linking checklist items:', checklistError);
+      // Don't fail the request creation if checklist linking fails
+    }
     
     // Send notification to client when auditor/admin creates document request
     try {
@@ -375,6 +473,52 @@ exports.createRequest = async (req, res, next) => {
         );
         
         console.log(`✅ Notification sent to client ${clientId} for document request ${dr._id}`);
+        
+        // Send email notifications to specified email addresses
+        if (notificationEmails && Array.isArray(notificationEmails) && notificationEmails.length > 0) {
+          try {
+            const portalBaseUrl = process.env.PORTAL_URL || 'http://localhost:8080';
+            const portalUrl = `${portalBaseUrl}/client/document-requests?id=${dr._id}`;
+            
+            // Get client email from Supabase
+            let clientEmail = null;
+            try {
+              const { data: clientProfile } = await supabase
+                .from('profiles')
+                .select('email')
+                .eq('user_id', clientId)
+                .single();
+              
+              if (clientProfile && clientProfile.email) {
+                clientEmail = clientProfile.email;
+              }
+            } catch (emailError) {
+              console.log('Could not fetch client email:', emailError.message);
+            }
+            
+            // Combine client email with notification emails (remove duplicates)
+            const allEmails = [...new Set([...notificationEmails, clientEmail].filter(Boolean))];
+            
+            await EmailService.sendDocumentRequestEmail({
+              to: allEmails,
+              documentRequestName: dr.name,
+              category: category,
+              description: description,
+              requesterName: requesterName,
+              engagementTitle: engagementTitle,
+              portalUrl: portalUrl
+            });
+            
+            // Mark email as sent
+            dr.emailNotificationSent = true;
+            await dr.save();
+            
+            console.log(`📧 Email notifications sent to ${allEmails.length} recipient(s) for document request ${dr._id}`);
+          } catch (emailError) {
+            console.error('Failed to send email notifications:', emailError);
+            // Don't fail the request if email fails
+          }
+        }
       }
     } catch (notificationError) {
       // Log error but don't fail the request

@@ -91,9 +91,52 @@ exports.generateFinancialStatementReview = async (req, res) => {
       return res.status(400).json({ error: "Engagement ID is required" });
     }
 
+    // Extract request body parameters
+    // Handle FormData - fields come as strings, need to parse
+    let includeTests = req.body?.includeTests;
+    let includePortalData = req.body?.includePortalData;
+    
+    // Parse includeTests if it's a JSON string (from FormData)
+    if (includeTests && typeof includeTests === 'string') {
+      try {
+        includeTests = JSON.parse(includeTests);
+      } catch (e) {
+        // If parsing fails, try to split by comma or treat as single value
+        includeTests = includeTests.split(',').map(s => s.trim());
+      }
+    }
+    
+    // Parse includePortalData if it's a string (from FormData)
+    if (typeof includePortalData === 'string') {
+      includePortalData = includePortalData === 'true';
+    }
+    
+    // Validate includeTests if provided
+    const validCategories = ['AUDIT_REPORT', 'BALANCE_SHEET', 'INCOME_STATEMENT', 'GENERAL', 'NOTES_AND_POLICY', 'CROSS_STATEMENT', 'PRESENTATION', 'ALL'];
+    const defaultIncludeTests = ['ALL'];
+    
+    let finalIncludeTests = defaultIncludeTests;
+    if (includeTests) {
+      // Ensure it's an array
+      const testsArray = Array.isArray(includeTests) ? includeTests : [includeTests];
+      // Validate all values are valid categories
+      const invalidCategories = testsArray.filter(cat => !validCategories.includes(cat));
+      if (invalidCategories.length > 0) {
+        return res.status(400).json({ 
+          error: `Invalid categories in includeTests: ${invalidCategories.join(', ')}. Valid options: ${validCategories.join(', ')}` 
+        });
+      }
+      finalIncludeTests = testsArray;
+    }
+
+    // Default includePortalData to false if not provided
+    const finalIncludePortalData = includePortalData === true || includePortalData === 'true';
+
     const result = await fsReviewServices.generateFinancialStatementReview(
       engagementId,
-      file
+      file,
+      finalIncludeTests,
+      finalIncludePortalData
     );
     
     res.status(200).json({

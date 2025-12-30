@@ -14,4 +14,10 @@ router.patch(
   cc.updateChecklistItem
 );
 
+router.get(
+  '/engagement/:engagementId/completion',
+  requireAuth,
+  cc.getChecklistCompletion
+);
+
 module.exports = router;
