@@ -63,17 +63,17 @@ if (isEmailEnabled) {
         }
       });
 
-      // Verify connection on startup
-      transporter.verify((error, success) => {
-        if (error) {
+      // Verify connection on startup (async)
+      transporter.verify()
+        .then(() => {
+          console.log('✅ SMTP connection verified successfully');
+          console.log(`📧 Email service ready (From: ${defaultFrom})`);
+        })
+        .catch((error) => {
           console.error('❌ SMTP connection verification failed:', error.message);
           console.error('❌ Email sending will be disabled. Please check your SMTP configuration.');
           transporter = null;
-        } else {
-          console.log('✅ SMTP connection verified successfully');
-          console.log(`📧 Email service ready (From: ${defaultFrom})`);
-        }
-      });
+        });
     } catch (error) {
       console.error('❌ Failed to create email transporter:', error.message);
       transporter = null;

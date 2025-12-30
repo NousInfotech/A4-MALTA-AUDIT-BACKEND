@@ -248,7 +248,7 @@ exports.notifyDocumentRequested = async (documentId, userId, documentName, reque
     module: 'document',
     priority: 'normal',
     documentId,
-    actionUrl: `/documents/${documentId}`,
+    actionUrl: `/client/document-requests?id=${documentId}`,
     data: { documentName, requestedBy, category }
   });
 };
@@ -266,7 +266,7 @@ exports.notifyDocumentUploaded = async (documentId, userIds, documentName, uploa
     module: 'document',
     priority: 'normal',
     documentId,
-    actionUrl: `/documents/${documentId}`,
+    actionUrl: `/client/document-requests?id=${documentId}`,
     data: { documentName, uploadedBy, category }
   });
 };
@@ -284,7 +284,7 @@ exports.notifyAdminDocumentUploaded = async (adminIds, documentId, documentName,
     module: 'document',
     priority: 'normal',
     documentId,
-    actionUrl: `/admin/documents/${documentId}`,
+    actionUrl: `/admin/document-requests?id=${documentId}`,
     data: { documentName, uploadedBy, category, uploadedByRole }
   });
 };

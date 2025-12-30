@@ -727,31 +727,34 @@ exports.updateChecklistItem = async (req, res, next) => {
 
     // If trying to mark as completed, check if all previous items are completed
     if (completed === true && !currentItem.completed) {
-      const totalItems = allItems.length;
-      const totalCompleted = completedCount;
-      
-      // Check if all items before this one are completed (sequential completion restriction)
-      // For simplicity, we check if at least 80% are completed, or if this is the last item
-      // You can adjust this logic based on requirements
-      
-      // Get item index in ordered list (if you maintain order)
-      const itemIndex = allItems.findIndex(item => item._id.toString() === req.params.id);
-      
-      // If not all previous items are completed, enforce restriction
-      // Allow completion if:
-      // 1. All previous items are completed, OR
-      // 2. At least 80% of items are completed (for flexibility), OR  
-      // 3. User is admin/employee (auditors can override)
-      const completionPercentage = (completedCount / totalItems) * 100;
-      const isAdminOrEmployee = req.user.role === 'admin' || req.user.role === 'employee';
-      
-      if (completionPercentage < 80 && !isAdminOrEmployee) {
-        return res.status(400).json({
-          message: "Please complete other checklist items first before marking this as complete. At least 80% of checklist items must be completed.",
-          completionPercentage: completionPercentage.toFixed(1),
-          completedItems: completedCount,
-          totalItems: totalItems
-        });
+      // Check if this item has restriction enabled
+      if (currentItem.isRestricted) {
+        const totalItems = allItems.length;
+        const totalCompleted = completedCount;
+        
+        // Check if all items before this one are completed (sequential completion restriction)
+        // For simplicity, we check if at least 80% are completed, or if this is the last item
+        // You can adjust this logic based on requirements
+        
+        // Get item index in ordered list (if you maintain order)
+        const itemIndex = allItems.findIndex(item => item._id.toString() === req.params.id);
+        
+        // If not all previous items are completed, enforce restriction
+        // Allow completion if:
+        // 1. All previous items are completed, OR
+        // 2. At least 80% of items are completed (for flexibility), OR  
+        // 3. User is admin/employee (auditors can override)
+        const completionPercentage = (completedCount / totalItems) * 100;
+        const isAdminOrEmployee = req.user.role === 'admin' || req.user.role === 'employee';
+        
+        if (completionPercentage < 80 && !isAdminOrEmployee) {
+          return res.status(400).json({
+            message: "Please complete other checklist items first before marking this as complete. At least 80% of checklist items must be completed.",
+            completionPercentage: completionPercentage.toFixed(1),
+            completedItems: completedCount,
+            totalItems: totalItems
+          });
+        }
       }
     }
 

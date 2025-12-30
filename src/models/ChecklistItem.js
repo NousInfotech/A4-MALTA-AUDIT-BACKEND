@@ -131,6 +131,10 @@ const ChecklistItemSchema = new Schema({
     type: Types.ObjectId,
     ref: 'EngagementLibrary',
     default: null
+  },
+  isRestricted: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

@@ -477,8 +477,8 @@ exports.createRequest = async (req, res, next) => {
         // Send email notifications to specified email addresses
         if (notificationEmails && Array.isArray(notificationEmails) && notificationEmails.length > 0) {
           try {
-            const portalBaseUrl = process.env.PORTAL_URL || 'http://localhost:5173';
-            const portalUrl = `${portalBaseUrl}/client/document-requests/${dr._id}`;
+            const portalBaseUrl = process.env.PORTAL_URL || 'http://localhost:8080';
+            const portalUrl = `${portalBaseUrl}/client/document-requests?id=${dr._id}`;
             
             // Get client email from Supabase
             let clientEmail = null;
