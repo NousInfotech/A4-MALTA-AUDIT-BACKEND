@@ -573,9 +573,10 @@ const deleteWorkbook = async (req, res) => {
 
     await Sheet.deleteMany({ workbookId: workbook._id }, { session });
 
-    // ✅ Delete all mappings that reference this workbook from ExtendedTrialBalance
+    // ✅ OPTIMIZED: Only update ExtendedTrialBalance documents that actually reference this workbook
+    // Remove mappings from rows that have this workbookId
     await ExtendedTrialBalance.updateMany(
-      {},
+      { "rows.mappings.workbookId": workbook._id },
       {
         $pull: {
           "rows.$[].mappings": { workbookId: workbook._id }
@@ -584,9 +585,9 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
-    // ✅ Also remove workbook from linkedExcelFiles array in ExtendedTrialBalance
+    // ✅ OPTIMIZED: Only update ExtendedTrialBalance documents that have this workbook in linkedExcelFiles
     await ExtendedTrialBalance.updateMany(
-      {},
+      { "rows.linkedExcelFiles": workbook._id },
       {
         $pull: {
           "rows.$[].linkedExcelFiles": workbook._id
@@ -595,9 +596,10 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
-    // ✅ Delete all mappings that reference this workbook from WorkingPaper
+    // ✅ OPTIMIZED: Only update WorkingPaper documents that actually reference this workbook
+    // Remove mappings from rows that have this workbookId
     await WorkingPaper.updateMany(
-      {},
+      { "rows.mappings.workbookId": workbook._id },
       {
         $pull: {
           "rows.$[].mappings": { workbookId: workbook._id }
@@ -606,9 +608,9 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
-    // ✅ Also remove workbook from linkedExcelFiles array in WorkingPaper
+    // ✅ OPTIMIZED: Only update WorkingPaper documents that have this workbook in linkedExcelFiles
     await WorkingPaper.updateMany(
-      {},
+      { "rows.linkedExcelFiles": workbook._id },
       {
         $pull: {
           "rows.$[].linkedExcelFiles": workbook._id
@@ -617,22 +619,17 @@ const deleteWorkbook = async (req, res) => {
       { session }
     );
 
-    // ✅ Delete all mappings that reference this workbook from ClassificationEvidence
+    // ✅ OPTIMIZED: Only update ClassificationEvidence documents that actually reference this workbook
     await ClassificationEvidence.updateMany(
-      {},
       {
-        $pull: {
-          "mappings": { workbookId: workbook._id }
-        }
+        $or: [
+          { "mappings.workbookId": workbook._id },
+          { "linkedWorkbooks": workbook._id }
+        ]
       },
-      { session }
-    );
-
-    // ✅ Also remove workbook from linkedWorkbooks array in ClassificationEvidence
-    await ClassificationEvidence.updateMany(
-      {},
       {
         $pull: {
+          "mappings": { workbookId: workbook._id },
           "linkedWorkbooks": workbook._id
         }
       },
