@@ -86,4 +86,18 @@ router.get('/engagement/:engagementId',
   reviewController.getReviewsForEngagement
 );
 
+// Update a review workflow (only by owner)
+router.put('/workflows/:workflowId', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.updateReviewWorkflow
+);
+
+// Delete a review workflow (only by owner)
+router.delete('/workflows/:workflowId', 
+  requireAuth, 
+  requireRole(['employee', 'reviewer', 'partner', 'admin']), 
+  reviewController.deleteReviewWorkflow
+);
+
 module.exports = router;

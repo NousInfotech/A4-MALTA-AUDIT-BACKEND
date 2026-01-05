@@ -789,3 +789,131 @@ exports.getReviewsForEngagement = async (req, res, next) => {
     next(err);
   }
 };
+
+// Update a review workflow (only by the user who created it)
+exports.updateReviewWorkflow = async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    const userId = req.user.id;
+    const updateData = req.body;
+
+    const workflow = await ReviewWorkflow.findById(workflowId);
+    if (!workflow) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Review workflow not found' 
+      });
+    }
+
+    // Check ownership - user must be the one who performed the action
+    const isOwner = 
+      workflow.reviewedBy === userId ||
+      workflow.approvedBy === userId ||
+      workflow.signedOffBy === userId ||
+      workflow.reopenedBy === userId ||
+      workflow.assignedReviewer === userId;
+
+    if (!isOwner) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You can only update your own reviews' 
+      });
+    }
+
+    // Only allow updating certain fields
+    const allowedFields = ['status', 'reviewComments', 'signOffComments', 'reopenReason'];
+    const updateFields = {};
+    
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        updateFields[field] = updateData[field];
+      }
+    });
+
+    // Always set reviewedBy to current user when updating (the user who made the update)
+    updateFields.reviewedBy = userId;
+    updateFields.assignedReviewer = userId;
+
+    // Set status-specific fields based on new status
+    const newStatus = updateData.status || workflow.status;
+    if (newStatus === 'approved') {
+      updateFields.approvedBy = userId;
+      updateFields.approvedAt = new Date();
+    } else if (newStatus === 'signed-off') {
+      updateFields.signedOffBy = userId;
+      updateFields.signedOffAt = new Date();
+      updateFields.isLocked = true;
+      updateFields.lockedAt = new Date();
+      updateFields.lockedBy = userId;
+    } else if (newStatus === 're-opened') {
+      updateFields.reopenedBy = userId;
+      updateFields.reopenedAt = new Date();
+      updateFields.isLocked = false;
+    } else if (newStatus === 'in-progress' || newStatus === 'ready-for-review' || newStatus === 'under-review' || newStatus === 'rejected') {
+      updateFields.reviewedAt = new Date();
+    }
+
+    const updatedWorkflow = await ReviewWorkflow.findByIdAndUpdate(
+      workflowId,
+      { $set: updateFields },
+      { new: true, runValidators: true }
+    );
+
+    res.json({
+      success: true,
+      workflow: updatedWorkflow
+    });
+  } catch (err) {
+    console.error('Error updating review workflow:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: err.message 
+    });
+  }
+};
+
+// Delete a review workflow (only by the user who created it)
+exports.deleteReviewWorkflow = async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    const userId = req.user.id;
+
+    const workflow = await ReviewWorkflow.findById(workflowId);
+    if (!workflow) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Review workflow not found' 
+      });
+    }
+
+    // Check ownership - user must be the one who performed the action
+    const isOwner = 
+      workflow.reviewedBy === userId ||
+      workflow.approvedBy === userId ||
+      workflow.signedOffBy === userId ||
+      workflow.reopenedBy === userId ||
+      workflow.assignedReviewer === userId;
+
+    if (!isOwner) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You can only delete your own reviews' 
+      });
+    }
+
+    await ReviewWorkflow.findByIdAndDelete(workflowId);
+
+    res.json({
+      success: true,
+      message: 'Review workflow deleted successfully'
+    });
+  } catch (err) {
+    console.error('Error deleting review workflow:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: err.message 
+    });
+  }
+};

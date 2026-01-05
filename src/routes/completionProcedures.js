@@ -19,6 +19,9 @@ router.post("/:engagementId/generate/section-answers", completionCtrl.generateSe
 // Generate recommendations
 router.post("/:engagementId/generate/recommendations", completionCtrl.generateRecommendations);
 
+// Generate reviews
+router.post("/reviews/generate", completionCtrl.generateReviews);
+
 // Hybrid Section Questions
 router.post("/:engagementId/generate/hybrid-section-questions", completionCtrl.generateHybridSectionQuestions)
 

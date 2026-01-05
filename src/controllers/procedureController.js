@@ -1,5 +1,6 @@
 // src/controllers/procedure.controller.js
 const Procedure = require("../models/Procedure.js");
+const ReviewWorkflow = require("../models/ReviewWorkflow.js");
 const { buildOneShotExamples } = require("../services/classification.service.js");
 const { generateJson } = require("../services/llm.service.js");
 const Engagement = require("../models/Engagement.js");
@@ -156,7 +157,26 @@ async function saveProcedure(req, res) {
       questions: procedureData.questions || [],
       recommendations: procedureData.recommendations,
       status: procedureData.status || "draft",
-      createdBy: procedureData.createdBy
+      createdBy: procedureData.createdBy,
+      // Review fields
+      reviewStatus: procedureData.reviewStatus,
+      reviewComments: procedureData.reviewComments,
+      // Advanced review fields
+      reviewerId: procedureData.reviewerId,
+      reviewedAt: procedureData.reviewedAt ? new Date(procedureData.reviewedAt) : undefined,
+      approvedBy: procedureData.approvedBy,
+      approvedAt: procedureData.approvedAt ? new Date(procedureData.approvedAt) : undefined,
+      signedOffBy: procedureData.signedOffBy,
+      signedOffAt: procedureData.signedOffAt ? new Date(procedureData.signedOffAt) : undefined,
+      signOffComments: procedureData.signOffComments,
+      isSignedOff: procedureData.isSignedOff !== undefined ? procedureData.isSignedOff : false,
+      isLocked: procedureData.isLocked !== undefined ? procedureData.isLocked : false,
+      lockedAt: procedureData.lockedAt ? new Date(procedureData.lockedAt) : undefined,
+      lockedBy: procedureData.lockedBy,
+      reopenedAt: procedureData.reopenedAt ? new Date(procedureData.reopenedAt) : undefined,
+      reopenedBy: procedureData.reopenedBy,
+      reopenReason: procedureData.reopenReason,
+      reviewVersion: procedureData.reviewVersion || 1
     };
 
     const procedure = await Procedure.findOneAndUpdate(
@@ -164,6 +184,67 @@ async function saveProcedure(req, res) {
       transformedData,
       { upsert: true, new: true, runValidators: true }
     );
+
+    // Create a new ReviewWorkflow entry for each status change (history tracking)
+    if (procedureData.reviewStatus || procedureData.reviewComments) {
+      const currentStatus = procedureData.reviewStatus || 'in-progress';
+      
+      // Base data that's always included
+      const reviewWorkflowData = {
+        itemType: 'procedure',
+        itemId: procedure._id,
+        engagement: engagementId,
+        status: currentStatus,
+        reviewComments: procedureData.reviewComments || undefined,
+      };
+
+      // Always set reviewedBy for all statuses (the user who updated the review)
+      const reviewerId = procedureData.reviewerId || procedureData.approvedBy || procedureData.signedOffBy || procedureData.reopenedBy || undefined;
+      if (reviewerId) {
+        reviewWorkflowData.reviewedBy = reviewerId;
+        reviewWorkflowData.assignedReviewer = reviewerId;
+      }
+
+      // Set status-specific fields
+      if (currentStatus === 'ready-for-review' || currentStatus === 'under-review') {
+        reviewWorkflowData.reviewedAt = procedureData.reviewedAt ? new Date(procedureData.reviewedAt) : new Date();
+      }
+
+      if (currentStatus === 'approved') {
+        // Use approvedBy from payload, or fall back to reviewerId if not provided
+        reviewWorkflowData.approvedBy = procedureData.approvedBy || reviewerId || undefined;
+        reviewWorkflowData.approvedAt = procedureData.approvedAt ? new Date(procedureData.approvedAt) : new Date();
+      }
+
+      if (currentStatus === 'rejected') {
+        // For rejected status, we can track who rejected it
+        reviewWorkflowData.reviewedAt = procedureData.reviewedAt ? new Date(procedureData.reviewedAt) : new Date();
+      }
+
+      if (currentStatus === 'signed-off') {
+        reviewWorkflowData.signedOffBy = procedureData.signedOffBy || reviewerId || undefined;
+        reviewWorkflowData.signedOffAt = procedureData.signedOffAt ? new Date(procedureData.signedOffAt) : undefined;
+        reviewWorkflowData.signOffComments = procedureData.signOffComments || undefined;
+        reviewWorkflowData.isLocked = true;
+        reviewWorkflowData.lockedAt = procedureData.lockedAt ? new Date(procedureData.lockedAt) : new Date();
+        reviewWorkflowData.lockedBy = procedureData.lockedBy || procedureData.signedOffBy || reviewerId || undefined;
+      }
+
+      if (currentStatus === 're-opened') {
+        reviewWorkflowData.reopenedBy = procedureData.reopenedBy || reviewerId || undefined;
+        reviewWorkflowData.reopenedAt = procedureData.reopenedAt ? new Date(procedureData.reopenedAt) : undefined;
+        reviewWorkflowData.reopenReason = procedureData.reopenReason || undefined;
+        reviewWorkflowData.isLocked = false;
+      }
+
+      // For in-progress, set reviewedAt if not already set
+      if (currentStatus === 'in-progress' && !reviewWorkflowData.reviewedAt) {
+        reviewWorkflowData.reviewedAt = new Date();
+      }
+
+      // Create a new entry instead of updating (for history tracking)
+      await ReviewWorkflow.create(reviewWorkflowData);
+    }
 
     res.json({ ok: true, procedure });
   } catch (error) {
@@ -552,6 +633,86 @@ async function generateAIClassificationAnswersSeparate(req, res) {
   }
 }
   
+// Generate AI reviews for procedures
+async function generateReviews(req, res) {
+  try {
+    const { engagementId, procedureId, recommendations = [], questions = [] } = req.body;
+    
+    if (!engagementId) {
+      return res.status(400).json({ error: "engagementId is required" });
+    }
+
+    const context = await buildContext(engagementId, []);
+    
+    // Build prompt for review generation
+    const reviewPrompt = `You are an audit review expert. Review the following audit procedures and provide professional review comments for each procedure.
+
+Context:
+- Client Profile: ${JSON.stringify(context.clientProfile || {})}
+- Number of Procedures: ${recommendations.length}
+- Related Questions: ${questions.length}
+
+Procedures to Review:
+${recommendations.map((rec, idx) => `${idx + 1}. ${rec.text || rec.content || JSON.stringify(rec)}`).join('\n')}
+
+For each procedure, provide:
+1. A brief review comment highlighting strengths, potential issues, or areas needing attention
+2. Any recommendations for improvement
+3. Compliance or quality assessment
+
+Return a JSON array with the following structure:
+[
+  {
+    "procedureId": "procedure-1",
+    "comment": "Review comment here..."
+  },
+  ...
+]
+
+Each procedureId should match the index (procedure-0, procedure-1, etc.) or the procedure's id field if available.`;
+
+    const reviewResult = await generateJson({
+      prompt: reviewPrompt,
+      model: "gpt-4o-mini",
+      max_tokens: 2000
+    });
+
+    let reviews = [];
+    if (reviewResult && Array.isArray(reviewResult)) {
+      reviews = reviewResult;
+    } else if (reviewResult && reviewResult.reviews && Array.isArray(reviewResult.reviews)) {
+      reviews = reviewResult.reviews;
+    } else {
+      // Fallback: generate reviews manually
+      reviews = recommendations.map((rec, idx) => ({
+        procedureId: rec.id || `procedure-${idx}`,
+        comment: `Review: This procedure appears to be appropriate for the audit engagement. Please verify completeness and accuracy.`
+      }));
+    }
+
+    // Ensure each review has a matching procedureId
+    reviews = recommendations.map((rec, idx) => {
+      const review = reviews.find(r => 
+        r.procedureId === rec.id || 
+        r.procedureId === `procedure-${idx}` ||
+        r.procedureId === `procedure-${rec.id || idx}`
+      );
+      return {
+        procedureId: rec.id || `procedure-${idx}`,
+        comment: review?.comment || `Review: This procedure requires manual review.`
+      };
+    });
+
+    res.json({
+      ok: true,
+      reviews: reviews
+    });
+  } catch (err) {
+    console.error("Error generating reviews:", err);
+    res.status(500).json({ ok: false, error: err.message || "Server error (reviews)" });
+  }
+}
+
 module.exports = {
   saveProcedure,
   hybridGenerateQuestions,
@@ -561,4 +722,5 @@ module.exports = {
   getProcedure,
   generateRecommendations,
   saveProcedurebySection,
+  generateReviews,
 };

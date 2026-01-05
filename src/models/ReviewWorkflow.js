@@ -14,6 +14,10 @@ const ReviewWorkflowSchema = new Schema({
     required: true,
     index: true
   },
+  sectionId: {
+    type: String,
+    index: true
+  },
   engagement: {
     type: Types.ObjectId,
     ref: 'Engagement',
@@ -54,6 +58,17 @@ const ReviewWorkflowSchema = new Schema({
     type: String // User ID
   },
   reviewComments: {
+    type: String
+  },
+
+  // Approval process
+  approvedAt: {
+    type: Date
+  },
+  approvedBy: {
+    type: String // User ID
+  },
+  approvalComments: {
     type: String
   },
 
@@ -152,7 +167,8 @@ ReviewWorkflowSchema.virtual('item', {
 });
 
 // Indexes for better query performance
-ReviewWorkflowSchema.index({ itemType: 1, itemId: 1 }, { unique: true });
+// Note: Removed unique constraint on itemType + itemId to allow multiple entries for history tracking
+ReviewWorkflowSchema.index({ itemType: 1, itemId: 1 });
 ReviewWorkflowSchema.index({ engagement: 1, status: 1 });
 ReviewWorkflowSchema.index({ assignedReviewer: 1, status: 1 });
 ReviewWorkflowSchema.index({ status: 1, priority: 1 });

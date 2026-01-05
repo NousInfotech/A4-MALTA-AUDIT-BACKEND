@@ -1,5 +1,6 @@
 // controllers/completionProcedureController.js
 const CompletionProcedure = require("../models/CompletionProcedure");
+const ReviewWorkflow = require("../models/ReviewWorkflow");
 const Engagement = require("../models/Engagement");
 const ExtendedTrialBalance = require("../models/ExtendedTrialBalance");
 const EngagementLibrary = require("../models/EngagementLibrary");
@@ -419,6 +420,60 @@ exports.save = async (req, res) => {
     doc.materiality = payload.materiality;
     doc.selectedSections = payload.selectedSections;
 
+    // Review fields
+    if (payload.reviewStatus !== undefined) {
+      doc.reviewStatus = payload.reviewStatus;
+    }
+    if (payload.reviewComments !== undefined) {
+      doc.reviewComments = payload.reviewComments;
+    }
+    // Advanced review fields
+    if (payload.reviewerId !== undefined) {
+      doc.reviewerId = payload.reviewerId;
+    }
+    if (payload.reviewedAt) {
+      doc.reviewedAt = new Date(payload.reviewedAt);
+    }
+    if (payload.approvedBy !== undefined) {
+      doc.approvedBy = payload.approvedBy;
+    }
+    if (payload.approvedAt) {
+      doc.approvedAt = new Date(payload.approvedAt);
+    }
+    if (payload.signedOffBy !== undefined) {
+      doc.signedOffBy = payload.signedOffBy;
+    }
+    if (payload.signedOffAt) {
+      doc.signedOffAt = new Date(payload.signedOffAt);
+    }
+    if (payload.signOffComments !== undefined) {
+      doc.signOffComments = payload.signOffComments;
+    }
+    if (payload.isSignedOff !== undefined) {
+      doc.isSignedOff = payload.isSignedOff;
+    }
+    if (payload.isLocked !== undefined) {
+      doc.isLocked = payload.isLocked;
+    }
+    if (payload.lockedAt) {
+      doc.lockedAt = new Date(payload.lockedAt);
+    }
+    if (payload.lockedBy !== undefined) {
+      doc.lockedBy = payload.lockedBy;
+    }
+    if (payload.reopenedAt) {
+      doc.reopenedAt = new Date(payload.reopenedAt);
+    }
+    if (payload.reopenedBy !== undefined) {
+      doc.reopenedBy = payload.reopenedBy;
+    }
+    if (payload.reopenReason !== undefined) {
+      doc.reopenReason = payload.reopenReason;
+    }
+    if (payload.reviewVersion !== undefined) {
+      doc.reviewVersion = payload.reviewVersion;
+    }
+
     // Handle file uploads
     const uploaded = [];
     const files = req.files || [];
@@ -478,6 +533,68 @@ exports.save = async (req, res) => {
 
   // Save the document
   await doc.save();
+
+  // Create a new ReviewWorkflow entry for each status change (history tracking)
+  if (payload.reviewStatus || payload.reviewComments) {
+    const currentStatus = payload.reviewStatus || 'in-progress';
+    
+        // Base data that's always included
+        const reviewWorkflowData = {
+          itemType: 'completion-procedure',
+          itemId: doc._id,
+          engagement: engagementId,
+          status: currentStatus,
+          reviewComments: payload.reviewComments || undefined,
+          sectionId: payload.sectionId || undefined, // Include sectionId for filtering
+        };
+
+        // Always set reviewedBy for all statuses (the user who updated the review)
+        const reviewerId = payload.reviewerId || payload.approvedBy || payload.signedOffBy || payload.reopenedBy || undefined;
+        if (reviewerId) {
+          reviewWorkflowData.reviewedBy = reviewerId;
+          reviewWorkflowData.assignedReviewer = reviewerId;
+        }
+
+        // Set status-specific fields
+        if (currentStatus === 'ready-for-review' || currentStatus === 'under-review') {
+          reviewWorkflowData.reviewedAt = payload.reviewedAt ? new Date(payload.reviewedAt) : new Date();
+        }
+
+        if (currentStatus === 'approved') {
+          // Use approvedBy from payload, or fall back to reviewerId if not provided
+          reviewWorkflowData.approvedBy = payload.approvedBy || reviewerId || undefined;
+          reviewWorkflowData.approvedAt = payload.approvedAt ? new Date(payload.approvedAt) : new Date();
+        }
+
+        if (currentStatus === 'rejected') {
+          // For rejected status, we can track who rejected it
+          reviewWorkflowData.reviewedAt = payload.reviewedAt ? new Date(payload.reviewedAt) : new Date();
+        }
+
+        if (currentStatus === 'signed-off') {
+          reviewWorkflowData.signedOffBy = payload.signedOffBy || reviewerId || undefined;
+          reviewWorkflowData.signedOffAt = payload.signedOffAt ? new Date(payload.signedOffAt) : new Date();
+          reviewWorkflowData.signOffComments = payload.signOffComments || undefined;
+          reviewWorkflowData.isLocked = true;
+          reviewWorkflowData.lockedAt = payload.lockedAt ? new Date(payload.lockedAt) : new Date();
+          reviewWorkflowData.lockedBy = payload.lockedBy || payload.signedOffBy || reviewerId || undefined;
+        }
+
+        if (currentStatus === 're-opened') {
+          reviewWorkflowData.reopenedBy = payload.reopenedBy || reviewerId || undefined;
+          reviewWorkflowData.reopenedAt = payload.reopenedAt ? new Date(payload.reopenedAt) : new Date();
+          reviewWorkflowData.reopenReason = payload.reopenReason || undefined;
+          reviewWorkflowData.isLocked = false;
+        }
+
+        // For in-progress, set reviewedAt if not already set
+        if (currentStatus === 'in-progress' && !reviewWorkflowData.reviewedAt) {
+          reviewWorkflowData.reviewedAt = new Date();
+        }
+
+    // Create a new entry instead of updating (for history tracking)
+    await ReviewWorkflow.create(reviewWorkflowData);
+  }
 
   // Re-query to ensure we return the fully persisted, casted object
   const saved = await CompletionProcedure.findOne({ engagement: engagementId }).lean();
@@ -1016,6 +1133,98 @@ exports.generateRecommendations = async (req, res) => {
     recommendationsBySection: recommendationsBySection,
     procedures: doc.procedures
   });
+};
+
+// ---------- Generate reviews ----------
+exports.generateReviews = async (req, res) => {
+  try {
+    const { engagementId, procedureId, recommendations = [], procedures = [], sectionId, sectionTitle } = req.body;
+    
+    if (!engagementId) {
+      return res.status(400).json({ error: "engagementId is required" });
+    }
+
+    const engagement = await Engagement.findById(engagementId);
+    if (!engagement) return res.status(404).json({ message: "Engagement not found" });
+
+    // Build context including planning and fieldwork procedures
+    const context = await buildContext(engagementId, []);
+
+    // Get client profile
+    const { data: clientProfile } = await supabase
+      .from("profiles")
+      .select("company_summary,industry")
+      .eq("user_id", engagement.clientId)
+      .single();
+
+    const etb = await ExtendedTrialBalance.findOne({ engagement: engagementId });
+    const etbRows = etb?.rows || [];
+
+    // Build prompt for review generation
+    const reviewPrompt = `You are an audit review expert. Review the following audit procedures and provide professional review comments for each procedure.
+
+Context:
+- Client Profile: ${JSON.stringify(clientProfile || {})}
+- Section: ${sectionTitle || 'General'}
+- Number of Procedures: ${recommendations.length}
+- Related Questions: ${procedures.length > 0 ? procedures[0]?.fields?.length || 0 : 0}
+
+Procedures to Review:
+${recommendations.map((rec, idx) => `${idx + 1}. ${rec.text || rec.content || JSON.stringify(rec)}`).join('\n')}
+
+For each procedure, provide:
+1. A brief review comment highlighting strengths, potential issues, or areas needing attention
+2. Any recommendations for improvement
+3. Compliance or quality assessment
+
+Return a JSON array with the following structure:
+[
+  {
+    "procedureId": "procedure-0",
+    "comment": "Review comment here..."
+  },
+  ...
+]
+
+Each procedureId should match the procedure's id field or use "procedure-{index}" format.`;
+
+    const reviewResult = await callOpenAI(reviewPrompt, "reviews");
+    const reviews = await robustParseJSON(reviewResult.content, openai, { debugLabel: "completion_reviews" });
+
+    let parsedReviews = [];
+    if (reviews && Array.isArray(reviews)) {
+      parsedReviews = reviews;
+    } else if (reviews && reviews.reviews && Array.isArray(reviews.reviews)) {
+      parsedReviews = reviews.reviews;
+    } else {
+      // Fallback: generate reviews manually
+      parsedReviews = recommendations.map((rec, idx) => ({
+        procedureId: rec.id || `procedure-${idx}`,
+        comment: `Review: This procedure appears to be appropriate for the audit engagement. Please verify completeness and accuracy.`
+      }));
+    }
+
+    // Ensure each review has a matching procedureId
+    const finalReviews = recommendations.map((rec, idx) => {
+      const review = parsedReviews.find(r => 
+        r.procedureId === rec.id || 
+        r.procedureId === `procedure-${idx}` ||
+        r.procedureId === `procedure-${rec.id || idx}`
+      );
+      return {
+        procedureId: rec.id || `procedure-${idx}`,
+        comment: review?.comment || `Review: This procedure requires manual review.`
+      };
+    });
+
+    res.json({
+      ok: true,
+      reviews: finalReviews
+    });
+  } catch (err) {
+    console.error("Error generating reviews:", err);
+    res.status(500).json({ ok: false, error: err.message || "Server error (reviews)" });
+  }
 };
 
 // ---------- Hybrid Section Questions ----------

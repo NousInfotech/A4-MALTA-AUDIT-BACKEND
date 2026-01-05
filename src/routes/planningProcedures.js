@@ -23,6 +23,9 @@ router.post("/:engagementId/generate/section-answers", planningCtrl.generateSect
 // Generate recommendations
 router.post("/:engagementId/generate/recommendations", planningCtrl.generateRecommendations);
 
+// Generate reviews
+router.post("/reviews/generate", planningCtrl.generateReviews);
+
 // NEW: Hybrid Section Questions
 router.post("/:engagementId/generate/hybrid-section-questions", planningCtrl.generateHybridSectionQuestions)
 

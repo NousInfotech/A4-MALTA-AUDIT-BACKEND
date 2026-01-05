@@ -14,10 +14,11 @@ generateAIClassificationQuestions,
 
 const router = Router();
 // Add this import
-const { generateRecommendations } = require("../controllers/procedureController");
+const { generateRecommendations, generateReviews } = require("../controllers/procedureController");
 
 // Add this route before module.exports
 router.post("/recommendations", generateRecommendations);
+router.post("/reviews/generate", generateReviews);
 router.post("/hybrid/questions", hybridGenerateQuestions);
 router.post("/:engagementId", saveProcedure);
 router.post("/:engagementId/section", saveProcedurebySection);
