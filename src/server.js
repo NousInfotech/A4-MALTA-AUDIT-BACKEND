@@ -43,6 +43,7 @@ const noticeBoardRoutes = require("./routes/noticeBoardRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
 const authRoutes = require("./routes/authRoutes");
 const fsReviewRoutes = require("./routes/fsReviewRoutes");
+const accountingPortalRoutes = require("./modules/accounting-portal/accountingPortal.routes");
 const app = express();
 
 app.use(
@@ -52,6 +53,7 @@ app.use(
       "https://a4-malta-audit-port-git-d8e11d-nous-infotechs-projects-9f0f6ce5.vercel.app",
       "http://localhost:8080",
       "https://portal.a4.com.mt",
+      "https://devclient.vacei.com",
     ],
     credentials: true, // optional: if you need to allow cookies/auth headers
     exposedHeaders: ["Content-Disposition"],
@@ -107,6 +109,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/financial-statement-reviews", fsReviewRoutes);
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/annotations", require("./routes/annotations"));
+app.use("/api/accounting-portal", accountingPortalRoutes);
 
 app.get("/", (req, res) => res.send("API is running"));
 
