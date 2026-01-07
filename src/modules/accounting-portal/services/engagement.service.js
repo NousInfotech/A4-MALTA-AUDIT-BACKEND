@@ -11,12 +11,7 @@ async function getEngagementsByClientId(clientId) {
       .select('_id title yearEndDate status')
       .sort({ yearEndDate: -1 });
 
-    return engagements.map(engagement => ({
-      _id: engagement._id,
-      name: engagement.title,
-      year: new Date(engagement.yearEndDate).getFullYear(),
-      status: engagement.status,
-    }));
+    return engagements;
   } catch (error) {
     throw new Error(`Failed to fetch engagements: ${error.message}`);
   }
