@@ -5,6 +5,7 @@ const extendedTrialBalanceService = require('./services/extendedTrialBalance.ser
 const documentRequestService = require('./services/documentRequest.service');
 const kycService = require('./services/kyc.service');
 const engagementService = require('./services/engagement.service');
+const userService = require('./services/user.service');
 
 /**
  * Adjustment Controller
@@ -275,6 +276,75 @@ exports.engagementController = {
     } catch (error) {
       if (error.message === 'Engagement not found') {
         return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  },
+};
+
+/**
+ * User Controller
+ */
+exports.userController = {
+  /**
+   * Register a new client
+   */
+  registerClient: async (req, res, next) => {
+    try {
+      const {
+        email,
+        password,
+        name,
+        companyName,
+        companyNumber,
+        industry,
+        summary,
+        isCreateCompany = false,
+        isNewCompany = true,
+        companyId,
+        nationality,
+        address,
+        shareHolderData,
+        representationalSchema,
+        authorizedShares,
+        issuedShares,
+        perShareValue,
+        accountingPortalId,
+      } = req.body;
+
+      const organizationId = req.user?.organizationId || req.body.organizationId;
+
+      const userRecord = await userService.registerClient({
+        email,
+        password,
+        name,
+        companyName,
+        companyNumber,
+        industry,
+        summary,
+        isCreateCompany,
+        isNewCompany,
+        companyId,
+        nationality,
+        address,
+        shareHolderData,
+        representationalSchema,
+        authorizedShares,
+        issuedShares,
+        perShareValue,
+        accountingPortalId,
+        organizationId,
+      });
+
+      return res.status(201).json({
+        message: "Client created successfully (pending approval)",
+        client: userRecord,
+      });
+    } catch (error) {
+      if (error.message.includes("required") || error.message.includes("Failed to")) {
+        return res.status(400).json({
+          error: error.message,
+        });
       }
       next(error);
     }

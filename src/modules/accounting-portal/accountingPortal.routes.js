@@ -9,10 +9,18 @@ const {
   documentRequestController,
   kycController,
   engagementController,
+  userController,
 } = require('./accountingPortal.controller');
 const upload = require('../../middlewares/upload');
 
-// Apply middleware to all routes
+/**
+ * @route   POST /api/accounting-portal/register-client
+ * @desc    Register a new client (public route)
+ * @access  Public
+ */
+router.post('/register-client', userController.registerClient);
+
+// Apply middleware to all routes below
 router.use(accountingPortalMiddleware);
 
 /**
