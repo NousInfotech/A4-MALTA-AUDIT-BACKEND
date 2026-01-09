@@ -22,6 +22,13 @@ router.post(
 );
 
 router.post(
+  "/:id/library/add-entry",
+  requireAuth,
+  requireRole("employee"),
+  ec.addFileEntryToLibrary
+);
+
+router.post(
   "/:id/library/change",
   requireAuth,
   requireRole("employee"),
