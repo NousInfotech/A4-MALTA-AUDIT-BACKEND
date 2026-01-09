@@ -116,6 +116,19 @@ exports.companyController = {
       next(error);
     }
   },
+
+  getCompanyHierarchy: async (req, res, next) => {
+    try {
+      const { companyId } = req.params;
+      const companyHierarchy = await companyService.getCompanyHierarchy(companyId);
+      return res.json(companyHierarchy);
+    } catch (error) {
+      if (error.message === 'Company not found') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  },
 };
 
 /**

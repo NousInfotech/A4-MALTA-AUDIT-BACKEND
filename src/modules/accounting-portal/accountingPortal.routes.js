@@ -80,6 +80,13 @@ router.get('/companies', companyController.getCompaniesClientId);
 router.get('/companies/:id', companyController.getCompanyById);
 
 /**
+ * @route   GET /api/accounting-portal/companies/:id
+ * @desc    Get company hierarchy by ID
+ * @access  Protected
+ */
+router.get('/companies/:companyId/hierarchy', companyController.getCompanyHierarchy);
+
+/**
  * @route   GET /api/accounting-portal/etb
  * @desc    Get ETB by engagement ID (query param: engagementId)
  * @access  Protected

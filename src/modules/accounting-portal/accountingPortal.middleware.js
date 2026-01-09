@@ -24,22 +24,25 @@ const accountingPortalMiddleware = async (req, res, next) => {
     if (!userId) {
       return res.status(401).json({ error: "Invalid token payload" });
     }
-
-    req.user = { userId }; // Always attach user to request
-
+    
     // Try to get Intuit account info (optional)
     const { data: account, error } = await supabase
       .from("profiles")
-      .select("id")
+      .select("user_id")
       .eq("accounting_portal_id", userId)
       .single();
+
+    console.log(error);
+
+    console.log("Account", account);
 
     if (error || !account) {
       return next();
     }
 
-    req.clientId = account.id;
-
+    req.clientId = account.user_id;
+    console.log("UserId" + account.user_id);
+    console.log("Request User Id" + req.clientId);
     next();
   } catch (err) {
     console.error("[AuthMiddleware Error]", err.message);

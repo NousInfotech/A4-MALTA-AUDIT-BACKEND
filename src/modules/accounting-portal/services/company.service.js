@@ -1,6 +1,6 @@
-const Company = require('../../../models/Company');
-const Person = require('../../../models/Person');
-const mongoose = require('mongoose');
+const Company = require("../../../models/Company");
+const Person = require("../../../models/Person");
+const mongoose = require("mongoose");
 
 /**
  * Get companies by client ID
@@ -9,8 +9,8 @@ const mongoose = require('mongoose');
  */
 async function getCompaniesClientId(clientId) {
   try {
-    const companies = await Company.find({ clientId })
-      .select('_id name registrationNumber')
+    const companies = await Company.find({ clientId: clientId })
+      .select("_id name registrationNumber")
       .sort({ name: 1 });
     return companies;
   } catch (error) {
@@ -26,11 +26,11 @@ async function getCompaniesClientId(clientId) {
 async function getCompanyById(id) {
   try {
     const company = await Company.findById(id)
-      .populate('shareHolderDetails')
-      .populate('shareHoldingCompanyDetails');
-    
+      .populate("shareHolderDetails")
+      .populate("shareHoldingCompanyDetails");
+
     if (!company) {
-      throw new Error('Company not found');
+      throw new Error("Company not found");
     }
     return company;
   } catch (error) {
@@ -196,8 +196,7 @@ async function createCompany({
       shareholders.push({
         personId: companyOwner._id,
         sharesData: defaultSharesData,
-        paidUpSharesPercentage:
-          shareHolderData?.paidUpSharesPercentage ?? 100,
+        paidUpSharesPercentage: shareHolderData?.paidUpSharesPercentage ?? 100,
       });
     }
 
@@ -267,10 +266,229 @@ async function assignCompanyToClient(companyId, clientId) {
   }
 }
 
+const sumShareTotals = (sharesDataArray = []) => {
+  if (!Array.isArray(sharesDataArray)) {
+    return Number(sharesDataArray) || 0;
+  }
+  return sharesDataArray.reduce(
+    (sum, item) => sum + (Number(item?.totalShares) || 0),
+    0
+  );
+};
+
+const getTotalIssuedSharesValue = (totalSharesField) => {
+  return sumShareTotals(totalSharesField);
+};
+
+async function getCompanyHierarchy(companyId) {
+  try {
+    const getHierarchy = async (companyId, depth = 0) => {
+      // Limit recursion depth to prevent infinite loops
+      if (depth > 10) return null;
+
+      // Fetch shareholders and representatives for this company
+      const company = await Company.findById(companyId)
+        .populate("shareHolders.personId", "name nationality address")
+        .populate({
+          path: "representationalSchema.personId",
+          select: "name nationality address",
+          model: "Person",
+        })
+        .populate({
+          path: "representationalCompany.companyId",
+          select: "name totalShares address",
+          model: "Company",
+        })
+        .populate({
+          path: "shareHoldingCompanies.companyId",
+          select: "name totalShares address",
+        })
+        .lean();
+
+      if (!company) return null;
+
+      // Represent the company node
+      const node = {
+        id: company._id,
+        name: company.name,
+        totalShares: company.totalShares,
+        type: "company",
+        address: company.address,
+        shareholders: [],
+      };
+
+      // Map to store merged nodes by ID (to remove duplicates)
+      const mergedNodesMap = new Map();
+
+      // 1. Process shareHolders (persons with shares)
+      for (const sh of company.shareHolders || []) {
+        if (!sh?.personId?._id) continue;
+
+        const personIdStr = sh.personId._id.toString();
+        const sharesDataArray = Array.isArray(sh?.sharesData)
+          ? sh.sharesData.filter((item) => Number(item.totalShares) > 0) // Only include shares with value > 0
+          : [];
+        const totalSharesValue = sharesDataArray.reduce(
+          (sum, item) => sum + (Number(item.totalShares) || 0),
+          0
+        );
+
+        mergedNodesMap.set(personIdStr, {
+          id: sh.personId._id,
+          name: sh.personId.name,
+          type: "person",
+          address: sh.personId.address,
+          nationality: sh.personId.nationality,
+          sharesData: sharesDataArray,
+          totalShares: totalSharesValue,
+          roles: new Set(), // Use Set to avoid duplicate roles
+        });
+      }
+
+      // 2. Process representationalSchema (persons with roles, may or may not have shares)
+      for (const rs of company.representationalSchema || []) {
+        if (!rs?.personId?._id) continue;
+
+        const personIdStr = rs.personId._id.toString();
+        const roleArray = Array.isArray(rs.role)
+          ? rs.role
+          : rs.role
+          ? [rs.role]
+          : [];
+
+        if (mergedNodesMap.has(personIdStr)) {
+          // Merge: add roles to existing node
+          const existingNode = mergedNodesMap.get(personIdStr);
+          roleArray.forEach((role) => existingNode.roles.add(role));
+        } else {
+          // New person from representationalSchema only (no shares)
+          mergedNodesMap.set(personIdStr, {
+            id: rs.personId._id,
+            id: rs.personId._id,
+            name: rs.personId.name,
+            type: "person",
+            address: rs.personId.address,
+            nationality: rs.personId.nationality,
+            sharesData: [],
+            totalShares: 0,
+            roles: new Set(roleArray),
+          });
+        }
+      }
+
+      // 3. Process shareHoldingCompanies (companies with shares)
+      for (const sh of company.shareHoldingCompanies || []) {
+        if (!sh?.companyId?._id) continue;
+
+        const companyIdStr = sh.companyId._id.toString();
+        const sharesDataArray = Array.isArray(sh?.sharesData)
+          ? sh.sharesData.filter((item) => Number(item.totalShares) > 0) // Only include shares with value > 0
+          : [];
+        const totalSharesValue = sharesDataArray.reduce(
+          (sum, item) => sum + (Number(item.totalShares) || 0),
+          0
+        );
+
+        // Recursively fetch sub-company hierarchy
+        const subCompany = await getHierarchy(sh.companyId._id, depth + 1);
+
+        mergedNodesMap.set(companyIdStr, {
+          id: sh.companyId._id,
+          name: sh.companyId.name,
+          type: "company",
+          address: sh.companyId.address,
+          sharesData: sharesDataArray,
+          totalShares: totalSharesValue,
+          roles: new Set(),
+          children: subCompany ? subCompany.shareholders : [],
+        });
+      }
+
+      // 4. Process representationalCompany (companies with roles, may or may not have shares)
+      for (const rc of company.representationalCompany || []) {
+        if (!rc?.companyId?._id) continue;
+
+        const companyIdStr = rc.companyId._id.toString();
+        const roleArray = Array.isArray(rc.role)
+          ? rc.role
+          : rc.role
+          ? [rc.role]
+          : [];
+
+        if (mergedNodesMap.has(companyIdStr)) {
+          // Merge: add roles to existing node
+          const existingNode = mergedNodesMap.get(companyIdStr);
+          roleArray.forEach((role) => existingNode.roles.add(role));
+        } else {
+          // New company from representationalCompany only (no shares)
+          // Need to fetch company data for address
+          const repCompany = await Company.findById(rc.companyId._id)
+            .select("name address totalShares")
+            .lean();
+          const subCompany = await getHierarchy(rc.companyId._id, depth + 1);
+
+          mergedNodesMap.set(companyIdStr, {
+            id: rc.companyId._id,
+            name: repCompany?.name || rc.companyId.name,
+            type: "company",
+            address: repCompany?.address,
+            sharesData: [],
+            totalShares: 0,
+            roles: new Set(roleArray),
+            children: subCompany ? subCompany.shareholders : [],
+          });
+        }
+      }
+
+      // Convert merged nodes to final array and calculate percentages
+      const parentTotalShares = getTotalIssuedSharesValue(company.totalShares);
+
+      for (const [nodeId, nodeData] of mergedNodesMap.entries()) {
+        // Add "Shareholder" role if node has shares
+        if (nodeData.totalShares > 0 && !nodeData.roles.has("Shareholder")) {
+          nodeData.roles.add("Shareholder");
+        }
+
+        // Convert Set to Array for roles
+        const rolesArray = Array.from(nodeData.roles);
+
+        const finalNode = {
+          id: nodeData.id,
+          name: nodeData.name,
+          type: nodeData.type,
+          address: nodeData.address,
+          sharesData: nodeData.sharesData,
+          totalShares: nodeData.totalShares,
+          roles: rolesArray.length > 0 ? rolesArray : undefined,
+        };
+
+        // Add type-specific fields
+        if (nodeData.type === "person" && nodeData.nationality) {
+          finalNode.nationality = nodeData.nationality;
+        }
+
+        if (nodeData.type === "company" && nodeData.children) {
+          finalNode.children = nodeData.children;
+        }
+
+        node.shareholders.push(finalNode);
+      }
+
+      return node;
+    };
+
+    const hierarchy = await getHierarchy(companyId);
+    return hierarchy;
+  } catch (err) {
+    console.error(err);
+    throw new Error({ message: "Failed to fetch hierarchy" });
+  }
+}
+
 module.exports = {
   getCompaniesClientId,
   getCompanyById,
   createCompany,
+  getCompanyHierarchy,
   assignCompanyToClient,
 };
-
