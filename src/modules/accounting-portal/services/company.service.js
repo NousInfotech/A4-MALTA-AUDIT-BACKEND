@@ -26,8 +26,33 @@ async function getCompaniesClientId(clientId) {
 async function getCompanyById(id) {
   try {
     const company = await Company.findById(id)
-      .populate("shareHolderDetails")
-      .populate("shareHoldingCompanyDetails");
+      .populate({
+        path: "shareHolders.personId",
+        select:
+          "name email phoneNumber nationality address supportingDocuments",
+        model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.personId",
+        select:
+          "name email phoneNumber nationality address supportingDocuments",
+        model: "Person",
+      })
+      .populate({
+        path: "representationalSchema.companyId",
+        select: "name",
+        model: "Company",
+      })
+      .populate({
+        path: "representationalCompany.companyId",
+        select: "name registrationNumber status clientId",
+        model: "Company",
+      })
+      .populate({
+        path: "shareHoldingCompanies.companyId",
+        select: "name registrationNumber status clientId",
+        model: "Company",
+      });
 
     if (!company) {
       throw new Error("Company not found");
