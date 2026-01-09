@@ -717,6 +717,10 @@ const ENGAGEMENT_FOLDERS = [
   "Audit Sections",
   "Adjustments",
   "Reclassifications",
+  "Workbooks",
+  "Evidence Files",
+  "MBR Documents",
+  "Tax Documents",
 ];
 
 exports.getLibraryFiles = async (req, res, next) => {
@@ -728,10 +732,16 @@ exports.getLibraryFiles = async (req, res, next) => {
       url: { $ne: "" },
     }).sort({ createdAt: -1 });
 
-    const filesWithNames = files.map((file) => ({
-      ...file.toObject(),
-      fileName: file.url.split("/").pop()?.split("?")[0] || "Unknown",
-    }));
+    const filesWithNames = files.map((file) => {
+      const fileObj = file.toObject();
+      // Use stored fileName if available, otherwise extract from URL
+      const fileName = fileObj.fileName || fileObj.url?.split("/").pop()?.split("?")[0] || "Unknown";
+      return {
+        ...fileObj,
+        fileName: fileName,
+        // fileType is already in fileObj if it was stored
+      };
+    });
 
     // Get folders for this engagement
     const folders = await EngagementFolder.find({
@@ -767,6 +777,49 @@ exports.createEngagement = async (req, res, next) => {
       url: "",
     }));
     await EngagementLibrary.insertMany(placeholders);
+
+    // Automatically create MBR and Tax records for the new engagement
+    const MBR = require("../models/MBR");
+    const Tax = require("../models/Tax");
+    const { MBRStatusEnum } = require("../models/MBR");
+    const { TaxStatusEnum } = require("../models/Tax");
+
+    // Create MBR record with initial PENDING status
+    const mbr = await MBR.create({
+      engagementId: engagement._id,
+      document: {
+        fileId: null,
+        url: null,
+        employeeId: null
+      },
+      currentStatus: MBRStatusEnum.PENDING,
+      statusHistory: [{
+        status: MBRStatusEnum.PENDING,
+        createdAt: new Date(),
+        employeeId: createdBy || "system"
+      }]
+    });
+
+    // Create Tax record with initial PENDING status
+    const tax = await Tax.create({
+      engagementId: engagement._id,
+      document: {
+        fileId: null,
+        url: null,
+        employeeId: null
+      },
+      draftDocument: {
+        fileId: null,
+        url: null,
+        employeeId: null
+      },
+      currentStatus: TaxStatusEnum.PENDING,
+      statusHistory: [{
+        status: TaxStatusEnum.PENDING,
+        createdAt: new Date(),
+        employeeId: createdBy || "system"
+      }]
+    });
 
     return res.status(201).json(engagement);
   } catch (err) {
@@ -871,6 +924,53 @@ exports.uploadToLibrary = async (req, res, next) => {
       engagement: engagementId,
       category,
       url: versionedUrl,
+    });
+
+    res.status(201).json(entry);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.addFileEntryToLibrary = async (req, res, next) => {
+  try {
+    const { id: engagementId } = req.params;
+    const { category, url, fileName, fileType } = req.body;
+
+    if (!category || !url) {
+      return res.status(400).json({ message: "Category and URL are required." });
+    }
+
+    if (!ENGAGEMENT_FOLDERS.includes(category)) {
+      return res.status(400).json({ message: "Invalid category." });
+    }
+
+    // Extract fileName from URL if not provided
+    let finalFileName = fileName;
+    if (!finalFileName && url) {
+      try {
+        const urlPath = new URL(url).pathname;
+        finalFileName = urlPath.split("/").pop()?.split("?")[0] || "Unknown";
+      } catch {
+        finalFileName = url.split("/").pop()?.split("?")[0] || "Unknown";
+      }
+    }
+
+    // Extract fileType from fileName if not provided
+    let finalFileType = fileType;
+    if (!finalFileType && finalFileName) {
+      const ext = finalFileName.split(".").pop()?.toLowerCase();
+      if (ext) {
+        finalFileType = ext;
+      }
+    }
+
+    const entry = await EngagementLibrary.create({
+      engagement: engagementId,
+      category,
+      url: url,
+      fileName: finalFileName,
+      fileType: finalFileType,
     });
 
     res.status(201).json(entry);

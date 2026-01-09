@@ -4,6 +4,7 @@ const ExtendedTrialBalance = require("../models/ExtendedTrialBalance.js");
 const WorkingPaper = require("../models/WorkingPaper.js");
 const ClassificationEvidence = require("../models/ClassificationEvidence.js");
 const { UserWorkbookPreference } = require("../models/UserWorkbookPreference.js");
+const EngagementLibrary = require("../models/EngagementLibrary.js");
 const XLSX = require("xlsx");
 const mongoose = require("mongoose");
 
@@ -639,6 +640,23 @@ const deleteWorkbook = async (req, res) => {
     // ✅ Delete user preferences for this workbook
     await UserWorkbookPreference.deleteMany({ workbookId: workbook._id }, { session });
 
+    // ✅ Delete EngagementLibrary entry for this workbook (if it exists)
+    if (workbook.webUrl) {
+      // Convert engagementId string to ObjectId for query
+      const engagementObjectId = mongoose.Types.ObjectId.isValid(workbook.engagementId)
+        ? new mongoose.Types.ObjectId(workbook.engagementId)
+        : workbook.engagementId;
+      
+      await EngagementLibrary.deleteMany(
+        {
+          engagement: engagementObjectId,
+          url: workbook.webUrl,
+          category: "Workbooks"
+        },
+        { session }
+      );
+    }
+
     // ✅ Finally, delete the workbook itself (this will also delete referenceFiles and notes as they're part of the workbook schema)
     await Workbook.deleteOne({ _id: workbook._id }, { session });
 
@@ -647,7 +665,7 @@ const deleteWorkbook = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Workbook '${workbook.name}' (ID: ${workbook._id}), all associated sheets, mappings, reference files, notes, and all references from ETB, Working Papers, and Evidence deleted successfully.`,
+      message: `Workbook '${workbook.name}' (ID: ${workbook._id}), all associated sheets, mappings, reference files, notes, EngagementLibrary entry, and all references from ETB, Working Papers, and Evidence deleted successfully.`,
     });
   } catch (error) {
     await session.abortTransaction();

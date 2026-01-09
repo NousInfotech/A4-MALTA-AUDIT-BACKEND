@@ -107,6 +107,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/financial-statement-reviews", fsReviewRoutes);
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/annotations", require("./routes/annotations"));
+app.use("/api", require("./routes/mbrTax"));
 
 app.get("/", (req, res) => res.send("API is running"));
 
