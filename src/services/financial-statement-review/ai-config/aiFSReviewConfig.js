@@ -79,36 +79,27 @@ function deduplicateTestIds(result) {
 }
 
 /**
+ * Helper function to extract page number from image filename
+ * @param {string} imageName - Image filename
+ * @returns {number|null} Page number if found, null otherwise
+ */
+function extractPageNoFromFilename(imageName) {
+  const match = imageName.match(/_page_(\d+)\.png$/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
  * AI FS Review Engine Config
  * @param {Object|null} portalData - Portal data from extractPortalData service (null if not included)
  * @param {Array} pdfData - PDF page data array with text per page
- * @param {Array} base64Images - Array of { page_no, base64Image } objects
+ * @param {Array<string>} imageFiles - Array of image file paths (will be converted to base64 one at a time)
  * @param {Array<string>} includeTests - Array of test categories to include (default: ["ALL"])
  * @param {boolean} includePortalData - Whether portal data is included (default: false)
  * @returns {Promise<Object>} Review results in A/B/C/D/E JSON structure
  */
-exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = [], includeTests = ['ALL'], includePortalData = false) => {
+exports.aiFsReviewConfig = async (portalData, pdfData, imageFiles = [], includeTests = ['ALL'], includePortalData = false) => {
   try {
-    // Generate the complete system prompt
-    const systemPrompt = generateAiPrompt(portalData, pdfData, includeTests, includePortalData);
-
-    // Build content array for vision API (text + images)
-    const apiContentArray = [];
-
-    // Create maps for efficient lookup
-    const imageMap = {}; // page_no -> base64Image
-    const imageNameMap = {}; // page_no -> imageName
-    
-    if (base64Images && Array.isArray(base64Images)) {
-      base64Images.forEach(img => {
-        if (img.page_no !== null && img.base64Image) {
-          imageMap[img.page_no] = img.base64Image;
-          imageNameMap[img.page_no] = img.imageName || null;
-        }
-      });
-    }
-
-    // Build text content for OpenAI API (portal data + instruction)
+    // Build text content for OpenAI API (portal data + instruction) - must do before portalData cleanup
     let textContent = '';
     if (includePortalData && portalData) {
       textContent = `Portal Data:\n${JSON.stringify(portalData, null, 2)}\n\nAnalyze the financial statements using the portal data, PDF text content, and images provided below. Perform the selected tests and return results in the required JSON format.`;
@@ -116,69 +107,67 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = [], includ
       textContent = `Analyze the financial statements using the PDF text content and images provided below. Perform the selected tests and return results in the required JSON format.`;
     }
 
+    // Generate the complete system prompt
+    const systemPrompt = generateAiPrompt(portalData, pdfData, includeTests, includePortalData);
+    
+    // Early cleanup: portal data is now serialized in prompt and textContent, can be GC'd
+    portalData = null;
+
+    // Build content array for vision API (text + images)
+    const apiContentArray = [];
+
     // Add portal data and instruction as first text block for API
     apiContentArray.push({
       type: "text",
       text: textContent
     });
 
-    // Add images in page order matching pdfData for API
-    if (pdfData && Array.isArray(pdfData)) {
+    // Process images one at a time in sorted page order: read, convert, add to array
+    // This ensures only ONE base64 image exists in memory at any time (plus those already in apiContentArray)
+    if (imageFiles && Array.isArray(imageFiles) && imageFiles.length > 0 && pdfData && Array.isArray(pdfData)) {
+      // Sort PDF data by page number to process images in correct order
       const sortedPdfData = [...pdfData].sort((a, b) => (a.page_no || 0) - (b.page_no || 0));
       
+      // Process images in page order matching pdfData
       for (const page of sortedPdfData) {
         const pageNo = page.page_no;
-        const base64Image = imageMap[pageNo];
+        const imageName = page.imageName ? path.basename(page.imageName) : null;
         
-        if (base64Image) {
+        if (!imageName) continue;
+        
+        // Find corresponding image file
+        const imagePath = imageFiles.find(imgPath => path.basename(imgPath) === imageName);
+        if (!imagePath) continue;
+        
+        try {
+          if (!fs.existsSync(imagePath)) {
+            console.warn(`[FS Review] Image file not found: ${imagePath}`);
+            continue;
+          }
+
+          // Read, convert, and add immediately (one at a time)
+          // Only this image's buffer and base64 string exist in memory at this moment
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64String = imageBuffer.toString('base64');
+          const base64Image = `data:image/png;base64,${base64String}`;
+          
+          // Add to content array immediately
           apiContentArray.push({
             type: "image_url",
             image_url: {
               url: base64Image
             }
           });
+          
+          // imageBuffer and base64String will be GC'd after this iteration completes
+          // base64Image persists in apiContentArray until API call completes
+          // This ensures we never have more than one image's data in temporary variables
+          
+        } catch (error) {
+          console.error(`[FS Review] Failed to process image: ${imagePath}`, error);
+          // Continue with other images instead of failing completely
         }
       }
-    }
-
-    // Build content array for file output with proper structure: { page_no, content, image_name }
-    const fileContentArray = [];
-    if (pdfData && Array.isArray(pdfData)) {
-      const sortedPdfData = [...pdfData].sort((a, b) => (a.page_no || 0) - (b.page_no || 0));
-      
-      for (const page of sortedPdfData) {
-        const pageNo = page.page_no;
-        const pageText = page.text || '';
-        const imageName = imageNameMap[pageNo] || null;
-        
-        // Create content object for this page
-        const pageContent = {
-          page_no: pageNo,
-          content: pageText,
-          image_name: imageName
-        };
-        
-        fileContentArray.push(pageContent);
-      }
-    }
-
-    // Save systemPrompt and contentArray to files
-    try {
-      const backendDir = path.join(__dirname, "../../../../");
-      const systemPromptPath = path.join(backendDir, "systemPrompt.txt");
-      const contentArrayPath = path.join(backendDir, "contentArray.txt");
-
-      // Save systemPrompt as text file
-      fs.writeFileSync(systemPromptPath, systemPrompt, "utf8");
-      console.log(`[FS Review] systemPrompt saved to: ${systemPromptPath}`);
-
-      // Save fileContentArray as JSON file (with proper structure: page_no, content, image_name)
-      const contentArrayJson = JSON.stringify(fileContentArray, null, 2);
-      fs.writeFileSync(contentArrayPath, contentArrayJson, "utf8");
-      console.log(`[FS Review] contentArray saved to: ${contentArrayPath}`);
-    } catch (fileError) {
-      console.error("[FS Review] Error saving systemPrompt/contentArray to files:", fileError);
-      // Don't throw - continue with the API call even if file saving fails
     }
 
     // Use fixed seed for determinism (42 is a common choice)
@@ -187,7 +176,11 @@ exports.aiFsReviewConfig = async (portalData, pdfData, base64Images = [], includ
     console.log('[FS Review] Starting AI API call...');
     console.log(`[FS Review] Model: gpt-5.2, Max completion tokens: 16000`);
     console.log(`[FS Review] System prompt length: ${systemPrompt.length} characters`);
-    console.log(`[FS Review] Content array items: ${apiContentArray.length} (${apiContentArray.filter(item => item.type === 'text').length} text, ${apiContentArray.filter(item => item.type === 'image_url').length} images)`);
+    
+    // Calculate counts safely to avoid stringifying large arrays in logs
+    const textCount = apiContentArray.filter(item => item.type === 'text').length;
+    const imageCount = apiContentArray.filter(item => item.type === 'image_url').length;
+    console.log(`[FS Review] Content array items: ${apiContentArray.length} (${textCount} text, ${imageCount} images)`);
 
     // Create a promise with timeout wrapper
     const apiCallPromise = openai.chat.completions.create({

@@ -35,7 +35,7 @@ const extractTextPerPage = async (pdfBuffer, totalPages) => {
 /* PDF → IMAGE (POPPLER CLI)     */
 /* ----------------------------- */
 const convertPdfToImages = async (pdfPath, outDir, prefix) => {
-  const cmd = `pdftoppm -png -r 200 "${pdfPath}" "${path.join(outDir, prefix)}"`;
+  const cmd = `pdftoppm -png -r 150 "${pdfPath}" "${path.join(outDir, prefix)}"`;
   await execAsync(cmd);
 };
 
