@@ -145,134 +145,136 @@ const formatTestLists = (includeTests, includePortalData) => {
  * @returns {string} Complete system prompt
  */
 exports.generateAiPrompt = (portalData, pdfData, includeTests = ['ALL'], includePortalData = false) => {
-  let prompt = systemInstructions;
+  // Use array-based construction to reduce intermediate string allocations
+  const promptParts = [systemInstructions];
   
   // Get test lists using testListSelector
   const testSelectorResult = formatTestLists(includeTests, includePortalData);
   
   // Add tests in JSON format instead of text for better AI processing
-  prompt += '\n\nSELECTED TESTS (JSON FORMAT)\n\n';
-  prompt += 'The following tests are selected for execution. Use this JSON structure to understand test requirements:\n\n';
-  prompt += JSON.stringify(testSelectorResult.tests, null, 2);
-  prompt += '\n\n';
-  prompt += `Total tests selected: ${testSelectorResult.tests.length}\n`;
-  prompt += `Categories included: ${testSelectorResult.categories.join(', ')}\n`;
+  promptParts.push('\n\nSELECTED TESTS (JSON FORMAT)\n\n');
+  promptParts.push('The following tests are selected for execution. Use this JSON structure to understand test requirements:\n\n');
+  promptParts.push(JSON.stringify(testSelectorResult.tests, null, 2));
+  promptParts.push('\n\n');
+  promptParts.push(`Total tests selected: ${testSelectorResult.tests.length}\n`);
+  promptParts.push(`Categories included: ${testSelectorResult.categories.join(', ')}\n`);
   
-  prompt += '\nOUTPUT FORMAT SPECIFICATION\n\n';
-  prompt += outputFormatPrompt;
+  promptParts.push('\nOUTPUT FORMAT SPECIFICATION\n\n');
+  promptParts.push(outputFormatPrompt);
   
   // Conditionally add portal data instructions
   if (includePortalData && portalData) {
-    prompt += '\nPORTAL DATA STRUCTURE AND USAGE\n\n';
-    prompt += portalDataPrompt;
+    promptParts.push('\nPORTAL DATA STRUCTURE AND USAGE\n\n');
+    promptParts.push(portalDataPrompt);
     
-    prompt += '\nACTUAL PORTAL DATA\n\n';
-    prompt += JSON.stringify(portalData, null, 2);
-    prompt += '\n\n';
+    promptParts.push('\nACTUAL PORTAL DATA\n\n');
+    promptParts.push(JSON.stringify(portalData, null, 2));
+    promptParts.push('\n\n');
     
     // Add portal data usage instructions
-    prompt += '\nPORTAL DATA USAGE INSTRUCTIONS\n\n';
-    prompt += 'CRITICAL: When portal data is provided, use portal data values directly. Do not recalculate numbers from PDF.\n';
-    prompt += 'Portal data is the source of truth for all financial figures.\n';
-    prompt += 'Important notes about portal data:\n';
-    prompt += '- Lead sheets: liabilities + equity signs are correct for assets = liabilities + equity formula\n';
-    prompt += '- ETB rows: have correct signs as in the trial balance\n';
-    prompt += '- Retained earnings: calculated after sign changes, excluding dividends\n';
-    prompt += '- Use portal data values as-is for all reconciliations and comparisons\n';
-    prompt += '\n';
+    promptParts.push('\nPORTAL DATA USAGE INSTRUCTIONS\n\n');
+    promptParts.push('CRITICAL: When portal data is provided, use portal data values directly. Do not recalculate numbers from PDF.\n');
+    promptParts.push('Portal data is the source of truth for all financial figures.\n');
+    promptParts.push('Important notes about portal data:\n');
+    promptParts.push('- Lead sheets: liabilities + equity signs are correct for assets = liabilities + equity formula\n');
+    promptParts.push('- ETB rows: have correct signs as in the trial balance\n');
+    promptParts.push('- Retained earnings: calculated after sign changes, excluding dividends\n');
+    promptParts.push('- Use portal data values as-is for all reconciliations and comparisons\n');
+    promptParts.push('\n');
   } else {
-    prompt += '\nPORTAL DATA NOT PROVIDED\n\n';
-    prompt += 'Portal data is not included in this review. Extract and calculate all values from PDF text and images.\n';
-    prompt += 'All financial figures must be extracted directly from the PDF content.\n';
-    prompt += '\n';
+    promptParts.push('\nPORTAL DATA NOT PROVIDED\n\n');
+    promptParts.push('Portal data is not included in this review. Extract and calculate all values from PDF text and images.\n');
+    promptParts.push('All financial figures must be extracted directly from the PDF content.\n');
+    promptParts.push('\n');
   }
   
-  prompt += '\nPDF TEXT DATA STRUCTURE\n\n';
-  prompt += 'PDF data is provided as an array of page objects, each containing:\n';
-  prompt += '- page_no: Page number (integer)\n';
-  prompt += '- text: Extracted text content from that page\n';
-  prompt += 'Images are provided separately as base64-encoded PNG images, one per page.\n';
-  prompt += 'Use the page numbers to match text and images.\n';
-  prompt += 'Analyze both text and images to perform visual, structure, and formatting checks.\n';
-  prompt += '\n';
+  promptParts.push('\nPDF TEXT DATA STRUCTURE\n\n');
+  promptParts.push('PDF data is provided as an array of page objects, each containing:\n');
+  promptParts.push('- page_no: Page number (integer)\n');
+  promptParts.push('- text: Extracted text content from that page\n');
+  promptParts.push('Images are provided separately as base64-encoded PNG images, one per page.\n');
+  promptParts.push('Use the page numbers to match text and images.\n');
+  promptParts.push('Analyze both text and images to perform visual, structure, and formatting checks.\n');
+  promptParts.push('\n');
   
   // Add PDF categorization instructions
-  prompt += '\nPDF CATEGORIZATION INSTRUCTIONS\n\n';
-  prompt += 'CRITICAL: Before running any tests, you MUST first categorize all PDF pages/sections into the following categories:\n';
-  prompt += '- BALANCE_SHEET: Pages containing balance sheet or statement of financial position\n';
-  prompt += '- INCOME_STATEMENT: Pages containing income statement, profit and loss, or statement of comprehensive income\n';
-  prompt += '- GENERAL: Pages containing general information, cover page, contents, directors responsibilities\n';
-  prompt += '- NOTES_AND_POLICY: Pages containing notes to financial statements and accounting policies\n';
-  prompt += '- CROSS_STATEMENT: Information that spans multiple statements or requires cross-referencing\n';
-  prompt += '- AUDIT_REPORT: Pages containing audit report or independent auditors report\n';
-  prompt += '- PRESENTATION: This is a special category - PRESENTATION tests run on ALL pages to check visual consistency across the entire document\n';
-  prompt += '\n';
-  prompt += 'WORKFLOW FOR TEST EXECUTION:\n';
-  prompt += '1. First, categorize each PDF page/section into one of the categories above\n';
-  prompt += '2. Then, run ONLY the tests that match the selected categories (from includeTests parameter)\n';
-  prompt += '3. Run each test against the corresponding categorized PDF data:\n';
-  prompt += '   - BALANCE_SHEET tests only against pages categorized as balance sheet\n';
-  prompt += '   - INCOME_STATEMENT tests only against pages categorized as income statement\n';
-  prompt += '   - GENERAL tests only against pages categorized as general information\n';
-  prompt += '   - NOTES_AND_POLICY tests only against pages categorized as notes/policies\n';
-  prompt += '   - CROSS_STATEMENT tests against all relevant pages (may span multiple categories)\n';
-  prompt += '   - AUDIT_REPORT tests only against pages categorized as audit report\n';
-  prompt += '   - PRESENTATION tests run on ALL pages (entire document) to check visual consistency, formatting, margins, fonts, currency formatting, etc.\n';
-  prompt += '4. CRITICAL: Return results for ALL tests that were selected - do not skip any tests\n';
-  prompt += '   - If a test passes with no issues, include it in Section A (confirmed correct)\n';
-  prompt += '   - If a test finds issues, include it in Section B (critical) or Section C (regulatory breach)\n';
-  prompt += '   - Every selected test must appear in exactly one section (A, B, or C)\n';
-  prompt += '5. Match test categories to PDF data categories: only run tests on their corresponding categorized pages\n';
-  prompt += '6. CRITICAL: For tests with test_id starting with "PRES" (e.g., "PRES01"), the category field MUST be "PRESENTATION", not "GENERAL" or any other category\n';
-  prompt += '\n';
+  promptParts.push('\nPDF CATEGORIZATION INSTRUCTIONS\n\n');
+  promptParts.push('CRITICAL: Before running any tests, you MUST first categorize all PDF pages/sections into the following categories:\n');
+  promptParts.push('- BALANCE_SHEET: Pages containing balance sheet or statement of financial position\n');
+  promptParts.push('- INCOME_STATEMENT: Pages containing income statement, profit and loss, or statement of comprehensive income\n');
+  promptParts.push('- GENERAL: Pages containing general information, cover page, contents, directors responsibilities\n');
+  promptParts.push('- NOTES_AND_POLICY: Pages containing notes to financial statements and accounting policies\n');
+  promptParts.push('- CROSS_STATEMENT: Information that spans multiple statements or requires cross-referencing\n');
+  promptParts.push('- AUDIT_REPORT: Pages containing audit report or independent auditors report\n');
+  promptParts.push('- PRESENTATION: This is a special category - PRESENTATION tests run on ALL pages to check visual consistency across the entire document\n');
+  promptParts.push('\n');
+  promptParts.push('WORKFLOW FOR TEST EXECUTION:\n');
+  promptParts.push('1. First, categorize each PDF page/section into one of the categories above\n');
+  promptParts.push('2. Then, run ONLY the tests that match the selected categories (from includeTests parameter)\n');
+  promptParts.push('3. Run each test against the corresponding categorized PDF data:\n');
+  promptParts.push('   - BALANCE_SHEET tests only against pages categorized as balance sheet\n');
+  promptParts.push('   - INCOME_STATEMENT tests only against pages categorized as income statement\n');
+  promptParts.push('   - GENERAL tests only against pages categorized as general information\n');
+  promptParts.push('   - NOTES_AND_POLICY tests only against pages categorized as notes/policies\n');
+  promptParts.push('   - CROSS_STATEMENT tests against all relevant pages (may span multiple categories)\n');
+  promptParts.push('   - AUDIT_REPORT tests only against pages categorized as audit report\n');
+  promptParts.push('   - PRESENTATION tests run on ALL pages (entire document) to check visual consistency, formatting, margins, fonts, currency formatting, etc.\n');
+  promptParts.push('4. CRITICAL: Return results for ALL tests that were selected - do not skip any tests\n');
+  promptParts.push('   - If a test passes with no issues, include it in Section A (confirmed correct)\n');
+  promptParts.push('   - If a test finds issues, include it in Section B (critical) or Section C (regulatory breach)\n');
+  promptParts.push('   - Every selected test must appear in exactly one section (A, B, or C)\n');
+  promptParts.push('5. Match test categories to PDF data categories: only run tests on their corresponding categorized pages\n');
+  promptParts.push('6. CRITICAL: For tests with test_id starting with "PRES" (e.g., "PRES01"), the category field MUST be "PRESENTATION", not "GENERAL" or any other category\n');
+  promptParts.push('\n');
   
-  prompt += '\nACTUAL PDF TEXT DATA (SUMMARY)\n\n';
-  prompt += `Total pages: ${pdfData?.length || 0}\n`;
+  promptParts.push('\nACTUAL PDF TEXT DATA (SUMMARY)\n\n');
+  promptParts.push(`Total pages: ${pdfData?.length || 0}\n`);
   if (pdfData && Array.isArray(pdfData) && pdfData.length > 0) {
     // Sort by page_no for consistency
     const sortedPdfData = [...pdfData].sort((a, b) => (a.page_no || 0) - (b.page_no || 0));
-    prompt += 'Page structure:\n';
+    promptParts.push('Page structure:\n');
     sortedPdfData.forEach(page => {
       const textPreview = (page.text || '').substring(0, 100).replace(/\n/g, ' ');
-      prompt += `Page ${page.page_no}: ${textPreview}...\n`;
+      promptParts.push(`Page ${page.page_no}: ${textPreview}...\n`);
     });
   }
-  prompt += '\n';
-  prompt += 'NOTE: Full PDF text and images are provided in the user message content array.\n';
-  prompt += 'Analyze the complete text and images directly from the user message.\n';
-  prompt += '\n';
+  promptParts.push('\n');
+  promptParts.push('NOTE: Full PDF text and images are provided in the user message content array.\n');
+  promptParts.push('Analyze the complete text and images directly from the user message.\n');
+  promptParts.push('\n');
   
-  prompt += '\nCONSISTENCY AND DETERMINISM RULES\n\n';
-  prompt += 'CRITICAL: For consistent results across runs:\n';
-  prompt += '1. Test Classification Priority: B (critical errors) > C (regulatory breaches) > A (confirmed correct)\n';
-  prompt += '   - If ANY critical error exists, test MUST be in Section B\n';
-  prompt += '   - If ONLY regulatory breaches exist (no critical errors), test MUST be in Section C\n';
-  prompt += '   - Only include in Section A if test passed completely with zero issues\n';
-  prompt += '2. Reconciliation Tables: Use consistent calculation methods\n';
-  prompt += '   - Retained earnings: Opening + Profit/(Loss) - Dividends ± Adjustments = Closing\n';
-  prompt += '   - Use actual values from portal data and FS, maintain sign conventions consistently\n';
-  prompt += '   - Include source references in descriptions (e.g., "per ETB", "per lead sheet")\n';
-  prompt += '3. Value Presentation: Maintain consistent sign conventions\n';
-  prompt += '   - Negative equity/deficits: Use negative numbers consistently\n';
-  prompt += '   - Credit balances: Ensure consistent presentation across ETB, lead sheets, and FS\n';
-  prompt += '4. Data Ordering: Process portal data and PDF pages in sorted order (by page_no, account code, etc.)\n';
-  prompt += '\n';
+  promptParts.push('\nCONSISTENCY AND DETERMINISM RULES\n\n');
+  promptParts.push('CRITICAL: For consistent results across runs:\n');
+  promptParts.push('1. Test Classification Priority: B (critical errors) > C (regulatory breaches) > A (confirmed correct)\n');
+  promptParts.push('   - If ANY critical error exists, test MUST be in Section B\n');
+  promptParts.push('   - If ONLY regulatory breaches exist (no critical errors), test MUST be in Section C\n');
+  promptParts.push('   - Only include in Section A if test passed completely with zero issues\n');
+  promptParts.push('2. Reconciliation Tables: Use consistent calculation methods\n');
+  promptParts.push('   - Retained earnings: Opening + Profit/(Loss) - Dividends ± Adjustments = Closing\n');
+  promptParts.push('   - Use actual values from portal data and FS, maintain sign conventions consistently\n');
+  promptParts.push('   - Include source references in descriptions (e.g., "per ETB", "per lead sheet")\n');
+  promptParts.push('3. Value Presentation: Maintain consistent sign conventions\n');
+  promptParts.push('   - Negative equity/deficits: Use negative numbers consistently\n');
+  promptParts.push('   - Credit balances: Ensure consistent presentation across ETB, lead sheets, and FS\n');
+  promptParts.push('4. Data Ordering: Process portal data and PDF pages in sorted order (by page_no, account code, etc.)\n');
+  promptParts.push('\n');
   
-  prompt += '\nFINAL REMINDER\n';
-  prompt += 'Output ONLY valid JSON with exactly 5 keys: A, B, C, D, E\n';
-  prompt += 'NO emojis, NO prose, NO explanations\n';
+  promptParts.push('\nFINAL REMINDER\n');
+  promptParts.push('Output ONLY valid JSON with exactly 5 keys: A, B, C, D, E\n');
+  promptParts.push('NO emojis, NO prose, NO explanations\n');
   if (includePortalData && portalData) {
-    prompt += 'Use portalData.company for MBR data\n';
-    prompt += 'Focus on portal data reconciliation and financial arithmetic\n';
+    promptParts.push('Use portalData.company for MBR data\n');
+    promptParts.push('Focus on portal data reconciliation and financial arithmetic\n');
   } else {
-    prompt += 'Extract all values directly from PDF text and images\n';
-    prompt += 'Focus on financial arithmetic and cross-statement consistency\n';
+    promptParts.push('Extract all values directly from PDF text and images\n');
+    promptParts.push('Focus on financial arithmetic and cross-statement consistency\n');
   }
-  prompt += 'Analyze PDF text and images directly from the user message content array\n';
-  prompt += 'Recompute everything independently\n';
-  prompt += 'Zero tolerance for non-rounding discrepancies\n';
-  prompt += 'If Section B has any items, verdict MUST be NOT FIT FOR APPROVAL\n';
-  prompt += 'Maintain consistency: same inputs must produce same outputs\n';
+  promptParts.push('Analyze PDF text and images directly from the user message content array\n');
+  promptParts.push('Recompute everything independently\n');
+  promptParts.push('Zero tolerance for non-rounding discrepancies\n');
+  promptParts.push('If Section B has any items, verdict MUST be NOT FIT FOR APPROVAL\n');
+  promptParts.push('Maintain consistency: same inputs must produce same outputs\n');
   
-  return prompt;
+  // Join all parts at once to create final prompt (more memory-efficient than repeated +=)
+  return promptParts.join('');
 };

@@ -1,6 +1,5 @@
 const { extractPortalData } = require('./portal-data/extractPortalData.service');
 const { fsPdfDataExtractor } = require('./pdf-data/fsPdfDataExtractor');
-const { convertImagesToBase64 } = require('./pdf-data/imageUtils');
 const { aiFsReviewConfig } = require('./ai-config/aiFSReviewConfig');
 const fs = require('fs');
 const path = require('path');
@@ -98,30 +97,14 @@ exports.generateFinancialStatementReview = async (engagementId, file, includeTes
     console.log(`[FS Review] Extracted ${pdfData.length} pages from PDF`);
     console.log(`[FS Review] Session ID: ${sessionId} (${imageFiles.length} images created)`);
 
-    // Step 3: Convert images to base64 for unified GPT-5.2 call
-    console.log(`[FS Review] Converting images to base64...`);
-    let base64Images;
-    try {
-      base64Images = await convertImagesToBase64(imageFiles, pdfData);
-      
-      if (base64Images.length === 0) {
-        console.warn(`[FS Review] Warning: No images converted to base64, proceeding with text-only analysis`);
-      } else {
-        console.log(`[FS Review] Converted ${base64Images.length} images to base64`);
-      }
-    } catch (imageError) {
-      console.error("[FS Review] Image conversion failed:", imageError);
-      cleanupImages(imageFiles);
-      throw new Error(`Image conversion failed: ${imageError.message}`);
-    }
-
-    // Step 4: Main Flow - Generate AI prompt and call OpenAI for review with unified GPT-5.2 call
+    // Step 3: Main Flow - Generate AI prompt and call OpenAI for review with unified GPT-5.2 call
+    // Images will be converted to base64 one at a time during API payload construction (memory-safe)
     console.log(`[FS Review] Starting main flow (GPT-5.2 unified financial review)...`);
     console.log(`[FS Review] Include tests: ${includeTests.join(', ')}`);
     console.log(`[FS Review] Include portal data: ${includePortalData}`);
     let reviewResults;
     try {
-      reviewResults = await aiFsReviewConfig(portalData, pdfData, base64Images, includeTests, includePortalData);
+      reviewResults = await aiFsReviewConfig(portalData, pdfData, imageFiles, includeTests, includePortalData);
     } catch (aiError) {
       // Cleanup images before throwing error
       cleanupImages(imageFiles);
